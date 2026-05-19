@@ -33,6 +33,32 @@ exist is any market-data or scanner layer.
   `sector_rankings`, `earnings_calendar`, `ema_200_touch_tracking`), the paper
   tables, `indian_stock_sectors`, `zerodha_*`, `market_ratios` — India-only.
 
+## Edge Functions (3 US functions — redeploy to the new US project)
+Supabase Edge Functions are **project-scoped** — they don't "move", their
+source goes in the new repo's `supabase/functions/` and they get **redeployed**
+against the new US Supabase project. Three US functions are currently live on
+the India project:
+
+| Slug | Display name | Does |
+|---|---|---|
+| `us-daily-snapshot` | us-daily-snapshot | Writes the US `portfolio_snapshots` row (EOD) |
+| `daily-detailed-snapshot-US` | daily-detailed-snapshot-US | Writes the US `detailed_snapshots` row (EOD) |
+| `bright-endpoint` | us-portfolio-alert | US Telegram EOD portfolio alert |
+
+To do on redeploy:
+- Copy source into the new repo's `supabase/functions/` and version-control it
+  (the `supabase/` folder is currently untracked in the India repo).
+- **Rename the `bright-endpoint` slug** → `us-portfolio-alert` (junk auto-slug).
+- **Re-set secrets** on the new project: Telegram bot token + chat ID,
+  Supabase URL + service-role key.
+- **Re-point cron triggers** (pg_cron / cron-job.org) at the new project.
+- They were built for the Google Sheets era and read US data from the shared
+  India DB — treat as a starting point; they need rework for the new pipeline.
+
+Confirm whether US-related (ambiguous by name): `tv-telegram` (TradingView→
+Telegram bridge) and the bare `daily-detailed-snapshot` (likely a superseded
+legacy version, given India/US-suffixed ones now exist).
+
 ## Caveats / things to know before migrating
 - **Transaction history is incomplete.** 21 rows cover 10 tickers, but AMZN and
   TSM are in `holdings` with *no* transactions — those positions were seeded
