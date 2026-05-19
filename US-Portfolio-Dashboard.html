@@ -1,0 +1,2154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Portfolio Tracker - US Stocks</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        
+        * { font-family: 'Inter', sans-serif; }
+        
+        :root {
+            --bg-primary: #f8fafc;
+            --bg-secondary: #ffffff;
+            --bg-card: #ffffff;
+            --text-primary: #0f172a;
+            --text-secondary: #64748b;
+            --border-color: #e2e8f0;
+            --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+        }
+        
+        [data-theme="dark"] {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-card: #1e293b;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border-color: #334155;
+            --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.3);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.3);
+        }
+        
+        body { background-color: var(--bg-primary); color: var(--text-primary); transition: background-color 0.3s, color 0.3s; }
+        
+        .card { background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; box-shadow: var(--shadow-md); transition: transform 0.2s, box-shadow 0.2s; }
+        .card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+        
+        .metric-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 24px; box-shadow: var(--shadow-md); transition: all 0.3s; position: relative; overflow: hidden; }
+        .metric-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); opacity: 0; transition: opacity 0.3s; }
+        .metric-card:hover::before { opacity: 1; }
+        .metric-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
+        
+        .icon-wrapper { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+        .icon-blue { background: linear-gradient(135deg, #667eea30 0%, #764ba230 100%); color: #667eea; }
+        .icon-green { background: linear-gradient(135deg, #10b98130 0%, #05966930 100%); color: #10b981; }
+        .icon-red { background: linear-gradient(135deg, #ef444430 0%, #dc262630 100%); color: #ef4444; }
+        .icon-purple { background: linear-gradient(135deg, #8b5cf630 0%, #7c3aed30 100%); color: #8b5cf6; }
+        
+        .table-wrapper { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-md); }
+        table { width: 100%; border-collapse: collapse; }
+        thead { background: linear-gradient(135deg, #667eea10 0%, #764ba210 100%); }
+        th { padding: 16px; text-align: left; font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); }
+        tbody tr { border-top: 1px solid var(--border-color); transition: background-color 0.2s; }
+        tbody tr:hover { background: linear-gradient(135deg, #667eea05 0%, #764ba205 100%); }
+        td { padding: 16px; font-size: 14px; }
+        
+        .sortable { cursor: pointer; user-select: none; position: relative; transition: color 0.2s; }
+        .sortable:hover { color: #667eea; }
+        .loading { animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .badge { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+        .badge-green { background: linear-gradient(135deg, #10b98120 0%, #05966920 100%); color: #059669; }
+        .badge-red { background: linear-gradient(135deg, #ef444420 0%, #dc262620 100%); color: #dc2626; }
+        
+        .btn { padding: 10px 20px; border-radius: 12px; font-weight: 600; font-size: 14px; transition: all 0.2s; border: none; cursor: pointer; }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 16px -4px rgba(102, 126, 234, 0.4); }
+        
+        .theme-toggle { width: 56px; height: 32px; background: var(--border-color); border-radius: 16px; position: relative; cursor: pointer; transition: background 0.3s; }
+        .theme-toggle.active { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .theme-toggle-slider { position: absolute; width: 24px; height: 24px; background: white; border-radius: 50%; top: 4px; left: 4px; transition: transform 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .theme-toggle.active .theme-toggle-slider { transform: translateX(24px); }
+        
+        .chart-container { position: relative; height: 320px; padding: 20px; }
+        input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: #667eea; }
+    </style>
+</head>
+<body>
+    <div id="app" class="w-full max-w-7xl mx-auto p-6"></div>
+
+    <script>
+
+    // ============ SUPABASE CONFIGURATION ============
+    const SUPABASE_URL = 'https://hcgyncghmcvylnrmcivj.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjZ3luY2dobWN2eWxucm1jaXZqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc1MTQwMTEsImV4cCI6MjA3MzA5MDAxMX0.n8vFVCJe1y_3o8fpAY0IgasZ4eKl7DAogEM3OlHB8Ww';
+    
+    // Initialize Supabase client - check if already exists to prevent errors
+    let supabase;
+    try {
+        if (!window.supabaseClient) {
+            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            window.supabaseClient = supabase; // Store globally to prevent re-initialization
+            console.log('🔗 Supabase client initialized');
+        } else {
+            supabase = window.supabaseClient;
+            console.log('✅ Supabase client already initialized');
+        }
+    } catch (error) {
+        console.error('❌ Error initializing Supabase:', error);
+    }
+    
+    // Test connection on load
+
+    // ============ DARK MODE & CHART ============
+    let darkMode = localStorage.getItem('darkMode') === 'true';
+    let portfolioChart = null;
+    
+    function toggleDarkMode() {
+        darkMode = !darkMode;
+        localStorage.setItem('darkMode', darkMode);
+        document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+        if (portfolioChart) {
+            updateChartTheme();
+        }
+        render();
+    }
+    
+    function updateChartTheme() {
+        if (!portfolioChart) return;
+        const textColor = darkMode ? '#94a3b8' : '#64748b';
+        portfolioChart.options.plugins.legend.labels.color = textColor;
+        portfolioChart.options.scales.x.ticks.color = textColor;
+        portfolioChart.options.scales.y.ticks.color = textColor;
+        portfolioChart.options.scales.x.grid.color = darkMode ? '#334155' : '#e2e8f0';
+        portfolioChart.options.scales.y.grid.color = darkMode ? '#334155' : '#e2e8f0';
+        portfolioChart.update();
+    }
+    
+    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+
+
+
+    
+    // ============ SUPABASE HELPER FUNCTIONS ============
+    
+    // Load portfolio holdings from Supabase
+    async function loadPortfolioFromSupabase() {
+        try {
+            const { data, error } = await supabase
+                .from('holdings')
+                .select('*')
+                .eq('portfolio', 'US');
+            
+            if (error) throw error;
+            
+            // Convert Supabase format to dashboard format
+            const portfolioData = data.map(stock => ({
+                name: stock.name,
+                ticker: stock.ticker,
+                quantity: stock.quantity,
+                avgCost: stock.avg_cost,
+                sector: stock.sector
+            }));
+            
+            console.log(`✅ Loaded ${portfolioData.length} holdings from Supabase`);
+            return portfolioData;
+        } catch (error) {
+            console.error('❌ Error loading from Supabase:', error);
+            return null;
+        }
+    }
+    
+    // Load transactions from Supabase
+    async function loadTransactionsFromSupabase() {
+        try {
+            const { data, error } = await supabase
+                .from('transactions')
+                .select('*')
+                .eq('portfolio', 'US')
+                .order('date', { ascending: true });
+            
+            if (error) throw error;
+            
+            console.log(`✅ Loaded ${data.length} transactions from Supabase`);
+            return data;
+        } catch (error) {
+            console.error('❌ Error loading transactions from Supabase:', error);
+            return null;
+        }
+    }
+
+// Load cash flows from Supabase (for XIRR calculation)
+async function loadCashFlowsFromSupabase() {
+    try {
+        const { data, error } = await supabase
+            .from('cash_flows')
+            .select('*')
+            .eq('portfolio', 'US')
+            .order('date', { ascending: true });
+        
+        if (error) throw error;
+        
+        // Convert Supabase format to dashboard format
+        const cashFlows = data.map(cf => ({
+            date: cf.date,
+            type: cf.description, // 'Deposit' or 'Withdrawal'
+            amount: Math.abs(cf.amount) // Convert back to positive
+        }));
+        
+        console.log(`✅ Loaded ${cashFlows.length} cash flows from Supabase`);
+        return cashFlows;
+    } catch (error) {
+        console.error('❌ Error loading cash flows from Supabase:', error);
+        return null;
+    }
+}
+    
+    // Load snapshots from Supabase
+    async function loadSnapshotsFromSupabase() {
+        try {
+            const { data, error } = await supabase
+                .from('portfolio_snapshots')
+                .select('*')
+                .eq('portfolio', 'US')
+                .order('snapshot_date', { ascending: true });
+            
+            if (error) throw error;
+            
+            // Convert array to object format: { 'date': value }
+            const snapshotsObj = {};
+            data.forEach(snap => {
+                snapshotsObj[snap.snapshot_date] = snap.total_value;
+            });
+            
+            console.log(`✅ Loaded ${data.length} snapshots from Supabase`);
+            return snapshotsObj;
+        } catch (error) {
+            console.error('❌ Error loading snapshots from Supabase:', error);
+            return null;
+        }
+    }
+    
+   // Load config from Supabase
+async function loadConfigFromSupabase() {
+    try {
+        const { data, error } = await supabase
+            .from('portfolio_config')
+            .select('*')
+            .eq('portfolio', 'US')
+            .eq('config_key', 'ytd_baseline')
+            .eq('year', 2025)
+            .maybeSingle(); // Changed from .single() to .maybeSingle()
+        
+        if (error) throw error;
+        
+        if (data) {
+            console.log(`✅ Loaded config from Supabase:`, data.config_value);
+            return data.config_value;
+        } else {
+            console.log('⚠️ No config found in Supabase, using defaults');
+            return null;
+        }
+    } catch (error) {
+        console.error('❌ Error loading config from Supabase:', error);
+        return null;
+    }
+}
+
+// ============ SUPABASE WRITE FUNCTIONS ============
+    
+    // Save holdings to Supabase
+    async function saveHoldingsToSupabase(portfolioData) {
+        try {
+            // Delete existing US holdings
+            const { error: deleteError } = await supabase
+                .from('holdings')
+                .delete()
+                .eq('portfolio', 'US');
+            
+            if (deleteError) throw deleteError;
+            
+            // Insert updated holdings
+            const holdingsToInsert = portfolioData.map(stock => ({
+                portfolio: 'US',
+                name: stock.name,
+                ticker: stock.ticker,
+                quantity: stock.quantity,
+                avg_cost: stock.avgCost,
+                sector: stock.sector
+            }));
+            
+            const { error: insertError } = await supabase
+                .from('holdings')
+                .insert(holdingsToInsert);
+            
+            if (insertError) throw insertError;
+            
+            console.log(`✅ Saved ${portfolioData.length} holdings to Supabase`);
+            return true;
+        } catch (error) {
+            console.error('❌ Error saving holdings to Supabase:', error);
+            return false;
+        }
+    }
+    
+    // Save transaction to Supabase
+    async function saveTransactionToSupabase(transaction) {
+        try {
+            const txnData = {
+                portfolio: 'US',
+                date: transaction.date,
+                type: transaction.type,
+                stock: transaction.stock,
+                ticker: transaction.ticker,
+                quantity: transaction.quantity,
+                price: transaction.price,
+                sector: transaction.sector || null
+            };
+            
+            const { error } = await supabase
+                .from('transactions')
+                .insert(txnData);
+            
+            if (error) throw error;
+            
+            console.log(`✅ Saved transaction to Supabase`);
+            return true;
+        } catch (error) {
+            console.error('❌ Error saving transaction to Supabase:', error);
+            return false;
+        }
+    }
+    
+    // Save snapshot to Supabase
+    async function saveSnapshotToSupabase(date, value) {
+        try {
+            // Check if snapshot already exists
+            const { data: existing } = await supabase
+                .from('portfolio_snapshots')
+                .select('id')
+                .eq('portfolio', 'US')
+                .eq('snapshot_date', date)
+                .maybeSingle();
+            
+            if (existing) {
+                console.log(`⚠️ Snapshot for ${date} already exists in Supabase`);
+                return true;
+            }
+            
+            // Insert new snapshot
+            const { error } = await supabase
+                .from('portfolio_snapshots')
+                .insert({
+                    portfolio: 'US',
+                    snapshot_date: date,
+                    total_value: value
+                });
+            
+            if (error) throw error;
+            
+            console.log(`✅ Saved snapshot to Supabase: ${date} = $${value.toFixed(2)}`);
+            return true;
+        } catch (error) {
+            console.error('❌ Error saving snapshot to Supabase:', error);
+            return false;
+        }
+    }
+    
+let selectedYTDYear = new Date().getFullYear();
+let selectedChartYear = new Date().getFullYear();
+let selectedChartType = 'monthly';
+let selectedPeriodMonth = new Date().getMonth() + 1; // Current month (1-12)
+let selectedPeriodYear = new Date().getFullYear(); // Track year for period gains
+
+        const INITIAL_PORTFOLIO = [
+            { name: "ALPHABET INC", ticker: "GOOGL", quantity: 400, avgCost: 116.9918, sector: "TECHNOLOGY" },
+            { name: "AMAZON.COM INC", ticker: "AMZN", quantity: 290, avgCost: 132.6046, sector: "CONSUMER CYCLICAL" },
+            { name: "CROWDSTRIKE HOLDINGS INC", ticker: "CRWD", quantity: 205, avgCost: 314.5152, sector: "TECHNOLOGY" },
+            { name: "AMPLIFY ETF TRUST CYBERSECURITY ETF", ticker: "HACK", quantity: 425, avgCost: 80.6411, sector: "ETF" },
+            { name: "META PLATFORMS INC", ticker: "META", quantity: 40, avgCost: 535.8075, sector: "TECHNOLOGY" },
+            { name: "MICROSOFT CORP", ticker: "MSFT", quantity: 105, avgCost: 301.5759, sector: "TECHNOLOGY" },
+            { name: "NVIDIA CORP", ticker: "NVDA", quantity: 1400, avgCost: 83.0028, sector: "TECHNOLOGY" },
+            { name: "TAIWAN SEMICONDUCTOR MANUFACTURING", ticker: "TSM", quantity: 145, avgCost: 137.0428, sector: "TECHNOLOGY" }
+        ];
+
+        const INITIAL_TRANSACTIONS = [];
+
+        // Historical cash flows from inception (Nov 2021) - 207 transactions for XIRR
+        const HISTORICAL_CASH_FLOWS = [];
+// Cash flows now loaded from Supabase on startup
+
+        const PERIOD_START_VALUE = 683802.0;
+        const PERIOD_START_DATE = '2025-10-01';
+        const JAN_SEP_GAINS = 144070;
+
+        let portfolio = []; // Will be loaded async
+        let transactions = JSON.parse(localStorage.getItem('us_transactions')) || INITIAL_TRANSACTIONS;
+        let prices = {};
+        let mtmPrices = {};
+        let lastUpdate = null;
+        let loading = false;
+        let showTransactionForm = false;
+        let isNewStock = false;
+        let isLiveData = false;
+        let sortColumn = null;
+        let sortDirection = 'asc';
+        let showBuyTransactions = true;
+        let showSellTransactions = true;
+        let selectedTransactionMonth = new Date().getMonth() + 1; // Default to current month
+        let selectedTransactionYear = new Date().getFullYear(); // Default to current year
+
+        const fallbackPrices = {
+            "GOOGL": { price: 170.0, change: 0 }, "AMZN": { price: 180.0, change: 0 },
+            "CRWD": { price: 320.0, change: 0 }, "HACK": { price: 82.0, change: 0 },
+            "META": { price: 560.0, change: 0 }, "MSFT": { price: 420.0, change: 0 },
+            "NVDA": { price: 130.0, change: 0 }, "TSM": { price: 170.0, change: 0 }
+        };
+
+        prices = {...fallbackPrices};
+        let dayChangeAmounts = {};
+
+        function getSnapshots() {
+    const stored = localStorage.getItem('us_portfolioSnapshots');
+    if (stored) return JSON.parse(stored);
+    
+    // Fallback: if nothing in localStorage, use seed data
+    const seedData = { '2025-09-30': 683802.0 };
+    localStorage.setItem('us_portfolioSnapshots', JSON.stringify(seedData));
+    return seedData;
+}
+
+// New function: Initialize snapshots from Supabase on startup
+async function initializeSnapshots() {
+    const supabaseSnapshots = await loadSnapshotsFromSupabase();
+    
+    if (supabaseSnapshots && Object.keys(supabaseSnapshots).length > 0) {
+        // Sync Supabase snapshots to localStorage for backward compatibility
+        localStorage.setItem('us_portfolioSnapshots', JSON.stringify(supabaseSnapshots));
+        console.log('✅ Synced snapshots from Supabase to localStorage');
+    }
+}
+
+        function saveSnapshot(date, value) {
+            const snapshots = getSnapshots();
+            snapshots[date] = value;
+            localStorage.setItem('us_portfolioSnapshots', JSON.stringify(snapshots));
+            console.log(`📸 Snapshot saved for ${date}: $${value.toFixed(2)}`);
+            saveSnapshotToSupabase(date, value);
+        }
+
+        function getESTTime() {
+            const now = new Date();
+            return new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+        }
+
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function isWeekday(date) {
+            const day = date.getDay();
+            return day >= 1 && day <= 5;
+        }
+
+        function checkAndTakeSnapshot() {
+            const estTime = getESTTime();
+            const hours = estTime.getHours();
+            const minutes = estTime.getMinutes();
+            const today = formatDate(estTime);
+            
+            if (hours === 16 && minutes === 10 && isWeekday(estTime)) {
+                const snapshots = getSnapshots();
+                if (!snapshots[today]) {
+                    const metrics = calculateMetrics();
+                    saveSnapshot(today, metrics.totalCurrentValue);
+                }
+            }
+        }
+
+        setInterval(checkAndTakeSnapshot, 60000);
+
+        function getLastDayOfPreviousMonth() {
+            const estTime = getESTTime();
+            const firstDayOfCurrentMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+            const lastDayOfPrevMonth = new Date(firstDayOfCurrentMonth - 1);
+            return formatDate(lastDayOfPrevMonth);
+        }
+
+        function getPeriodStartValue() {
+            const snapshots = getSnapshots();
+            const lastMonthEnd = getLastDayOfPreviousMonth();
+            if (snapshots[lastMonthEnd]) return snapshots[lastMonthEnd];
+            for (let i = 1; i <= 5; i++) {
+                const date = new Date(lastMonthEnd);
+                date.setDate(date.getDate() - i);
+                const checkDate = formatDate(date);
+                if (snapshots[checkDate]) {
+                    console.log(`⚠️ Using snapshot from ${checkDate}`);
+                    return snapshots[checkDate];
+                }
+            }
+            console.log('⚠️ Using default Sept 30 value');
+            return 683802.0;
+        }
+
+        function getFirstDayOfCurrentMonth() {
+            const estTime = getESTTime();
+            const year = new Date().getFullYear();
+            const month = String(new Date().getMonth() + 1).padStart(2, '0');
+            return `${year}-${month}-01`;
+        }
+
+        function getFirstDayOfCurrentYear() {
+            const estTime = getESTTime();
+            return `${new Date().getFullYear()}-01-01`;
+        }
+
+        function getCurrentMonthTransactions() {
+            return transactions.filter(t => t.date >= getFirstDayOfCurrentMonth());
+        }
+
+        function getCurrentYearTransactions() {
+            return transactions.filter(t => t.date >= getFirstDayOfCurrentYear());
+        }
+
+       function calculateYTDGains(currentValue, yearTransactions) {
+console.log('Sample cash flows:', HISTORICAL_CASH_FLOWS.slice(0, 3));
+    console.log('First cash flow structure:', HISTORICAL_CASH_FLOWS[0]);
+    const snapshots = getSnapshots();
+    const yearStart = `${selectedYTDYear}-01-01`;
+    const yearEnd = `${selectedYTDYear}-12-31`;
+    const estTime = getESTTime();
+    
+    // Get start value for selected year
+    // FIXED: Always use previous year's end as start, never current year's Jan 1
+    const ytdStartValue = snapshots[`${selectedYTDYear - 1}-12-31`] || 0;
+    
+    // Get end value (current for 2025, snapshot for historical)
+    const ytdEndValue = selectedYTDYear < new Date().getFullYear() ? (snapshots[yearEnd] || 0) : currentValue;
+    
+    // Get cash flows for selected year
+    const yearCashFlows = HISTORICAL_CASH_FLOWS.filter(cf => cf.date >= yearStart && cf.date <= yearEnd);
+console.log('All 2025 cash flows types:', yearCashFlows.map(cf => cf.type));
+console.log('Sample cash flow:', yearCashFlows[0]);
+   const ytdWithdrawals = yearCashFlows.filter(cf => cf.type === 'Withdrawl' || cf.type === 'Withdrawal').reduce((sum, cf) => sum + cf.amount, 0);
+const ytdDeposits = yearCashFlows.filter(cf => cf.type === 'Deposit').reduce((sum, cf) => sum + cf.amount, 0);
+    
+    // Get transactions for selected year
+    const filteredTransactions = yearTransactions.filter(t => t.date >= yearStart && t.date <= yearEnd);
+    const ytdSoldValue = filteredTransactions.filter(t => t.type === 'SELL').reduce((sum, t) => sum + (t.quantity * t.price), 0);
+    const ytdPurchasedValue = filteredTransactions.filter(t => t.type === 'BUY').reduce((sum, t) => sum + (t.quantity * t.price), 0);
+    
+// Add this temporarily to calculateYTDGains function, right before the return statement:
+
+console.log(`=== YTD ${selectedYTDYear} Debug ===`);
+console.log(`Start Value (${selectedYTDYear}-01-01):`, ytdStartValue);
+console.log(`End Value (${yearEnd}):`, ytdEndValue);
+console.log(`Withdrawals (sells from cash_flows):`, ytdWithdrawals);
+console.log(`Deposits (buys from cash_flows):`, ytdDeposits);
+console.log(`Sold (from transactions):`, ytdSoldValue);
+console.log(`Purchased (from transactions):`, ytdPurchasedValue);
+console.log(`Formula: ${ytdEndValue} + ${ytdWithdrawals} + ${ytdSoldValue} - ${ytdDeposits} - ${ytdPurchasedValue} - ${ytdStartValue}`);
+console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits - ytdPurchasedValue - ytdStartValue);
+
+    // Calculate YTD gains
+    return ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits - ytdPurchasedValue - ytdStartValue;
+}
+
+        async function fetchPrices() {
+            loading = true;
+            render();
+            const tickers = portfolio.map(s => s.ticker).join(',');
+            try {
+                const response = await fetch(`http://localhost:3001?symbols=${tickers}`);
+                const data = await response.json();
+                if (data.quoteResponse && data.quoteResponse.results) {
+                    data.quoteResponse.results.forEach(quote => {
+                        prices[quote.symbol] = {
+                            price: quote.regularMarketPrice || quote.previousClose || 0,
+                            change: quote.regularMarketChangePercent || 0
+                        };
+                        if (quote.dayChangeAmount !== undefined) {
+                            dayChangeAmounts[quote.symbol] = quote.dayChangeAmount;
+                        }
+                    });
+                    lastUpdate = new Date();
+                    isLiveData = true;
+                    console.log(`✅ Fetched ${data.quoteResponse.results.length} live prices`);
+                } else {
+                    throw new Error('Invalid response');
+                }
+            } catch (error) {
+                console.log('⚠️ Proxy failed - using fallback prices');
+                isLiveData = false;
+            }
+            loading = false;
+            render();
+        }
+
+        async function fetchMTMPrices() {
+            try {
+                const response = await fetch('http://localhost:3001/mtm-prices');
+                const data = await response.json();
+                mtmPrices = data;
+                console.log(`✅ Fetched ${Object.keys(mtmPrices).length} MTM prices`);
+            } catch (error) {
+                console.log('⚠️ Failed to fetch MTM prices:', error);
+                mtmPrices = {};
+            }
+        }
+
+        function sortTable(column) {
+            if (sortColumn === column) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortColumn = column;
+                sortDirection = 'asc';
+            }
+            render();
+        }
+
+        function getSortedPortfolio() {
+            if (!sortColumn) return portfolio;
+            return [...portfolio].sort((a, b) => {
+                let aVal, bVal;
+                const currentPriceA = prices[a.ticker]?.price || 0;
+                const currentPriceB = prices[b.ticker]?.price || 0;
+                switch(sortColumn) {
+                    case 'name': aVal = a.name; bVal = b.name; break;
+                    case 'quantity': aVal = a.quantity; bVal = b.quantity; break;
+                    case 'avgCost': aVal = a.avgCost; bVal = b.avgCost; break;
+                    case 'costValue': aVal = a.quantity * a.avgCost; bVal = b.quantity * b.avgCost; break;
+                    case 'currentPrice': aVal = currentPriceA; bVal = currentPriceB; break;
+                    case 'priceChange': aVal = prices[a.ticker]?.change || 0; bVal = prices[b.ticker]?.change || 0; break;
+                    case 'dayChange': 
+                        aVal = dayChangeAmounts[a.ticker] || ((prices[a.ticker]?.change || 0) / 100) * (a.quantity * currentPriceA);
+                        bVal = dayChangeAmounts[b.ticker] || ((prices[b.ticker]?.change || 0) / 100) * (b.quantity * currentPriceB);
+                        break;
+                    case 'currentValue': aVal = a.quantity * currentPriceA; bVal = b.quantity * currentPriceB; break;
+                    case 'unrealizedPL': 
+                        aVal = (a.quantity * currentPriceA) - (a.quantity * a.avgCost);
+                        bVal = (b.quantity * currentPriceB) - (b.quantity * b.avgCost);
+                        break;
+                    case 'unrealizedPLPercent':
+                        aVal = ((a.quantity * currentPriceA) - (a.quantity * a.avgCost)) / (a.quantity * a.avgCost) * 100;
+                        bVal = ((b.quantity * currentPriceB) - (b.quantity * b.avgCost)) / (b.quantity * b.avgCost) * 100;
+                        break;
+                    default: return 0;
+                }
+                if (aVal === undefined || aVal === null) return 1;
+                if (bVal === undefined || bVal === null) return -1;
+                if (typeof aVal === 'string') {
+                    return sortDirection === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+                }
+                return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+            });
+        }
+
+        // Helper function to find closest snapshot before or on a given date
+        function getClosestSnapshot(snapshots, targetDate) {
+            const dates = Object.keys(snapshots)
+                .filter(d => d <= targetDate)
+                .sort()
+                .reverse();
+            return dates.length > 0 ? snapshots[dates[0]] : 0;
+        }
+
+        function calculateMetrics() {
+   const estTime = getESTTime();
+    const snapshots = getSnapshots();
+            let totalCostValue = 0, totalCurrentValue = 0, totalDayChange = 0;
+            let stocksInProfit = 0, stocksInLoss = 0;  // Based on unrealized P&L
+            let gainingToday = 0, losingToday = 0;      // Based on today's price change
+            let biggestGainer = { name: '', percent: -Infinity };
+            let biggestLoser = { name: '', percent: Infinity };
+            let maxHolding = { name: '', value: 0 };
+
+            portfolio.forEach(stock => {
+                const costValue = stock.quantity * stock.avgCost;
+                const currentPrice = prices[stock.ticker]?.price || 0;
+                const priceChangePercent = prices[stock.ticker]?.change || 0;
+                const currentValue = stock.quantity * currentPrice;
+                const unrealizedPL = currentValue - costValue;
+                totalCostValue += costValue;
+                totalCurrentValue += currentValue;
+                const dayChange = dayChangeAmounts[stock.ticker] || 0;
+                totalDayChange += dayChange;
+                
+                // Count stocks in profit/loss based on unrealized P&L (for "Stocks in Profit/Loss" metric)
+                if (unrealizedPL > 0) stocksInProfit++;
+                if (unrealizedPL < 0) stocksInLoss++;
+                
+                // Count gaining/losing today based on today's price change (for "Gaining Today"/"Losing Today" cards)
+                if (priceChangePercent > 0) gainingToday++;
+                if (priceChangePercent < 0) losingToday++;
+                
+                if (priceChangePercent > biggestGainer.percent) {
+                    biggestGainer = { name: stock.name, percent: priceChangePercent, ticker: stock.ticker };
+                }
+                if (priceChangePercent < biggestLoser.percent) {
+                    biggestLoser = { name: stock.name, percent: priceChangePercent, ticker: stock.ticker };
+                }
+                if (currentValue > maxHolding.value) {
+                    maxHolding = { name: stock.name, value: currentValue, ticker: stock.ticker };
+                }
+            });
+
+
+            // Dynamic period gains
+const currentMonth = new Date().getMonth() + 1; // Get current month (1-12)
+const currentYear = new Date().getFullYear();
+const isCurrentPeriod = (selectedPeriodMonth === currentMonth) && (selectedPeriodYear === currentYear); // Only treat as current if BOTH month and year match
+
+const periodStartDate = `${selectedPeriodYear}-${String(selectedPeriodMonth).padStart(2, '0')}-01`;
+const periodEndDate = isCurrentPeriod ? formatDate(estTime) : `${selectedPeriodYear}-${String(selectedPeriodMonth).padStart(2, '0')}-${new Date(selectedPeriodYear, selectedPeriodMonth, 0).getDate()}`;
+
+// Find most recent snapshot before period start (handles weekends/holidays)
+const prevMonthEndDate = selectedPeriodMonth === 1 
+    ? `${selectedPeriodYear - 1}-12-31` 
+    : `${selectedPeriodYear}-${String(selectedPeriodMonth - 1).padStart(2, '0')}-${new Date(selectedPeriodYear, selectedPeriodMonth - 1, 0).getDate()}`;
+const periodStartValue = getClosestSnapshot(snapshots, prevMonthEndDate);
+
+// Find most recent snapshot on or before period end (handles weekends/holidays)
+const periodEndValue = isCurrentPeriod
+    ? totalCurrentValue 
+    : getClosestSnapshot(snapshots, periodEndDate);
+
+const monthCashFlows = HISTORICAL_CASH_FLOWS.filter(cf => cf.date >= periodStartDate && cf.date <= periodEndDate);
+const periodWithdrawals = monthCashFlows.filter(cf => cf.type === 'Withdrawl' || cf.type === 'Withdrawal').reduce((sum, cf) => sum + cf.amount, 0);
+const periodDeposits = monthCashFlows.filter(cf => cf.type === 'Deposit').reduce((sum, cf) => sum + cf.amount, 0);
+
+const monthTransactions = transactions.filter(t => t.date >= periodStartDate && t.date <= periodEndDate);
+const soldValue = monthTransactions.filter(t => t.type === 'SELL').reduce((sum, t) => sum + (t.quantity * t.price), 0);
+const purchasedValue = monthTransactions.filter(t => t.type === 'BUY').reduce((sum, t) => sum + (t.quantity * t.price), 0);
+
+const periodGains = periodEndValue + periodWithdrawals + soldValue - periodDeposits - purchasedValue - periodStartValue;
+            const periodGainsPercent = (periodGains / periodStartValue) * 100;
+            const yearTransactions = getCurrentYearTransactions();
+            const ytdGains = calculateYTDGains(totalCurrentValue, yearTransactions);
+            const xirr = calculateXIRR(totalCurrentValue);
+
+// QQQ benchmark
+const qqqStartPrice = 393.39;
+const qqqStartDate = new Date('2021-11-05');
+const today = new Date();
+const qqqYearsDiff = (today - qqqStartDate) / (1000 * 60 * 60 * 24 * 365.25);
+const qqqCurrentPrice = prices['QQQ']?.price || 0;
+const qqqXIRR = qqqCurrentPrice > 0 ? ((Math.pow(qqqCurrentPrice / qqqStartPrice, 1/qqqYearsDiff) - 1) * 100) : 0;
+
+
+function formatDisplayDate(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+
+// Calculate ATH (All-Time High) from cumulative gains
+const athData = (() => {
+    const startDate = new Date('2021-11-01');
+    const endDate = new Date();
+    let runningTotal = 0;
+    let athValue = -Infinity;
+    let athMonth = '';
+    let athYear = 0;
+    let currentCumulative = 0;
+    
+    for (let d = new Date(startDate); d <= endDate; d.setMonth(d.getMonth() + 1)) {
+        const year = d.getFullYear();
+        const month = d.getMonth() + 1;
+        const monthStr = String(month).padStart(2, '0');
+        const monthStart = `${year}-${monthStr}-01`;
+        const monthEnd = `${year}-${monthStr}-${new Date(year, month, 0).getDate()}`;
+        
+        // Find most recent snapshot before period start (handles weekends/holidays)
+        const prevMonthEndDate = month === 1 
+            ? `${year-1}-12-31`
+            : `${year}-${String(month-1).padStart(2, '0')}-${new Date(year, month-1, 0).getDate()}`;
+        const prevMonthEnd = getClosestSnapshot(snapshots, prevMonthEndDate);
+        
+        let monthGain;
+        const isCurrentMonth = (year === endDate.getFullYear() && month === (endDate.getMonth() + 1));
+        
+        if (isCurrentMonth && selectedPeriodMonth === month) {
+            monthGain = periodGains;
+        } else {
+            const monthEndValue = getClosestSnapshot(snapshots, monthEnd);
+            
+            if (prevMonthEnd && monthEndValue) {
+                const monthCashFlows = HISTORICAL_CASH_FLOWS.filter(cf => cf.date >= monthStart && cf.date <= monthEnd);
+                const withdrawals = monthCashFlows.filter(cf => cf.type === 'Withdrawl' || cf.type === 'Withdrawal').reduce((sum, cf) => sum + cf.amount, 0);
+                const deposits = monthCashFlows.filter(cf => cf.type === 'Deposit').reduce((sum, cf) => sum + cf.amount, 0);
+                
+                const monthTransactions = transactions.filter(t => t.date >= monthStart && t.date <= monthEnd);
+                const soldValue = monthTransactions.filter(t => t.type === 'SELL').reduce((sum, t) => sum + (t.quantity * t.price), 0);
+                const purchasedValue = monthTransactions.filter(t => t.type === 'BUY').reduce((sum, t) => sum + (t.quantity * t.price), 0);
+                
+                monthGain = monthEndValue + withdrawals + soldValue - deposits - purchasedValue - prevMonthEnd;
+            } else {
+                monthGain = 0;
+            }
+        }
+        
+        runningTotal += monthGain;
+        
+        if (runningTotal > athValue) {
+            athValue = runningTotal;
+            athMonth = d.toLocaleDateString('en-US', { month: 'short' });
+            athYear = year;
+        }
+        
+        if (isCurrentMonth) {
+            currentCumulative = runningTotal;
+        }
+    }
+    
+    const athDiffPercent = athValue > 0 ? ((currentCumulative - athValue) / athValue) * 100 : 0;
+    
+    return {
+        athMonth: `${athMonth} ${athYear}`,
+        athValue: athValue,
+        currentCumulative: currentCumulative,
+        athDiffPercent: athDiffPercent
+    };
+})();
+
+
+            return {
+                totalCostValue, totalCurrentValue,
+                totalUnrealizedPL: totalCurrentValue - totalCostValue,
+                totalUnrealizedPLPercent: ((totalCurrentValue - totalCostValue) / totalCostValue) * 100,
+                totalDayChange,
+                totalDayChangePercent: (totalDayChange / (totalCurrentValue - totalDayChange)) * 100,
+                periodGains, periodGainsPercent,
+                totalStocks: portfolio.length, 
+                stocksInProfit, stocksInLoss,     // For "Stocks in Profit/Loss" metric
+                gainingToday, losingToday,        // For "Gaining Today"/"Losing Today" cards
+                biggestGainer, biggestLoser, maxHolding,
+                ytdGains, 
+ytdGainsPercent: calculateYTDXIRR(totalCurrentValue, selectedYTDYear),
+                xirr, qqqXIRR, totalSoldValue: soldValue, totalPurchasedValue: purchasedValue,
+                periodStartDate: formatDisplayDate(periodStartDate),
+    periodStartValue,
+    athData
+            };
+        }
+
+       function calculateXIRR(currentPortfolioValue) {
+    const cashFlows = [], dates = [];
+    
+    // Add historical deposits (negative = money going in)
+    HISTORICAL_CASH_FLOWS.forEach(cf => {
+        // Deposits are negative, Withdrawals are positive
+        const amount = (cf.type === 'Deposit') ? -cf.amount : cf.amount;
+        cashFlows.push(amount);
+        dates.push(new Date(cf.date));
+    });
+    
+    // Add live transactions
+    transactions.forEach(txn => {
+        const amount = txn.quantity * txn.price;
+        cashFlows.push(txn.type === 'BUY' ? -amount : amount);
+        dates.push(new Date(txn.date));
+    });
+    
+    // Terminal value (current portfolio - this is a POSITIVE cash flow, money you'd get back)
+    cashFlows.push(currentPortfolioValue);
+    dates.push(new Date());
+    
+    console.log(`XIRR Calculation:`);
+    console.log(`- Cash flows: ${cashFlows.length} total`);
+    console.log(`- Date range: ${dates[0].toISOString().split('T')[0]} to ${dates[dates.length-1].toISOString().split('T')[0]}`);
+    
+    const totalDeposits = Math.abs(cashFlows.filter((cf, i) => cf < 0 && i < cashFlows.length - 1).reduce((sum, cf) => sum + cf, 0));
+    const totalWithdrawals = cashFlows.filter((cf, i) => cf > 0 && i < cashFlows.length - 1).reduce((sum, cf) => sum + cf, 0);
+    console.log(`- Total invested: $${totalDeposits.toFixed(2)}`);
+    console.log(`- Total withdrawn: $${totalWithdrawals.toFixed(2)}`);
+    console.log(`- Net invested: $${(totalDeposits - totalWithdrawals).toFixed(2)}`);
+    console.log(`- Current value: $${currentPortfolioValue.toFixed(2)}`);
+    
+    // Newton-Raphson method
+    let guess = 0.1; // Start with 10% guess
+    const maxIterations = 1000;
+    const tolerance = 0.000001;
+    
+    for (let i = 0; i < maxIterations; i++) {
+        let npv = 0, dnpv = 0;
+        
+        for (let j = 0; j < cashFlows.length; j++) {
+            const daysDiff = (dates[j] - dates[0]) / (1000 * 60 * 60 * 24);
+            const yearFrac = daysDiff / 365.25; // Use more accurate year fraction
+            const factor = Math.pow(1 + guess, yearFrac);
+            
+            npv += cashFlows[j] / factor;
+            dnpv += -yearFrac * cashFlows[j] / factor / (1 + guess);
+        }
+        
+        // Check for convergence
+        if (Math.abs(npv) < tolerance) {
+            console.log(`✅ XIRR converged at iteration ${i}: ${(guess * 100).toFixed(2)}%`);
+            return guess * 100;
+        }
+        
+        // Prevent division by zero
+        if (Math.abs(dnpv) < 1e-10) {
+            console.log('⚠️ Derivative too small, adjusting guess');
+            guess = guess * 0.5;
+            continue;
+        }
+        
+        // Calculate new guess with damping for stability
+        const newGuess = guess - npv / dnpv;
+        
+        // Prevent wild swings
+        const maxChange = 0.5;
+        if (Math.abs(newGuess - guess) > maxChange) {
+            guess = guess + Math.sign(newGuess - guess) * maxChange;
+        } else {
+            guess = newGuess;
+        }
+        
+        // Prevent negative or extremely large rates
+        if (guess < -0.99) guess = -0.5;
+        if (guess > 10) guess = 1;
+    }
+    
+    console.log('❌ XIRR failed to converge after ' + maxIterations + ' iterations');
+    return null;
+}
+
+// Calculate YTD XIRR (Year-to-Date return for current year)
+function calculateYTDXIRR(currentPortfolioValue, year = null) {
+    const estTime = getESTTime();
+    const currentYear = year || new Date().getFullYear();
+    const yearStartDate = `${currentYear}-01-01`;
+    const yearEndDate = `${currentYear}-12-31`;
+    
+    const cashFlows = [], dates = [];
+    
+    const snapshots = getSnapshots();
+    const yearStartValue = snapshots[yearStartDate] || snapshots[`${currentYear - 1}-12-31`];
+    
+    if (!yearStartValue) {
+        console.log(`⚠️ No start value for ${currentYear}`);
+        return null;
+    }
+    
+    // Start value (negative = investment)
+    cashFlows.push(-yearStartValue);
+    dates.push(new Date(yearStartDate));
+    
+    // Add cash flows for the year
+    HISTORICAL_CASH_FLOWS.forEach(cf => {
+        if (cf.date >= yearStartDate && cf.date <= yearEndDate) {
+            const amount = (cf.type === 'Deposit') ? -cf.amount : (cf.type === 'Withdrawl' || cf.type === 'Withdrawal') ? cf.amount : 0;
+            cashFlows.push(amount);
+            dates.push(new Date(cf.date));
+        }
+    });
+    
+    // Add transactions for the year
+    const yearTransactions = transactions.filter(t => t.date >= yearStartDate && t.date <= yearEndDate);
+    yearTransactions.forEach(txn => {
+        const amount = txn.quantity * txn.price;
+        cashFlows.push(txn.type === 'BUY' ? -amount : amount);
+        dates.push(new Date(txn.date));
+    });
+    
+    // End value (positive = return)
+    const endValue = year && year < new Date().getFullYear() ? snapshots[yearEndDate] : currentPortfolioValue;
+    if (!endValue) {
+        console.log(`⚠️ No end value for ${currentYear}`);
+        return null;
+    }
+    
+    cashFlows.push(endValue);
+    dates.push(new Date(year && year < new Date().getFullYear() ? yearEndDate : Date.now()));
+    
+    // Newton-Raphson XIRR calculation
+    let guess = 0.1;
+    const maxIterations = 1000, tolerance = 0.000001;
+    
+    for (let i = 0; i < maxIterations; i++) {
+        let npv = 0, dnpv = 0;
+        
+        for (let j = 0; j < cashFlows.length; j++) {
+            const daysDiff = (dates[j] - dates[0]) / (1000 * 60 * 60 * 24);
+            const yearFrac = daysDiff / 365.25;
+            const factor = Math.pow(1 + guess, yearFrac);
+            
+            npv += cashFlows[j] / factor;
+            dnpv += -yearFrac * cashFlows[j] / factor / (1 + guess);
+        }
+        
+        if (Math.abs(npv) < tolerance) {
+            return guess * 100;
+        }
+        
+        if (Math.abs(dnpv) < 1e-10) {
+            guess = guess * 0.5;
+            continue;
+        }
+        
+        const newGuess = guess - npv / dnpv;
+        if (Math.abs(newGuess - guess) > 0.5) {
+            guess = guess + Math.sign(newGuess - guess) * 0.5;
+        } else {
+            guess = newGuess;
+        }
+        
+        if (guess < -0.99) guess = -0.5;
+        if (guess > 10) guess = 1;
+    }
+    
+    return null;
+}
+
+        // ONE-TIME MIGRATION: Transfer localStorage transactions to Supabase
+        async function migrateLocalTransactionsToSupabase() {
+            try {
+                console.log('🔄 Starting migration of localStorage transactions to Supabase...');
+                
+                // Get transactions from localStorage
+                const localTransactions = JSON.parse(localStorage.getItem('us_transactions') || '[]');
+                
+                if (localTransactions.length === 0) {
+                    console.log('⚠️ No transactions found in localStorage');
+                    return;
+                }
+                
+                console.log(`📊 Found ${localTransactions.length} transactions in localStorage`);
+                
+                // Get existing transactions from Supabase to avoid duplicates
+                const { data: existingTxns, error: fetchError } = await supabase
+                    .from('transactions')
+                    .select('date, ticker, quantity, price, type')
+                    .eq('portfolio', 'US');
+                
+                if (fetchError) throw fetchError;
+                
+                console.log(`📊 Found ${existingTxns.length} transactions already in Supabase`);
+                
+                // Filter out duplicates (match by date, ticker, quantity, price, type)
+                const newTransactions = localTransactions.filter(local => {
+                    return !existingTxns.some(existing => 
+                        existing.date === local.date &&
+                        existing.ticker === local.ticker &&
+                        existing.quantity === local.quantity &&
+                        existing.price === local.price &&
+                        existing.type === local.type
+                    );
+                });
+                
+                console.log(`📤 ${newTransactions.length} new transactions to migrate`);
+                
+                if (newTransactions.length === 0) {
+                    console.log('✅ All transactions already in Supabase - no migration needed');
+                    return;
+                }
+                
+                // Insert new transactions
+                let successCount = 0;
+                for (const txn of newTransactions) {
+                    const txnData = {
+                        portfolio: 'US',
+                        date: txn.date,
+                        type: txn.type,
+                        stock: txn.stock,
+                        ticker: txn.ticker,
+                        quantity: txn.quantity,
+                        price: txn.price,
+                        sector: txn.sector || null
+                    };
+                    
+                    const { error } = await supabase
+                        .from('transactions')
+                        .insert(txnData);
+                    
+                    if (error) {
+                        console.error(`❌ Failed to migrate transaction:`, txn, error);
+                    } else {
+                        successCount++;
+                        console.log(`✅ Migrated: ${txn.date} ${txn.type} ${txn.quantity} ${txn.ticker} @ $${txn.price}`);
+                    }
+                }
+                
+                console.log(`🎉 Migration complete! ${successCount}/${newTransactions.length} transactions migrated`);
+                alert(`✅ Migration complete!\n${successCount} transactions saved to Supabase`);
+                
+            } catch (error) {
+                console.error('❌ Migration failed:', error);
+                alert('❌ Migration failed - check console for details');
+            }
+        }
+        
+        // Add migration button to console
+        window.migrateTransactions = migrateLocalTransactionsToSupabase;
+        console.log('💡 To migrate localStorage transactions to Supabase, run: migrateTransactions()');
+
+        async function addTransaction(txn) {
+            transactions.push(txn);
+            localStorage.setItem('us_transactions', JSON.stringify(transactions));
+            
+            // Save transaction to Supabase
+            await saveTransactionToSupabase(txn);
+            
+            const existingStock = portfolio.find(s => s.ticker === txn.ticker);
+            if (txn.type === 'BUY') {
+                if (existingStock) {
+                    const totalCost = (existingStock.quantity * existingStock.avgCost) + (txn.quantity * txn.price);
+                    const totalQty = existingStock.quantity + txn.quantity;
+                    existingStock.avgCost = totalCost / totalQty;
+                    existingStock.quantity = totalQty;
+                } else {
+                    portfolio.push({
+                        name: txn.stock, ticker: txn.ticker, quantity: txn.quantity,
+                        avgCost: txn.price, sector: txn.sector || 'Other'
+                    });
+                }
+            } else if (txn.type === 'SELL') {
+                if (existingStock) {
+                    existingStock.quantity -= txn.quantity;
+                    if (existingStock.quantity <= 0) {
+                        portfolio = portfolio.filter(s => s.ticker !== txn.ticker);
+                    }
+                }
+            }
+            
+            // Save updated holdings to Supabase
+            await saveHoldingsToSupabase(portfolio);
+            
+            localStorage.setItem('us_portfolio', JSON.stringify(portfolio));
+            showTransactionForm = false;
+            render();
+            fetchPrices();
+        }
+
+        function formatCurrency(value) {
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency', currency: 'USD', maximumFractionDigits: 2
+            }).format(value);
+        }
+
+        function formatNumber(value) {
+            return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value);
+        }
+
+        function getSortIcon(column) {
+            if (sortColumn !== column) return '↕';
+            return sortDirection === 'asc' ? '↑' : '↓';
+        }
+
+        function render() {
+            const metrics = calculateMetrics();
+            const sortedPortfolio = getSortedPortfolio();
+            const app = document.getElementById('app');
+
+            app.innerHTML = `
+                <div class="card p-6 mb-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <div class="flex items-center gap-4">
+                            <h1 class="text-3xl font-bold" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">US Portfolio Tracker</h1>
+                            <div class="flex items-center gap-2">
+                                <div class="w-3 h-3 rounded-full ${isLiveData ? 'bg-green-500 animate-pulse' : 'bg-red-500'}"></div>
+                                <span class="text-sm font-medium ${isLiveData ? 'text-green-600' : 'text-red-600'}">
+                                    ${isLiveData ? 'LIVE' : 'FALLBACK'}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div class="theme-toggle ${darkMode ? 'active' : ''}" onclick="toggleDarkMode()">
+                                <div class="theme-toggle-slider"></div>
+                            </div>
+                            <button onclick="location.reload(true)" class="btn btn-primary flex items-center gap-2">
+                                <i class="fas fa-sync-alt ${loading ? 'loading' : ''}"></i>
+                                Refresh
+                            </button>
+                        </div>
+                    </div>
+                    ${lastUpdate ? `<p class="text-sm" style="color: var(--text-secondary);">Last updated: ${lastUpdate.toLocaleString('en-IN')}</p>` : ''}
+                </div>
+
+                <!-- Report Generator Section -->
+                <div class="card p-6 mb-6">
+                    <h2 class="text-xl font-bold mb-4">📊 Generate Report</h2>
+                    <div class="flex gap-4 items-end flex-wrap">
+                        <div>
+                            <label class="block text-sm font-medium mb-2" style="color: var(--text-secondary);">Start Date</label>
+                            <input type="date" id="report-start-date" class="border rounded px-3 py-2" style="background: var(--bg-card); border-color: var(--border-color); color: var(--text-primary);" value="2025-11-01">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-2" style="color: var(--text-secondary);">End Date</label>
+                            <input type="date" id="report-end-date" class="border rounded px-3 py-2" style="background: var(--bg-card); border-color: var(--border-color); color: var(--text-primary);" value="${new Date().toISOString().split('T')[0]}">
+                        </div>
+                        <div>
+                            <button onclick="generateReport()" class="px-6 py-2 rounded font-semibold" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; cursor: pointer; transition: transform 0.2s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                                Generate Report
+                            </button>
+                        </div>
+                        <div id="report-status" class="ml-4" style="display: none;">
+                            <span class="text-sm font-medium"></span>
+                        </div>
+                    </div>
+                    <p class="text-xs mt-3" style="color: var(--text-secondary);">
+                        💡 Reports include AI-powered insights, performance charts, and transaction history. Requires at least 2 daily snapshots.
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                    <div class="metric-card">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Portfolio Value</p>
+                                <h3 class="text-3xl font-bold mt-1">${formatCurrency(metrics.totalCurrentValue)}</h3>
+                                <p class="text-xs mt-1" style="color: var(--text-secondary);">Cost: ${formatCurrency(metrics.totalCostValue)}</p>
+                            </div>
+                            <div class="icon-wrapper icon-blue">
+                                <i class="fas fa-wallet"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="metric-card">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Unrealized Gains</p>
+                                <h3 class="text-3xl font-bold mt-1 ${metrics.totalUnrealizedPL >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                    ${formatCurrency(metrics.totalUnrealizedPL)}
+                                </h3>
+                                <p class="text-xs mt-1 ${metrics.totalUnrealizedPLPercent >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                    ${metrics.totalUnrealizedPLPercent >= 0 ? '+' : ''}${formatNumber(metrics.totalUnrealizedPLPercent)}%
+                                </p>
+                            </div>
+                            <div class="icon-wrapper ${metrics.totalUnrealizedPL >= 0 ? 'icon-green' : 'icon-red'}">
+                                <i class="fas fa-chart-line"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="metric-card">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Day Change</p>
+                                <h3 class="text-3xl font-bold mt-1 ${metrics.totalDayChange >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                    ${formatCurrency(metrics.totalDayChange)}
+                                </h3>
+                                <p class="text-xs mt-1 ${metrics.totalDayChangePercent >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                    ${metrics.totalDayChangePercent >= 0 ? '+' : ''}${formatNumber(metrics.totalDayChangePercent)}%
+                                </p>
+                            </div>
+                            <div class="icon-wrapper ${metrics.totalDayChange >= 0 ? 'icon-green' : 'icon-red'}">
+                                <i class="fas fa-calendar-day"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="metric-card">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">XIRR (Since Nov '21)</p>
+                                <h3 class="text-3xl font-bold mt-1 ${metrics.xirr >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                    ${metrics.xirr !== null ? (metrics.xirr >= 0 ? '+' : '') + formatNumber(metrics.xirr) + '%' : 'N/A'}
+                                </h3>
+                                <p class="text-xs mt-1" style="color: var(--text-secondary);">vs QQQ: ${metrics.qqqXIRR ? metrics.qqqXIRR.toFixed(2) : '0.00'}% ${metrics.xirr > (metrics.qqqXIRR || 0) ? '🟢' : '🔴'}</p>
+                            </div>
+                            <div class="icon-wrapper icon-purple">
+                                <i class="fas fa-trophy"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    <div class="card p-6">
+                        <h3 class="text-lg font-bold mb-4">Performance Metrics</h3>
+                        <div class="space-y-4">
+                            <div class="flex justify-between items-center p-4 rounded-lg" style="background: var(--bg-primary);">
+                                <div class="flex items-center gap-3">
+                                    <div class="icon-wrapper icon-purple" style="width: 40px; height: 40px;">
+                                        <i class="fas fa-calendar-alt" style="font-size: 16px;"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-semibold">Period Gains</p>
+                                        <div style="display: flex; gap: 4px;">
+                                            <select id="periodMonth" onchange="selectedPeriodMonth = parseInt(this.value); render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
+                                                ${Array.from({length: 12}, (_, i) => i + 1).map(m => {
+                                                    return `<option value="${m}" ${selectedPeriodMonth === m ? 'selected' : ''}>${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1]}</option>`;
+                                                }).join('')}
+                                            </select>
+                                            <select id="periodYear" onchange="selectedPeriodYear = parseInt(this.value); render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
+                                                ${new Date().getFullYear() >= 2026 ? `<option value="2026" ${selectedPeriodYear === 2026 ? 'selected' : ''}>2026</option>` : ''}
+                                                <option value="2025" ${selectedPeriodYear === 2025 ? 'selected' : ''}>2025</option>
+                                                <option value="2024" ${selectedPeriodYear === 2024 ? 'selected' : ''}>2024</option>
+                                                <option value="2023" ${selectedPeriodYear === 2023 ? 'selected' : ''}>2023</option>
+                                                <option value="2022" ${selectedPeriodYear === 2022 ? 'selected' : ''}>2022</option>
+                                                <option value="2021" ${selectedPeriodYear === 2021 ? 'selected' : ''}>2021</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-xl font-bold ${metrics.periodGains >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                        ${formatCurrency(metrics.periodGains)}
+                                    </p>
+                                    <p class="text-sm ${metrics.periodGainsPercent >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                        ${metrics.periodGainsPercent >= 0 ? '+' : ''}${formatNumber(metrics.periodGainsPercent)}%
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div class="flex justify-between items-center p-4 rounded-lg" style="background: var(--bg-primary);">
+                                <div class="flex items-center gap-3">
+                                    <div class="icon-wrapper icon-blue" style="width: 40px; height: 40px;">
+                                        <i class="fas fa-chart-area" style="font-size: 16px;"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-semibold">Annual Gains</p>
+                                        <select id="ytdYear" onchange="selectedYTDYear = parseInt(this.value); render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
+                                            ${new Date().getFullYear() >= 2026 ? '<option value="2026" ' + (selectedYTDYear === 2026 ? 'selected' : '') + '>2026</option>' : ''}        
+                                            <option value="2025" ${selectedYTDYear === 2025 ? 'selected' : ''}>2025</option>
+                                            <option value="2024" ${selectedYTDYear === 2024 ? 'selected' : ''}>2024</option>
+                                            <option value="2023" ${selectedYTDYear === 2023 ? 'selected' : ''}>2023</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-xl font-bold ${metrics.ytdGains >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                        ${formatCurrency(metrics.ytdGains)}
+                                    </p>
+                                    <p class="text-sm ${metrics.ytdGainsPercent >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                        ${metrics.ytdGainsPercent >= 0 ? '+' : ''}${formatNumber(metrics.ytdGainsPercent)}%
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div class="flex justify-between items-center p-4 rounded-lg" style="background: var(--bg-primary);">
+                                <div class="flex items-center gap-3">
+                                    <div class="icon-wrapper icon-green" style="width: 40px; height: 40px;">
+                                        <i class="fas fa-chart-pie" style="font-size: 16px;"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-semibold">Stocks in Profit/Loss</p>
+                                        <p class="text-xs" style="color: var(--text-secondary); margin-top: 2px;">Based on unrealized P&L</p>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-xl font-bold">
+                                        <span class="text-green-600">${metrics.stocksInProfit}</span>
+                                        <span style="color: var(--text-secondary); margin: 0 4px;">/</span>
+                                        <span class="text-red-600">${metrics.stocksInLoss}</span>
+                                    </p>
+                                    <p class="text-xs" style="color: var(--text-secondary);">
+                                        ${((metrics.stocksInProfit / portfolio.length) * 100).toFixed(0)}% profitable
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div class="flex justify-between items-center p-4 rounded-lg" style="background: var(--bg-primary);">
+                                <div class="flex items-center gap-3">
+                                    <div class="icon-wrapper ${metrics.athData.athDiffPercent >= 0 ? 'icon-green' : 'icon-red'}" style="width: 40px; height: 40px;">
+                                        <i class="fas fa-mountain" style="font-size: 16px;"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-semibold">ATH Details</p>
+                                        <p class="text-xs" style="color: var(--text-secondary); margin-top: 2px;">Cumulative profit peak</p>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-xl font-bold">
+                                        ${metrics.athData.athMonth}
+                                    </p>
+                                    <p class="text-xs ${metrics.athData.athDiffPercent >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                        ${metrics.athData.athDiffPercent >= 0 ? '+' : ''}${formatNumber(metrics.athData.athDiffPercent)}% from ATH
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-bold">Monthly Performance</h3>
+                            <div class="flex gap-2">
+                                <select id="chartType" onchange="selectedChartType = this.value; render()" class="text-sm border rounded px-3 py-2" style="background: var(--bg-card); border-color: var(--border-color);">
+                                    <option value="monthly" ${selectedChartType === 'monthly' ? 'selected' : ''}>Monthly Gains</option>
+                                    <option value="cumulative" ${selectedChartType === 'cumulative' ? 'selected' : ''}>Cumulative Gains</option>
+                                </select>
+                                <select id="chartYear" onchange="selectedChartYear = parseInt(this.value); render()" class="text-sm border rounded px-3 py-2" style="background: var(--bg-card); border-color: var(--border-color); ${selectedChartType === 'cumulative' ? 'display: none;' : ''}">
+                                    ${new Date().getFullYear() >= 2026 ? '<option value="2026" ' + (selectedChartYear === 2026 ? 'selected' : '') + '>2026</option>' : ''}
+                                    <option value="2025" ${selectedChartYear === 2025 ? 'selected' : ''}>2025</option>
+                                    <option value="2024" ${selectedChartYear === 2024 ? 'selected' : ''}>2024</option>
+                                    <option value="2023" ${selectedChartYear === 2023 ? 'selected' : ''}>2023</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="portfolioChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+                    <div class="card p-4">
+                        <div class="icon-wrapper icon-blue mb-2" style="width: 36px; height: 36px; font-size: 14px;">
+                            <i class="fas fa-list"></i>
+                        </div>
+                        <p class="text-xs" style="color: var(--text-secondary);">Total Stocks</p>
+                        <p class="text-2xl font-bold mt-1">${metrics.totalStocks}</p>
+                    </div>
+                    <div class="card p-4">
+                        <div class="icon-wrapper icon-green mb-2" style="width: 36px; height: 36px; font-size: 14px;">
+                            <i class="fas fa-arrow-up"></i>
+                        </div>
+                        <p class="text-xs" style="color: var(--text-secondary);">Gaining Today</p>
+                        <p class="text-2xl font-bold mt-1 text-green-600">${metrics.gainingToday}</p>
+                    </div>
+                    <div class="card p-4">
+                        <div class="icon-wrapper icon-red mb-2" style="width: 36px; height: 36px; font-size: 14px;">
+                            <i class="fas fa-arrow-down"></i>
+                        </div>
+                        <p class="text-xs" style="color: var(--text-secondary);">Losing Today</p>
+                        <p class="text-2xl font-bold mt-1 text-red-600">${metrics.losingToday}</p>
+                    </div>
+                    <div class="card p-4">
+                        <div class="icon-wrapper icon-blue mb-2" style="width: 36px; height: 36px; font-size: 14px;">
+                            <i class="fas fa-crown"></i>
+                        </div>
+                        <p class="text-xs" style="color: var(--text-secondary);">Max Holding</p>
+                        <p class="text-sm font-bold mt-1">${formatCurrency(metrics.maxHolding.value)}</p>
+                        <p class="text-xs truncate" style="color: var(--text-secondary);" title="${metrics.maxHolding.name}">${metrics.maxHolding.name.substring(0, 15)}${metrics.maxHolding.name.length > 15 ? '...' : ''}</p>
+                    </div>
+                    <div class="card p-4">
+                        <div class="icon-wrapper icon-green mb-2" style="width: 36px; height: 36px; font-size: 14px;">
+                            <i class="fas fa-star"></i>
+                        </div>
+                        <p class="text-xs" style="color: var(--text-secondary);">Biggest Gainer</p>
+                        <p class="text-sm font-bold mt-1 text-green-600">${metrics.biggestGainer && metrics.biggestGainer.percent > -Infinity ? '+' + formatNumber(metrics.biggestGainer.percent) + '%' : '-'}</p>
+                        <p class="text-xs truncate" style="color: var(--text-secondary);" title="${metrics.biggestGainer ? metrics.biggestGainer.name : ''}">${metrics.biggestGainer && metrics.biggestGainer.name ? metrics.biggestGainer.name.substring(0, 15) + (metrics.biggestGainer.name.length > 15 ? '...' : '') : '-'}</p>
+                    </div>
+                    <div class="card p-4">
+                        <div class="icon-wrapper icon-red mb-2" style="width: 36px; height: 36px; font-size: 14px;">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <p class="text-xs" style="color: var(--text-secondary);">Biggest Loser</p>
+                        <p class="text-sm font-bold mt-1 text-red-600">${metrics.biggestLoser && metrics.biggestLoser.percent < Infinity ? formatNumber(metrics.biggestLoser.percent) + '%' : '-'}</p>
+                        <p class="text-xs truncate" style="color: var(--text-secondary);" title="${metrics.biggestLoser ? metrics.biggestLoser.name : ''}">${metrics.biggestLoser && metrics.biggestLoser.name ? metrics.biggestLoser.name.substring(0, 15) + (metrics.biggestLoser.name.length > 15 ? '...' : '') : '-'}</p>
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <button onclick="showTransactionForm = true; render()" class="btn flex items-center gap-2" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
+                        <i class="fas fa-plus"></i>
+                        Add Transaction
+                    </button>
+                </div>
+
+                ${showTransactionForm ? `
+                <div class="card p-6 mb-6">
+                    <h2 class="text-xl font-bold mb-4">Add Transaction</h2>
+                    <div class="mb-4">
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" onchange="isNewStock = this.checked; render()" ${isNewStock ? 'checked' : ''}>
+                            <span class="text-sm">Add new stock (not in portfolio)</span>
+                        </label>
+                    </div>
+                    <form onsubmit="handleTransactionSubmit(event)" class="space-y-4">
+                        ${isNewStock ? `
+                        <input type="text" id="stockName" placeholder="Stock Name" required class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                        <input type="text" id="ticker" placeholder="Ticker Symbol (e.g., RELIANCE.NS)" required class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                        <input type="text" id="sector" placeholder="Sector (optional)" class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                        ` : `
+                        <select id="stockSelect" required class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                            <option value="">Select Stock</option>
+                            ${portfolio.map(s => `<option value="${s.ticker}">${s.name}</option>`).join('')}
+                        </select>
+                        `}
+                        <div class="grid grid-cols-2 gap-4">
+                            <input type="number" id="quantity" placeholder="Quantity" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                            <select id="type" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                                <option value="BUY">BUY</option>
+                                <option value="SELL">SELL</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <input type="number" id="price" placeholder="Price" step="0.01" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                            <input type="date" id="date" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);" value="${new Date().toISOString().split('T')[0]}">
+                        </div>
+                        <div class="flex gap-2">
+                            <button type="submit" class="btn btn-primary">Add Transaction</button>
+                            <button type="button" onclick="showTransactionForm = false; isNewStock = false; render()" class="btn" style="background: var(--border-color);">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+                ` : ''}
+
+                <div class="table-wrapper mb-6">
+                    <div class="p-6">
+                        <h2 class="text-xl font-bold mb-4">Portfolio Holdings</h2>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th class="sortable" onclick="sortTable('name')">Stock ${getSortIcon('name')}</th>
+                                    <th class="sortable text-right" onclick="sortTable('quantity')">Quantity ${getSortIcon('quantity')}</th>
+                                    <th class="sortable text-right" onclick="sortTable('avgCost')">Avg Cost ${getSortIcon('avgCost')}</th>
+                                    <th class="sortable text-right" onclick="sortTable('costValue')">Cost Value ${getSortIcon('costValue')}</th>
+                                    <th class="sortable text-right" onclick="sortTable('currentPrice')">Current Price ${getSortIcon('currentPrice')}</th>
+                                    <th class="sortable text-right" onclick="sortTable('priceChange')">Price Change ${getSortIcon('priceChange')}</th>
+                                    <th class="sortable text-right" onclick="sortTable('dayChange')">Day Change ${getSortIcon('dayChange')}</th>
+                                    <th class="sortable text-right" onclick="sortTable('currentValue')">Current Value ${getSortIcon('currentValue')}</th>
+                                    <th class="sortable text-right" onclick="sortTable('unrealizedPL')">Unrealized P/L ${getSortIcon('unrealizedPL')}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${sortedPortfolio.map(stock => {
+                                    const currentPrice = prices[stock.ticker]?.price || 0;
+                                    const priceChange = prices[stock.ticker]?.change || 0;
+                                    const costValue = stock.quantity * stock.avgCost;
+                                    const currentValue = stock.quantity * currentPrice;
+                                    const unrealizedPL = currentValue - costValue;
+                                    const unrealizedPLPercent = (unrealizedPL / costValue) * 100;
+                                    const dayChange = dayChangeAmounts[stock.ticker] || (currentValue * (priceChange / 100));
+                                    
+                                    return `
+                                    <tr>
+                                        <td class="font-medium">${stock.name}</td>
+                                        <td class="text-right">${formatNumber(stock.quantity)}</td>
+                                        <td class="text-right">$${formatNumber(stock.avgCost)}</td>
+                                        <td class="text-right font-semibold">$${formatNumber(costValue)}</td>
+                                        <td class="text-right">$${formatNumber(currentPrice)}</td>
+                                        <td class="text-right">
+                                            <span class="badge ${priceChange >= 0 ? 'badge-green' : 'badge-red'}">
+                                                ${priceChange >= 0 ? '+' : ''}${formatNumber(priceChange)}%
+                                            </span>
+                                        </td>
+                                        <td class="text-right ${dayChange >= 0 ? 'text-green-600' : 'text-red-600'} font-semibold">
+                                            $${formatNumber(dayChange)}
+                                        </td>
+                                        <td class="text-right font-semibold">$${formatNumber(currentValue)}</td>
+                                        <td class="text-right ${unrealizedPL >= 0 ? 'text-green-600' : 'text-red-600'} font-bold">
+                                            <div>$${formatNumber(unrealizedPL)}</div>
+                                            <div class="text-xs" style="font-weight: 500;">
+                                                ${unrealizedPLPercent >= 0 ? '+' : ''}${formatNumber(unrealizedPLPercent)}%
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                            <tfoot style="background: linear-gradient(135deg, #667eea10 0%, #764ba210 100%);">
+                                <tr class="font-bold">
+                                    <td class="px-4 py-4">TOTAL</td>
+                                    <td class="px-4 py-4"></td>
+                                    <td class="px-4 py-4"></td>
+                                    <td class="px-4 py-4 text-right">$${formatNumber(metrics.totalCostValue)}</td>
+                                    <td class="px-4 py-4"></td>
+                                    <td class="px-4 py-4"></td>
+                                    <td class="px-4 py-4 text-right ${metrics.totalDayChange >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                        $${formatNumber(metrics.totalDayChange)}
+                                    </td>
+                                    <td class="px-4 py-4 text-right">$${formatNumber(metrics.totalCurrentValue)}</td>
+                                    <td class="px-4 py-4 text-right ${metrics.totalUnrealizedPL >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                        <div>$${formatNumber(metrics.totalUnrealizedPL)}</div>
+                                        <div class="text-xs" style="font-weight: 500;">
+                                            ${metrics.totalUnrealizedPLPercent >= 0 ? '+' : ''}${formatNumber(metrics.totalUnrealizedPLPercent)}%
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold">Transaction History</h2>
+                        <select onchange="const [year, month] = this.value.split('-'); selectedTransactionYear = parseInt(year); selectedTransactionMonth = parseInt(month); render()" class="text-sm border rounded px-3 py-2" style="background: var(--bg-card); border-color: var(--border-color);">
+                            ${(() => {
+                                const options = [];
+                                const currentDate = new Date();
+                                const currentYear = currentDate.getFullYear();
+                                const currentMonth = currentDate.getMonth() + 1;
+                                
+                                // Generate months from Oct 2025 to current month
+                                for (let year = 2025; year <= currentYear; year++) {
+                                    const startMonth = (year === 2025) ? 10 : 1;
+                                    const endMonth = (year === currentYear) ? currentMonth : 12;
+                                    
+                                    for (let month = startMonth; month <= endMonth; month++) {
+                                        const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month - 1];
+                                        const isSelected = (year === selectedTransactionYear && month === selectedTransactionMonth);
+                                        options.push('<option value="' + year + '-' + month + '" ' + (isSelected ? 'selected' : '') + '>' + monthName + ' ' + year + '</option>');
+                                    }
+                                }
+                                return options.reverse().join('');
+                            })()}
+                        </select>
+                    </div>
+                    
+                    <div class="mb-4 flex gap-4 items-center flex-wrap">
+                        <div class="flex gap-4">
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" ${showBuyTransactions ? 'checked' : ''} onchange="showBuyTransactions = this.checked; render()">
+                                <span class="text-sm font-semibold text-green-700">Buy Transactions (${transactions.filter(t => t.type === 'BUY' && t.date >= `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-01` && t.date < `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-32`).length})</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" ${showSellTransactions ? 'checked' : ''} onchange="showSellTransactions = this.checked; render()">
+                                <span class="text-sm font-semibold text-red-700">Sell Transactions (${transactions.filter(t => t.type === 'SELL' && t.date >= `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-01` && t.date < `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-32`).length})</span>
+                            </label>
+                        </div>
+                        <div class="ml-auto flex gap-6">
+                            <div>
+                                <span class="text-sm" style="color: var(--text-secondary);">Total Purchased:</span>
+                                <span class="text-sm font-bold text-green-700">$${formatNumber(transactions.filter(t => t.type === 'BUY' && t.date >= `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-01` && t.date < `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-32`).reduce((sum, t) => sum + (t.quantity * t.price), 0))}</span>
+                            </div>
+                            <div>
+                                <span class="text-sm" style="color: var(--text-secondary);">Total Sold:</span>
+                                <span class="text-sm font-bold text-red-700">$${formatNumber(transactions.filter(t => t.type === 'SELL' && t.date >= `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-01` && t.date < `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-32`).reduce((sum, t) => sum + (t.quantity * t.price), 0))}</span>
+                            </div>
+                            <div>
+                                <span class="text-sm" style="color: var(--text-secondary);">Total MTM:</span>
+                                <span class="text-sm font-bold ${(() => {
+                                    const startDate = selectedTransactionYear + '-' + String(selectedTransactionMonth).padStart(2, '0') + '-01';
+                                    const endDate = selectedTransactionYear + '-' + String(selectedTransactionMonth).padStart(2, '0') + '-32';
+                                    const totalMTM = transactions.filter(t => t.date >= startDate && t.date < endDate).reduce((sum, t) => {
+                                        if (t.price > 0 && mtmPrices[t.ticker]) {
+                                            const cmp = mtmPrices[t.ticker];
+                                            if (t.type === 'BUY') {
+                                                return sum + ((cmp - t.price) * t.quantity);
+                                            } else {
+                                                return sum + ((t.price - cmp) * t.quantity);
+                                            }
+                                        }
+                                        return sum;
+                                    }, 0);
+                                    return totalMTM >= 0 ? 'text-green-700' : 'text-red-700';
+                                })()}">${(() => {
+                                    const startDate = selectedTransactionYear + '-' + String(selectedTransactionMonth).padStart(2, '0') + '-01';
+                                    const endDate = selectedTransactionYear + '-' + String(selectedTransactionMonth).padStart(2, '0') + '-32';
+                                    const totalMTM = transactions.filter(t => t.date >= startDate && t.date < endDate).reduce((sum, t) => {
+                                        if (t.price > 0 && mtmPrices[t.ticker]) {
+                                            const cmp = mtmPrices[t.ticker];
+                                            if (t.type === 'BUY') {
+                                                return sum + ((cmp - t.price) * t.quantity);
+                                            } else {
+                                                return sum + ((t.price - cmp) * t.quantity);
+                                            }
+                                        }
+                                        return sum;
+                                    }, 0);
+                                    const sign = totalMTM >= 0 ? '+' : '';
+                                    return sign + '$' + formatNumber(Math.abs(totalMTM));
+                                })()}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="overflow-x-auto">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Type</th>
+                                    <th>Stock</th>
+                                    <th class="text-right">Quantity</th>
+                                    <th class="text-right">Price</th>
+                                    <th class="text-right">Total Value</th>
+                                    <th class="text-right">MTM</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${transactions.slice().reverse()
+                                .filter(txn => txn.date >= `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-01` && txn.date < `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-32`)
+                                .filter(txn => 
+                                    (txn.type === 'BUY' && showBuyTransactions) || 
+                                    (txn.type === 'SELL' && showSellTransactions)
+                                ).map(txn => {
+                                    // Calculate MTM
+                                    let mtm = null;
+                                    let mtmClass = '';
+                                    let mtmText = '-';
+                                    
+                                    // Skip if transaction price is 0 (corporate action)
+                                    if (txn.price > 0 && mtmPrices[txn.ticker]) {
+                                        const cmp = mtmPrices[txn.ticker];
+                                        if (txn.type === 'BUY') {
+                                            // For BUY: MTM = (CMP - Buy Price) × Quantity
+                                            mtm = (cmp - txn.price) * txn.quantity;
+                                        } else {
+                                            // For SELL: MTM = (Sell Price - CMP) × Quantity
+                                            mtm = (txn.price - cmp) * txn.quantity;
+                                        }
+                                        
+                                        if (mtm !== null) {
+                                            mtmClass = mtm >= 0 ? 'text-green-600' : 'text-red-600';
+                                            const sign = mtm >= 0 ? '+' : '';
+                                            mtmText = `${sign}$${formatNumber(Math.abs(mtm))}`;
+                                        }
+                                    }
+                                    
+                                    return `
+                                <tr>
+                                    <td>${txn.date}</td>
+                                    <td>
+                                        <span class="badge ${txn.type === 'BUY' ? 'badge-green' : 'badge-red'}">
+                                            ${txn.type}
+                                        </span>
+                                    </td>
+                                    <td>${txn.stock}</td>
+                                    <td class="text-right">${formatNumber(txn.quantity)}</td>
+                                    <td class="text-right">$${formatNumber(txn.price)}</td>
+                                    <td class="text-right font-semibold">$${formatNumber(txn.quantity * txn.price)}</td>
+                                    <td class="text-right font-semibold ${mtmClass}">${mtmText}</td>
+                                </tr>
+                                `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+            
+            // Create chart after render
+            setTimeout(() => createChart(metrics), 100);
+        }
+
+        
+        function createChart(metrics) {
+            const canvas = document.getElementById('portfolioChart');
+            if (!canvas) return;
+            
+            if (portfolioChart) {
+                portfolioChart.destroy();
+            }
+            
+            const snapshots = getSnapshots();
+            const textColor = darkMode ? '#94a3b8' : '#64748b';
+            const gridColor = darkMode ? '#334155' : '#e2e8f0';
+            
+            if (selectedChartType === 'cumulative') {
+                // Cumulative gains from Nov 2021 (portfolio inception - matches ATH card)
+                const startDate = new Date('2021-11-01');
+                const endDate = new Date();
+                const currentMonth = endDate.getMonth() + 1;
+                const currentYear = endDate.getFullYear();
+                const months = [];
+                const cumulativeGains = [];
+                let runningTotal = 0;
+                
+                for (let d = new Date(startDate); d <= endDate; d.setMonth(d.getMonth() + 1)) {
+                    const year = d.getFullYear();
+                    const month = d.getMonth() + 1;
+                    const monthStr = String(month).padStart(2, '0');
+                    const monthStart = `${year}-${monthStr}-01`;
+                    const monthEnd = `${year}-${monthStr}-${new Date(year, month, 0).getDate()}`;
+                    
+                    months.push(d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }));
+                    
+                    // Get month start and end values (use getClosestSnapshot to handle weekends/holidays)
+                    const prevMonthEndDate = month === 1 
+                        ? `${year-1}-12-31` 
+                        : `${year}-${String(month-1).padStart(2, '0')}-${new Date(year, month-1, 0).getDate()}`;
+                    const prevMonthEnd = getClosestSnapshot(snapshots, prevMonthEndDate);
+                    
+                    // For current month, use periodGains from metrics; otherwise use snapshot
+                    let monthGain;
+                    if (year === currentYear && month === currentMonth && selectedPeriodMonth === currentMonth) {
+                        monthGain = metrics.periodGains;
+                    } else {
+                        const monthEndValue = getClosestSnapshot(snapshots, monthEnd);
+                        
+                        if (prevMonthEnd && monthEndValue) {
+                            const monthCashFlows = HISTORICAL_CASH_FLOWS.filter(cf => cf.date >= monthStart && cf.date <= monthEnd);
+                            const withdrawals = monthCashFlows.filter(cf => cf.type === 'Withdrawl' || cf.type === 'Withdrawal').reduce((sum, cf) => sum + cf.amount, 0);
+                            const deposits = monthCashFlows.filter(cf => cf.type === 'Deposit').reduce((sum, cf) => sum + cf.amount, 0);
+                            
+                            const monthTransactions = transactions.filter(t => t.date >= monthStart && t.date <= monthEnd);
+                            const soldValue = monthTransactions.filter(t => t.type === 'SELL').reduce((sum, t) => sum + (t.quantity * t.price), 0);
+                            const purchasedValue = monthTransactions.filter(t => t.type === 'BUY').reduce((sum, t) => sum + (t.quantity * t.price), 0);
+                            
+                            monthGain = monthEndValue + withdrawals + soldValue - deposits - purchasedValue - prevMonthEnd;
+                        } else {
+                            monthGain = 0;
+                        }
+                    }
+                    
+                    runningTotal += monthGain;
+                    cumulativeGains.push(runningTotal);
+                }
+                
+                portfolioChart = new Chart(canvas, {
+                    type: 'line',
+                    data: {
+                        labels: months,
+                        datasets: [{
+                            label: 'Cumulative Gains',
+                            data: cumulativeGains,
+                            borderColor: '#667eea',
+                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            borderWidth: 3,
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 2,
+                            pointHoverRadius: 6,
+                            pointBackgroundColor: '#667eea',
+                            pointHoverBackgroundColor: '#667eea',
+                            pointHoverBorderColor: '#fff',
+                            pointHoverBorderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                backgroundColor: darkMode ? '#1e293b' : '#ffffff',
+                                titleColor: textColor,
+                                bodyColor: textColor,
+                                borderColor: gridColor,
+                                borderWidth: 1,
+                                padding: 12,
+                                callbacks: {
+                                    label: function(context) {
+                                        const value = context.parsed.y;
+                                        const sign = value >= 0 ? '+' : '';
+                                        return sign + '$' + new Intl.NumberFormat('en-US').format(value);
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: gridColor, display: false },
+                                ticks: { 
+                                    color: textColor,
+                                    maxRotation: 45,
+                                    minRotation: 45
+                                }
+                            },
+                            y: {
+                                grid: { color: gridColor },
+                                ticks: {
+                                    color: textColor,
+                                    callback: function(value) {
+                                        return '$' + (value / 1000).toFixed(0) + 'K';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            } else {
+                // Monthly gains bar chart (existing code)
+                const year = selectedChartYear;
+                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                const monthlyGains = [];
+                const currentMonth = new Date().getMonth() + 1; // 1-12
+                const currentYear = new Date().getFullYear();
+                
+                for (let month = 1; month <= 12; month++) {
+                    const monthStr = String(month).padStart(2, '0');
+                    const monthStart = `${year}-${monthStr}-01`;
+                    const monthEnd = `${year}-${monthStr}-${new Date(year, month, 0).getDate()}`;
+                    
+                    // Find most recent snapshot before period start (handles weekends/holidays)
+                    const prevMonthEndDate = month === 1 
+                        ? `${year-1}-12-31`
+                        : `${year}-${String(month-1).padStart(2, '0')}-${new Date(year, month-1, 0).getDate()}`;
+                    const prevMonthEnd = getClosestSnapshot(snapshots, prevMonthEndDate);
+                    
+                    // For current month in current year, use Period Gains value directly
+                    if (year === currentYear && month === currentMonth && selectedPeriodMonth === currentMonth) {
+                        monthlyGains.push(metrics.periodGains);
+                        continue;
+                    }
+                    
+                    const monthEndValue = getClosestSnapshot(snapshots, monthEnd);
+                    
+                    if (!prevMonthEnd || !monthEndValue) {
+                        monthlyGains.push(null);
+                        continue;
+                    }
+                    
+                    const monthCashFlows = HISTORICAL_CASH_FLOWS.filter(cf => cf.date >= monthStart && cf.date <= monthEnd);
+                    const withdrawals = monthCashFlows.filter(cf => cf.type === 'Withdrawl' || cf.type === 'Withdrawal').reduce((sum, cf) => sum + cf.amount, 0);
+                    const deposits = monthCashFlows.filter(cf => cf.type === 'Deposit').reduce((sum, cf) => sum + cf.amount, 0);
+                    
+                    const monthTransactions = transactions.filter(t => t.date >= monthStart && t.date <= monthEnd);
+                    const soldValue = monthTransactions.filter(t => t.type === 'SELL').reduce((sum, t) => sum + (t.quantity * t.price), 0);
+                    const purchasedValue = monthTransactions.filter(t => t.type === 'BUY').reduce((sum, t) => sum + (t.quantity * t.price), 0);
+                    
+                    const gain = monthEndValue + withdrawals + soldValue - deposits - purchasedValue - prevMonthEnd;
+                    monthlyGains.push(gain);
+                }
+                
+                portfolioChart = new Chart(canvas, {
+                    type: 'bar',
+                    data: {
+                        labels: months,
+                        datasets: [{
+                            label: 'Monthly Gain/Loss',
+                            data: monthlyGains,
+                            backgroundColor: monthlyGains.map(val => {
+                                if (val === null) return 'rgba(100, 116, 139, 0.2)';
+                                return val >= 0 ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)';
+                            }),
+                            borderColor: monthlyGains.map(val => {
+                                if (val === null) return 'rgba(100, 116, 139, 0.5)';
+                                return val >= 0 ? 'rgba(16, 185, 129, 1)' : 'rgba(239, 68, 68, 1)';
+                            }),
+                            borderWidth: 2,
+                            borderRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                backgroundColor: darkMode ? '#1e293b' : '#ffffff',
+                                titleColor: textColor,
+                                bodyColor: textColor,
+                                borderColor: gridColor,
+                                borderWidth: 1,
+                                padding: 12,
+                                callbacks: {
+                                    label: function(context) {
+                                        const value = context.parsed.y;
+                                        if (value === null) return 'No data';
+                                        const sign = value >= 0 ? '+' : '';
+                                        return sign + '$' + new Intl.NumberFormat('en-US').format(value);
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: gridColor, display: false },
+                                ticks: { color: textColor }
+                            },
+                            y: {
+                                grid: { color: gridColor },
+                                ticks: {
+                                    color: textColor,
+                                    callback: function(value) {
+                                        return '$' + (value / 100000).toFixed(1) + 'L';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        window.handleTransactionSubmit = function(e) {
+            e.preventDefault();
+            let txn;
+            if (isNewStock) {
+                txn = {
+                    date: document.getElementById('date').value,
+                    type: document.getElementById('type').value,
+                    stock: document.getElementById('stockName').value,
+                    ticker: document.getElementById('ticker').value.toUpperCase(),
+                    quantity: parseFloat(document.getElementById('quantity').value),
+                    price: parseFloat(document.getElementById('price').value),
+                    sector: document.getElementById('sector').value || 'Other'
+                };
+            } else {
+                const ticker = document.getElementById('stockSelect').value;
+                const stock = portfolio.find(s => s.ticker === ticker);
+                txn = {
+                    date: document.getElementById('date').value,
+                    type: document.getElementById('type').value,
+                    stock: stock.name,
+                    ticker: ticker,
+                    quantity: parseFloat(document.getElementById('quantity').value),
+                    price: parseFloat(document.getElementById('price').value)
+                };
+            }
+            addTransaction(txn);
+        };
+
+        setInterval(() => {
+            const estTime = getESTTime();
+            const hour = estTime.getHours();
+            const minute = estTime.getMinutes();
+            const day = estTime.getDay();
+            const isWeekday = day >= 1 && day <= 5;
+            const isMarketHours = (hour === 9 && minute >= 30) || (hour > 9 && hour < 16) || (hour === 16 && minute === 0);
+            if (isWeekday && isMarketHours) {
+                fetchPrices();
+            }
+        }, 300000);
+
+        // Initialize dashboard with Supabase data
+async function initializeDashboard() {
+    console.log('🚀 Initializing dashboard...');
+    
+    // Try to load from Supabase first
+    const supabasePortfolio = await loadPortfolioFromSupabase();
+    
+    if (supabasePortfolio && supabasePortfolio.length > 0) {
+        portfolio = supabasePortfolio;
+        console.log('✅ Using Supabase data');
+    } else {
+        // Fallback to localStorage
+        portfolio = JSON.parse(localStorage.getItem('us_portfolio')) || INITIAL_PORTFOLIO;
+        console.log('⚠️ Fallback to localStorage');
+    }
+    
+    // Load transactions (localStorage for now, we'll add Supabase later)
+    // Load transactions from Supabase first, fallback to localStorage
+const supabaseTransactions = await loadTransactionsFromSupabase();
+
+if (supabaseTransactions && supabaseTransactions.length > 0) {
+    // Sync Supabase transactions to localStorage for backward compatibility
+    transactions = supabaseTransactions;
+    localStorage.setItem('us_transactions', JSON.stringify(transactions));
+    console.log(`✅ Loaded ${transactions.length} transactions from Supabase`);
+} else {
+    // Fallback to localStorage
+    transactions = JSON.parse(localStorage.getItem('us_transactions')) || INITIAL_TRANSACTIONS;
+    console.log(`⚠️ Using ${transactions.length} transactions from localStorage`);
+}
+
+// Load cash flows from Supabase for XIRR calculation
+    const supabaseCashFlows = await loadCashFlowsFromSupabase();
+    
+    if (supabaseCashFlows && supabaseCashFlows.length > 0) {
+        // Replace hardcoded HISTORICAL_CASH_FLOWS with Supabase data
+        HISTORICAL_CASH_FLOWS.length = 0; // Clear the array
+        HISTORICAL_CASH_FLOWS.push(...supabaseCashFlows); // Add Supabase data
+        console.log(`✅ Using ${HISTORICAL_CASH_FLOWS.length} cash flows from Supabase for XIRR`);
+    } else {
+        console.log(`⚠️ Using ${HISTORICAL_CASH_FLOWS.length} hardcoded cash flows for XIRR`);
+    }    
+
+    // Initialize snapshots from Supabase
+    await initializeSnapshots();
+    
+    // Start the dashboard
+    fetchPrices();
+    await fetchMTMPrices();
+    render();
+}
+// Start the app
+initializeDashboard();
+
+// Report Generator Function for US Portfolio
+async function generateReport() {
+    const startDate = document.getElementById('report-start-date').value;
+    const endDate = document.getElementById('report-end-date').value;
+    const statusDiv = document.getElementById('report-status');
+    const statusText = statusDiv.querySelector('span');
+    
+    if (!startDate || !endDate) {
+        alert('Please select both start and end dates');
+        return;
+    }
+    
+    if (new Date(startDate) > new Date(endDate)) {
+        alert('Start date must be before end date');
+        return;
+    }
+    
+    // Show loading status
+    statusDiv.style.display = 'block';
+    statusText.textContent = '⏳ Generating report...';
+    statusText.style.color = '#667eea';
+    
+    try {
+        // Call the Python server
+        const response = await fetch('http://localhost:5000/generate-report', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                portfolio: 'US',  // US Portfolio
+                start_date: startDate,
+                end_date: endDate
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to generate report');
+        }
+        
+        // Download the PDF
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Portfolio_Report_US_${startDate}_to_${endDate}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        statusText.textContent = '✅ Report downloaded!';
+        statusText.style.color = '#27ae60';
+        
+        // Hide status after 3 seconds
+        setTimeout(() => {
+            statusDiv.style.display = 'none';
+        }, 3000);
+        
+    } catch (error) {
+        console.error('Report generation error:', error);
+        
+        // Check if server is running
+        if (error.message.includes('fetch')) {
+            statusText.textContent = '❌ Server not running';
+            statusText.style.color = '#c0392b';
+            
+            // Show instructions to start server
+            const instructions = `The report server is not running. To start it:
+
+1. Open a new terminal window
+
+2. Navigate to your Downloads folder:
+   cd Downloads
+
+3. Run this command:
+   python report_server.py
+
+4. Keep the terminal open and try again!
+
+The server will show: "🚀 Report Server starting on http://localhost:5000"`;
+            
+            alert(instructions);
+        } else {
+            statusText.textContent = '❌ Error: ' + error.message;
+            statusText.style.color = '#c0392b';
+        }
+        
+        // Hide status after 8 seconds
+        setTimeout(() => {
+            statusDiv.style.display = 'none';
+        }, 8000);
+    }
+}
+
+    </script>
+</body>
+</html>
