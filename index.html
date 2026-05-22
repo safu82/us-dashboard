@@ -81,6 +81,13 @@
         
         .chart-container { position: relative; height: 320px; padding: 20px; }
         input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: #667eea; }
+
+        .tab-nav { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 24px; border-bottom: 1px solid var(--border-color); }
+        .tab-button { padding: 12px 20px; border: none; background: transparent; color: var(--text-secondary); font-weight: 600; font-size: 14px; cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; display: flex; align-items: center; gap: 8px; }
+        .tab-button:hover { color: var(--text-primary); }
+        .tab-button.active { color: #667eea; border-bottom-color: #667eea; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
     </style>
 </head>
 <body>
@@ -438,6 +445,7 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let loading = false;
         let showTransactionForm = false;
         let expandedHolding = null;   // Holdings tab — ticker whose lot detail is open
+        let activeTab = 'overview';   // overview | holdings | transactions | analytics | alerts | paper
         let isNewStock = false;
         let isLiveData = false;
         let sortColumn = null;
@@ -675,6 +683,11 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
 
         function toggleHolding(ticker) {
             expandedHolding = expandedHolding === ticker ? null : ticker;
+            render();
+        }
+
+        function switchTab(tab) {
+            activeTab = tab;
             render();
         }
 
@@ -1328,6 +1341,17 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     ${lastUpdate ? `<p class="text-sm" style="color: var(--text-secondary);">Last updated: ${lastUpdate.toLocaleString('en-IN')}</p>` : ''}
                 </div>
 
+                <div class="tab-nav">
+                    <button class="tab-button ${activeTab === 'overview' ? 'active' : ''}" onclick="switchTab('overview')"><i class="fas fa-chart-line"></i> <span>Overview</span></button>
+                    <button class="tab-button ${activeTab === 'holdings' ? 'active' : ''}" onclick="switchTab('holdings')"><i class="fas fa-briefcase"></i> <span>Holdings</span></button>
+                    <button class="tab-button ${activeTab === 'transactions' ? 'active' : ''}" onclick="switchTab('transactions')"><i class="fas fa-exchange-alt"></i> <span>Transactions</span></button>
+                    <button class="tab-button ${activeTab === 'analytics' ? 'active' : ''}" onclick="switchTab('analytics')"><i class="fas fa-chart-pie"></i> <span>Analytics</span></button>
+                    <button class="tab-button ${activeTab === 'alerts' ? 'active' : ''}" onclick="switchTab('alerts')"><i class="fas fa-bell"></i> <span>Technical Alerts</span></button>
+                    <button class="tab-button ${activeTab === 'paper' ? 'active' : ''}" onclick="switchTab('paper')"><i class="fas fa-robot"></i> <span>Algo</span></button>
+                </div>
+
+                <div class="tab-content ${activeTab === 'overview' ? 'active' : ''}">
+
                 <!-- Report Generator Section -->
                 <div class="card p-6 mb-6">
                     <h2 class="text-xl font-bold mb-4">📊 Generate Report</h2>
@@ -1595,51 +1619,9 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     </div>
                 </div>
 
-                <div class="mb-6">
-                    <button onclick="showTransactionForm = true; render()" class="btn flex items-center gap-2" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
-                        <i class="fas fa-plus"></i>
-                        Add Transaction
-                    </button>
-                </div>
+                </div><!-- /tab: overview -->
 
-                ${showTransactionForm ? `
-                <div class="card p-6 mb-6">
-                    <h2 class="text-xl font-bold mb-4">Add Transaction</h2>
-                    <div class="mb-4">
-                        <label class="flex items-center gap-2">
-                            <input type="checkbox" onchange="isNewStock = this.checked; render()" ${isNewStock ? 'checked' : ''}>
-                            <span class="text-sm">Add new stock (not in portfolio)</span>
-                        </label>
-                    </div>
-                    <form onsubmit="handleTransactionSubmit(event)" class="space-y-4">
-                        ${isNewStock ? `
-                        <input type="text" id="stockName" placeholder="Stock Name" required class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
-                        <input type="text" id="ticker" placeholder="Ticker Symbol (e.g., RELIANCE.NS)" required class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
-                        <input type="text" id="sector" placeholder="Sector (optional)" class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
-                        ` : `
-                        <select id="stockSelect" required class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
-                            <option value="">Select Stock</option>
-                            ${portfolio.map(s => `<option value="${s.ticker}">${s.name}</option>`).join('')}
-                        </select>
-                        `}
-                        <div class="grid grid-cols-2 gap-4">
-                            <input type="number" id="quantity" placeholder="Quantity" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
-                            <select id="type" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
-                                <option value="BUY">BUY</option>
-                                <option value="SELL">SELL</option>
-                            </select>
-                        </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <input type="number" id="price" placeholder="Price" step="0.01" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
-                            <input type="date" id="date" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);" value="${new Date().toISOString().split('T')[0]}">
-                        </div>
-                        <div class="flex gap-2">
-                            <button type="submit" class="btn btn-primary">Add Transaction</button>
-                            <button type="button" onclick="showTransactionForm = false; isNewStock = false; render()" class="btn" style="background: var(--border-color);">Cancel</button>
-                        </div>
-                    </form>
-                </div>
-                ` : ''}
+                <div class="tab-content ${activeTab === 'holdings' ? 'active' : ''}">
 
                 <div class="table-wrapper mb-6">
                     <div class="p-6">
@@ -1778,6 +1760,56 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         </table>
                     </div>
                 </div>
+
+                </div><!-- /tab: holdings -->
+
+                <div class="tab-content ${activeTab === 'transactions' ? 'active' : ''}">
+
+                <div class="mb-6">
+                    <button onclick="showTransactionForm = true; render()" class="btn flex items-center gap-2" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
+                        <i class="fas fa-plus"></i>
+                        Add Transaction
+                    </button>
+                </div>
+
+                ${showTransactionForm ? `
+                <div class="card p-6 mb-6">
+                    <h2 class="text-xl font-bold mb-4">Add Transaction</h2>
+                    <div class="mb-4">
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" onchange="isNewStock = this.checked; render()" ${isNewStock ? 'checked' : ''}>
+                            <span class="text-sm">Add new stock (not in portfolio)</span>
+                        </label>
+                    </div>
+                    <form onsubmit="handleTransactionSubmit(event)" class="space-y-4">
+                        ${isNewStock ? `
+                        <input type="text" id="stockName" placeholder="Stock Name" required class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                        <input type="text" id="ticker" placeholder="Ticker Symbol (e.g., NVDA)" required class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                        <input type="text" id="sector" placeholder="Sector (optional)" class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                        ` : `
+                        <select id="stockSelect" required class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                            <option value="">Select Stock</option>
+                            ${portfolio.map(s => `<option value="${s.ticker}">${s.name}</option>`).join('')}
+                        </select>
+                        `}
+                        <div class="grid grid-cols-2 gap-4">
+                            <input type="number" id="quantity" placeholder="Quantity" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                            <select id="type" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                                <option value="BUY">BUY</option>
+                                <option value="SELL">SELL</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <input type="number" id="price" placeholder="Price" step="0.01" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                            <input type="date" id="date" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);" value="${new Date().toISOString().split('T')[0]}">
+                        </div>
+                        <div class="flex gap-2">
+                            <button type="submit" class="btn btn-primary">Add Transaction</button>
+                            <button type="button" onclick="showTransactionForm = false; isNewStock = false; render()" class="btn" style="background: var(--border-color);">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+                ` : ''}
 
                 <div class="card p-6">
                     <div class="flex justify-between items-center mb-4">
@@ -1926,10 +1958,33 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         </table>
                     </div>
                 </div>
+
+                </div><!-- /tab: transactions -->
+
+                <div class="tab-content ${activeTab === 'analytics' ? 'active' : ''}">
+                    <div class="card p-6">
+                        <h2 class="text-xl font-bold mb-2">Analytics</h2>
+                        <p style="color: var(--text-secondary);">Sector heatmap, RRG, and market breadth — coming in Phase 3.</p>
+                    </div>
+                </div>
+
+                <div class="tab-content ${activeTab === 'alerts' ? 'active' : ''}">
+                    <div class="card p-6">
+                        <h2 class="text-xl font-bold mb-2">Technical Alerts</h2>
+                        <p style="color: var(--text-secondary);">Entry signals, pre-signals, and indicator scans — coming in Phase 3.</p>
+                    </div>
+                </div>
+
+                <div class="tab-content ${activeTab === 'paper' ? 'active' : ''}">
+                    <div class="card p-6">
+                        <h2 class="text-xl font-bold mb-2">Algo (Paper Trading)</h2>
+                        <p style="color: var(--text-secondary);">Paper-trading sleeve — coming in Phase 4.</p>
+                    </div>
+                </div>
             `;
-            
-            // Create chart after render
-            setTimeout(() => createChart(metrics), 100);
+
+            // Create chart after render (Overview tab only)
+            if (activeTab === 'overview') setTimeout(() => createChart(metrics), 100);
         }
 
         
