@@ -583,13 +583,17 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
                     .from('live_prices')
                     .select('ticker, price, day_change, day_change_pct');
                 if (error) throw error;
+                // live_prices.day_change is the PER-SHARE change; the dashboard
+                // expects dayChangeAmounts to be the whole-position dollar change.
+                const qtyByTicker = {};
+                portfolio.forEach(s => { qtyByTicker[s.ticker] = s.quantity; });
                 data.forEach(row => {
                     prices[row.ticker] = {
                         price: row.price || 0,
                         change: row.day_change_pct || 0
                     };
                     if (row.day_change !== null && row.day_change !== undefined) {
-                        dayChangeAmounts[row.ticker] = row.day_change;
+                        dayChangeAmounts[row.ticker] = row.day_change * (qtyByTicker[row.ticker] || 0);
                     }
                 });
                 lastUpdate = new Date();
