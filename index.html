@@ -276,6 +276,30 @@ async function loadConfigFromSupabase() {
     }
 }
 
+// Load the FIFO lot ledger (frozen seed) from Supabase
+async function loadLotsFromSupabase() {
+    try {
+        const { data, error } = await supabase
+            .from('holding_lots')
+            .select('ticker, acquisition_date, original_quantity, cost_per_share')
+            .order('acquisition_date', { ascending: true });
+        if (error) throw error;
+        const lots = {};
+        data.forEach(r => {
+            (lots[r.ticker] = lots[r.ticker] || []).push({
+                date: r.acquisition_date,
+                qty: Number(r.original_quantity),
+                cost: Number(r.cost_per_share)
+            });
+        });
+        console.log(`✅ Loaded lots for ${Object.keys(lots).length} tickers from Supabase`);
+        return lots;
+    } catch (error) {
+        console.error('❌ Error loading holding_lots:', error);
+        return {};
+    }
+}
+
 // ============ SUPABASE WRITE FUNCTIONS ============
     
     // Save holdings to Supabase
@@ -399,7 +423,14 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         const PERIOD_START_DATE = '2025-10-01';
         const JAN_SEP_GAINS = 144070;
 
+        // FIFO lot ledger — holding_lots is a frozen seed, current as of this
+        // date; transactions dated after it are replayed to derive open lots.
+        const FIFO_SEED_DATE = '2026-05-22';
+        const LTCG_YEARS = 2;  // US holdings held > 24 months = long-term (Indian tax residency)
+
         let portfolio = []; // Will be loaded async
+        let seedLots = {};                                  // ticker -> frozen seed lots
+        let FIFO = { lotsByTicker: {}, realizedByTicker: {} }; // derived open lots + realized gains
         let transactions = JSON.parse(localStorage.getItem('us_transactions')) || INITIAL_TRANSACTIONS;
         let prices = {};
         let mtmPrices = {};
@@ -1027,6 +1058,97 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
 }
 
         // ONE-TIME MIGRATION: Transfer localStorage transactions to Supabase
+        // ============ FIFO LOT ENGINE ============
+        // Open lots are derived, not stored: start from the frozen holding_lots
+        // seed, then replay transactions dated after FIFO_SEED_DATE. Mirrors the
+        // India dashboard's client-side FIFO. The inception calculateXIRR is
+        // unaffected — it uses cash_flows + transactions, never these lots.
+        function isLongTermLot(buyDateStr, sellDate) {
+            const b = new Date(buyDateStr);
+            const ltDate = new Date(b.getFullYear() + LTCG_YEARS, b.getMonth(), b.getDate());
+            return sellDate >= ltDate;
+        }
+
+        function computeFIFO() {
+            const lotsByTicker = {};
+            const realizedByTicker = {};
+
+            Object.entries(seedLots).forEach(([ticker, lots]) => {
+                lotsByTicker[ticker] = lots.map(l => ({ date: l.date, qty: l.qty, cost: l.cost }));
+            });
+
+            const postSeed = transactions
+                .filter(t => t.date > FIFO_SEED_DATE)
+                .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            postSeed.forEach(t => {
+                const qty = Number(t.quantity), price = Number(t.price);
+                lotsByTicker[t.ticker] = lotsByTicker[t.ticker] || [];
+                if (t.type === 'BUY') {
+                    lotsByTicker[t.ticker].push({ date: t.date, qty, cost: price });
+                } else if (t.type === 'SELL') {
+                    let remaining = qty;
+                    const sellDate = new Date(t.date);
+                    const queue = lotsByTicker[t.ticker];
+                    while (remaining > 0 && queue.length > 0) {
+                        const lot = queue[0];
+                        const use = Math.min(lot.qty, remaining);
+                        (realizedByTicker[t.ticker] = realizedByTicker[t.ticker] || []).push({
+                            sellDate: t.date, buyDate: lot.date, qty: use,
+                            cost: lot.cost, sellPrice: price,
+                            gain: (price - lot.cost) * use,
+                            term: isLongTermLot(lot.date, sellDate) ? 'LT' : 'ST'
+                        });
+                        lot.qty -= use;
+                        remaining -= use;
+                        if (lot.qty <= 0) queue.shift();
+                    }
+                }
+            });
+
+            FIFO = { lotsByTicker, realizedByTicker };
+            return FIFO;
+        }
+
+        // Reusable Newton-Raphson XIRR kernel (ported from the India dashboard).
+        function solveXIRR(cashFlows, dates) {
+            if (cashFlows.length < 2) return null;
+            const daysDiff = (dates[dates.length - 1] - dates[0]) / (1000 * 60 * 60 * 24);
+            if (daysDiff < 1) return null;
+            let guess = 0.1;
+            for (let i = 0; i < 200; i++) {
+                let npv = 0, dnpv = 0;
+                for (let j = 0; j < cashFlows.length; j++) {
+                    const yf = (dates[j] - dates[0]) / (1000 * 60 * 60 * 24 * 365);
+                    const factor = Math.pow(1 + guess, yf);
+                    npv += cashFlows[j] / factor;
+                    dnpv += -yf * cashFlows[j] / factor / (1 + guess);
+                }
+                if (Math.abs(dnpv) < 1e-10) break;
+                const next = guess - npv / dnpv;
+                if (Math.abs(next - guess) < 0.000001) return next * 100;
+                guess = isFinite(next) ? next : 0.1;
+            }
+            return null;
+        }
+
+        // Per-holding XIRR — open lots only: -cost on each lot's buy date,
+        // +current market value as the terminal inflow today.
+        function computeHoldingsXIRR(ticker, currentValue) {
+            try {
+                const lots = (FIFO.lotsByTicker[ticker] || []).filter(l => l.qty > 0 && l.date);
+                if (!lots.length || currentValue <= 0) return null;
+                const cashFlows = [], dates = [];
+                lots.forEach(l => {
+                    cashFlows.push(-(l.qty * l.cost));
+                    dates.push(new Date(l.date));
+                });
+                cashFlows.push(currentValue);
+                dates.push(new Date());
+                return solveXIRR(cashFlows, dates);
+            } catch (e) { return null; }
+        }
+
         async function migrateLocalTransactionsToSupabase() {
             try {
                 console.log('🔄 Starting migration of localStorage transactions to Supabase...');
@@ -2051,6 +2173,10 @@ if (supabaseTransactions && supabaseTransactions.length > 0) {
     } else {
         console.log(`⚠️ Using ${HISTORICAL_CASH_FLOWS.length} hardcoded cash flows for XIRR`);
     }    
+
+    // Load the FIFO lot ledger and derive open lots
+    seedLots = await loadLotsFromSupabase();
+    computeFIFO();
 
     // Initialize snapshots from Supabase
     await initializeSnapshots();
