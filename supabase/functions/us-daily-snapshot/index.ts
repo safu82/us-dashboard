@@ -31,8 +31,30 @@ Deno.serve(async () => {
 
     // Live prices.
     const { data: livePrices, error: pricesErr } = await supabase
-      .from('live_prices').select('ticker, price');
+      .from('live_prices').select('ticker, price, updated_at');
     if (pricesErr) throw pricesErr;
+
+    // Staleness guard — refuse to snapshot off stale prices (e.g. if the
+    // Railway worker was down today). A missing day is recoverable; a wrong
+    // NAV row silently corrupts the equity curve and XIRR.
+    let freshestMs = 0;
+    livePrices?.forEach((r) => {
+      const t = Date.parse(r.updated_at);
+      if (t > freshestMs) freshestMs = t;
+    });
+    const freshestEt = new Date(freshestMs).toLocaleDateString('en-US', {
+      timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+    });
+    const [fM, fD, fY] = freshestEt.split('/');
+    if (`${fY}-${fM}-${fD}` !== snapshotDate) {
+      console.warn(`Stale live_prices (latest ${fY}-${fM}-${fD}) — skipping snapshot`);
+      return json({
+        success: false, skipped: true,
+        reason: 'live_prices is stale — the live-price worker may be down',
+        latest_price_date: `${fY}-${fM}-${fD}`, snapshot_date: snapshotDate,
+      });
+    }
+
     const priceMap: Record<string, number> = {};
     livePrices?.forEach((r) => { if (r.price > 0) priceMap[r.ticker] = r.price; });
 
