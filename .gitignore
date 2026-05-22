@@ -217,6 +217,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# US dashboard — keep portfolio data and local settings out of the (public) GitHub repo
+# US dashboard — keep portfolio data, local settings and screenshots out of the (public) GitHub repo
 migration/
 .claude/settings.local.json
+*.png
