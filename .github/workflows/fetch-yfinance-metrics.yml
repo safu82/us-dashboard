@@ -1,0 +1,25 @@
+name: Fetch yfinance Metrics
+
+# 22:37 UTC Mon-Fri — 30 min after the OHLC fetch. Fixed UTC; lands after the
+# US close year-round (see fetch-ohlc.yml for the DST rationale).
+on:
+  schedule:
+    - cron: '37 22 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  fetch-metrics:
+    name: Fetch US fundamentals/metrics
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install yfinance pandas numpy supabase python-dotenv
+      - name: Fetch metrics
+        run: python fetch_yfinance_metrics.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

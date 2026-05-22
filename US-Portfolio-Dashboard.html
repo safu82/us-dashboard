@@ -89,8 +89,8 @@
     <script>
 
     // ============ SUPABASE CONFIGURATION ============
-    const SUPABASE_URL = 'https://hcgyncghmcvylnrmcivj.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjZ3luY2dobWN2eWxucm1jaXZqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc1MTQwMTEsImV4cCI6MjA3MzA5MDAxMX0.n8vFVCJe1y_3o8fpAY0IgasZ4eKl7DAogEM3OlHB8Ww';
+    const SUPABASE_URL = 'https://jblrurlpyplbquqibphh.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpibHJ1cmxweXBsYnF1cWlicGhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzNDY1NzAsImV4cCI6MjA5NDkyMjU3MH0.oYZarIlHqxpZY6ZWA0KRD9HoxYyv80otXKVNkpuNLRo';
     
     // Initialize Supabase client - check if already exists to prevent errors
     let supabase;
@@ -146,8 +146,7 @@
         try {
             const { data, error } = await supabase
                 .from('holdings')
-                .select('*')
-                .eq('portfolio', 'US');
+                .select('*');
             
             if (error) throw error;
             
@@ -174,7 +173,6 @@
             const { data, error } = await supabase
                 .from('transactions')
                 .select('*')
-                .eq('portfolio', 'US')
                 .order('date', { ascending: true });
             
             if (error) throw error;
@@ -193,7 +191,6 @@ async function loadCashFlowsFromSupabase() {
         const { data, error } = await supabase
             .from('cash_flows')
             .select('*')
-            .eq('portfolio', 'US')
             .order('date', { ascending: true });
         
         if (error) throw error;
@@ -219,7 +216,6 @@ async function loadCashFlowsFromSupabase() {
             const { data, error } = await supabase
                 .from('portfolio_snapshots')
                 .select('*')
-                .eq('portfolio', 'US')
                 .order('snapshot_date', { ascending: true });
             
             if (error) throw error;
@@ -244,7 +240,6 @@ async function loadConfigFromSupabase() {
         const { data, error } = await supabase
             .from('portfolio_config')
             .select('*')
-            .eq('portfolio', 'US')
             .eq('config_key', 'ytd_baseline')
             .eq('year', 2025)
             .maybeSingle(); // Changed from .single() to .maybeSingle()
@@ -273,13 +268,12 @@ async function loadConfigFromSupabase() {
             const { error: deleteError } = await supabase
                 .from('holdings')
                 .delete()
-                .eq('portfolio', 'US');
+                .not('id', 'is', null);
             
             if (deleteError) throw deleteError;
             
             // Insert updated holdings
             const holdingsToInsert = portfolioData.map(stock => ({
-                portfolio: 'US',
                 name: stock.name,
                 ticker: stock.ticker,
                 quantity: stock.quantity,
@@ -305,7 +299,6 @@ async function loadConfigFromSupabase() {
     async function saveTransactionToSupabase(transaction) {
         try {
             const txnData = {
-                portfolio: 'US',
                 date: transaction.date,
                 type: transaction.type,
                 stock: transaction.stock,
@@ -336,7 +329,6 @@ async function loadConfigFromSupabase() {
             const { data: existing } = await supabase
                 .from('portfolio_snapshots')
                 .select('id')
-                .eq('portfolio', 'US')
                 .eq('snapshot_date', date)
                 .maybeSingle();
             
@@ -349,7 +341,6 @@ async function loadConfigFromSupabase() {
             const { error } = await supabase
                 .from('portfolio_snapshots')
                 .insert({
-                    portfolio: 'US',
                     snapshot_date: date,
                     total_value: value
                 });
@@ -570,28 +561,25 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
         async function fetchPrices() {
             loading = true;
             render();
-            const tickers = portfolio.map(s => s.ticker).join(',');
             try {
-                const response = await fetch(`http://localhost:3001?symbols=${tickers}`);
-                const data = await response.json();
-                if (data.quoteResponse && data.quoteResponse.results) {
-                    data.quoteResponse.results.forEach(quote => {
-                        prices[quote.symbol] = {
-                            price: quote.regularMarketPrice || quote.previousClose || 0,
-                            change: quote.regularMarketChangePercent || 0
-                        };
-                        if (quote.dayChangeAmount !== undefined) {
-                            dayChangeAmounts[quote.symbol] = quote.dayChangeAmount;
-                        }
-                    });
-                    lastUpdate = new Date();
-                    isLiveData = true;
-                    console.log(`✅ Fetched ${data.quoteResponse.results.length} live prices`);
-                } else {
-                    throw new Error('Invalid response');
-                }
+                const { data, error } = await supabase
+                    .from('live_prices')
+                    .select('ticker, price, day_change, day_change_pct');
+                if (error) throw error;
+                data.forEach(row => {
+                    prices[row.ticker] = {
+                        price: row.price || 0,
+                        change: row.day_change_pct || 0
+                    };
+                    if (row.day_change !== null && row.day_change !== undefined) {
+                        dayChangeAmounts[row.ticker] = row.day_change;
+                    }
+                });
+                lastUpdate = new Date();
+                isLiveData = data.length > 0;
+                console.log(`✅ Loaded ${data.length} live prices from Supabase`);
             } catch (error) {
-                console.log('⚠️ Proxy failed - using fallback prices');
+                console.log('⚠️ Failed to load live prices - using fallback prices:', error);
                 isLiveData = false;
             }
             loading = false;
@@ -600,12 +588,15 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
 
         async function fetchMTMPrices() {
             try {
-                const response = await fetch('http://localhost:3001/mtm-prices');
-                const data = await response.json();
-                mtmPrices = data;
-                console.log(`✅ Fetched ${Object.keys(mtmPrices).length} MTM prices`);
+                const { data, error } = await supabase
+                    .from('live_prices')
+                    .select('ticker, price');
+                if (error) throw error;
+                mtmPrices = {};
+                data.forEach(row => { mtmPrices[row.ticker] = row.price; });
+                console.log(`✅ Loaded ${Object.keys(mtmPrices).length} MTM prices from Supabase`);
             } catch (error) {
-                console.log('⚠️ Failed to fetch MTM prices:', error);
+                console.log('⚠️ Failed to load MTM prices:', error);
                 mtmPrices = {};
             }
         }
@@ -1032,8 +1023,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 // Get existing transactions from Supabase to avoid duplicates
                 const { data: existingTxns, error: fetchError } = await supabase
                     .from('transactions')
-                    .select('date, ticker, quantity, price, type')
-                    .eq('portfolio', 'US');
+                    .select('date, ticker, quantity, price, type');
                 
                 if (fetchError) throw fetchError;
                 
@@ -1061,7 +1051,6 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 let successCount = 0;
                 for (const txn of newTransactions) {
                     const txnData = {
-                        portfolio: 'US',
                         date: txn.date,
                         type: txn.type,
                         stock: txn.stock,
