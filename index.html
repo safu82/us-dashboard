@@ -88,6 +88,23 @@
 
     <script>
 
+    // ============ ACCESS GATE ============
+    (function () {
+        const AUTH_KEY = 'dashboard_auth_v2';
+        const AUTH_PW = 'khimani2026';
+        if (localStorage.getItem(AUTH_KEY) !== AUTH_PW) {
+            const entered = prompt('Enter dashboard password:');
+            if (entered === AUTH_PW) {
+                localStorage.setItem(AUTH_KEY, AUTH_PW);
+            } else {
+                document.body.innerHTML =
+                    '<div style="font-family:Inter,sans-serif;text-align:center;' +
+                    'margin-top:20vh;color:#64748b;font-size:18px;">Access denied</div>';
+                throw new Error('Dashboard access denied');
+            }
+        }
+    })();
+
     // ============ SUPABASE CONFIGURATION ============
     const SUPABASE_URL = 'https://jblrurlpyplbquqibphh.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpibHJ1cmxweXBsYnF1cWlicGhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzNDY1NzAsImV4cCI6MjA5NDkyMjU3MH0.oYZarIlHqxpZY6ZWA0KRD9HoxYyv80otXKVNkpuNLRo';
