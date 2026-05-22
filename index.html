@@ -437,6 +437,7 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let lastUpdate = null;
         let loading = false;
         let showTransactionForm = false;
+        let expandedHolding = null;   // Holdings tab — ticker whose lot detail is open
         let isNewStock = false;
         let isLiveData = false;
         let sortColumn = null;
@@ -663,6 +664,20 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
             render();
         }
 
+        // FIFO cost basis of a holding (sum of open-lot cost); falls back to
+        // the blended avg_cost if a ticker has no lots.
+        function fifoCostOf(stock) {
+            const lots = FIFO.lotsByTicker[stock.ticker] || [];
+            return lots.length
+                ? lots.reduce((s, l) => s + l.qty * l.cost, 0)
+                : stock.quantity * stock.avgCost;
+        }
+
+        function toggleHolding(ticker) {
+            expandedHolding = expandedHolding === ticker ? null : ticker;
+            render();
+        }
+
         function getSortedPortfolio() {
             if (!sortColumn) return portfolio;
             return [...portfolio].sort((a, b) => {
@@ -673,7 +688,7 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
                     case 'name': aVal = a.name; bVal = b.name; break;
                     case 'quantity': aVal = a.quantity; bVal = b.quantity; break;
                     case 'avgCost': aVal = a.avgCost; bVal = b.avgCost; break;
-                    case 'costValue': aVal = a.quantity * a.avgCost; bVal = b.quantity * b.avgCost; break;
+                    case 'costValue': aVal = fifoCostOf(a); bVal = fifoCostOf(b); break;
                     case 'currentPrice': aVal = currentPriceA; bVal = currentPriceB; break;
                     case 'priceChange': aVal = prices[a.ticker]?.change || 0; bVal = prices[b.ticker]?.change || 0; break;
                     case 'dayChange': 
@@ -681,14 +696,16 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
                         bVal = dayChangeAmounts[b.ticker] || ((prices[b.ticker]?.change || 0) / 100) * (b.quantity * currentPriceB);
                         break;
                     case 'currentValue': aVal = a.quantity * currentPriceA; bVal = b.quantity * currentPriceB; break;
-                    case 'unrealizedPL': 
-                        aVal = (a.quantity * currentPriceA) - (a.quantity * a.avgCost);
-                        bVal = (b.quantity * currentPriceB) - (b.quantity * b.avgCost);
+                    case 'unrealizedPL':
+                        aVal = (a.quantity * currentPriceA) - fifoCostOf(a);
+                        bVal = (b.quantity * currentPriceB) - fifoCostOf(b);
                         break;
-                    case 'unrealizedPLPercent':
-                        aVal = ((a.quantity * currentPriceA) - (a.quantity * a.avgCost)) / (a.quantity * a.avgCost) * 100;
-                        bVal = ((b.quantity * currentPriceB) - (b.quantity * b.avgCost)) / (b.quantity * b.avgCost) * 100;
+                    case 'unrealizedPLPercent': {
+                        const acA = fifoCostOf(a), acB = fifoCostOf(b);
+                        aVal = acA > 0 ? ((a.quantity * currentPriceA) - acA) / acA * 100 : 0;
+                        bVal = acB > 0 ? ((b.quantity * currentPriceB) - acB) / acB * 100 : 0;
                         break;
+                    }
                     default: return 0;
                 }
                 if (aVal === undefined || aVal === null) return 1;
@@ -720,7 +737,7 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
             let maxHolding = { name: '', value: 0 };
 
             portfolio.forEach(stock => {
-                const costValue = stock.quantity * stock.avgCost;
+                const costValue = fifoCostOf(stock);
                 const currentPrice = prices[stock.ticker]?.price || 0;
                 const priceChangePercent = prices[stock.ticker]?.change || 0;
                 const currentValue = stock.quantity * currentPrice;
@@ -1647,17 +1664,30 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                 ${sortedPortfolio.map(stock => {
                                     const currentPrice = prices[stock.ticker]?.price || 0;
                                     const priceChange = prices[stock.ticker]?.change || 0;
-                                    const costValue = stock.quantity * stock.avgCost;
+                                    const lots = FIFO.lotsByTicker[stock.ticker] || [];
+                                    const hasLots = lots.length > 0;
+                                    const costValue = fifoCostOf(stock);
+                                    const fifoAvg = stock.quantity > 0 ? costValue / stock.quantity : stock.avgCost;
                                     const currentValue = stock.quantity * currentPrice;
                                     const unrealizedPL = currentValue - costValue;
-                                    const unrealizedPLPercent = (unrealizedPL / costValue) * 100;
+                                    const unrealizedPLPercent = costValue > 0 ? (unrealizedPL / costValue) * 100 : 0;
                                     const dayChange = dayChangeAmounts[stock.ticker] || (currentValue * (priceChange / 100));
-                                    
+                                    const xirr = computeHoldingsXIRR(stock.ticker, currentValue);
+                                    const now = new Date();
+                                    let ltPL = 0, stPL = 0;
+                                    lots.forEach(l => {
+                                        const lpl = l.qty * (currentPrice - l.cost);
+                                        if (isLongTermLot(l.date, now)) ltPL += lpl; else stPL += lpl;
+                                    });
+                                    const expanded = expandedHolding === stock.ticker;
+
                                     return `
-                                    <tr>
-                                        <td class="font-medium">${stock.name}</td>
+                                    <tr style="cursor: pointer;" onclick="toggleHolding('${stock.ticker}')">
+                                        <td class="font-medium">
+                                            <i class="fas fa-chevron-${expanded ? 'down' : 'right'} text-xs" style="color: var(--text-secondary); margin-right: 6px;"></i>${stock.name}
+                                        </td>
                                         <td class="text-right">${formatNumber(stock.quantity)}</td>
-                                        <td class="text-right">$${formatNumber(stock.avgCost)}</td>
+                                        <td class="text-right">$${formatNumber(fifoAvg)}</td>
                                         <td class="text-right font-semibold">$${formatNumber(costValue)}</td>
                                         <td class="text-right">$${formatNumber(currentPrice)}</td>
                                         <td class="text-right">
@@ -1674,8 +1704,54 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                             <div class="text-xs" style="font-weight: 500;">
                                                 ${unrealizedPLPercent >= 0 ? '+' : ''}${formatNumber(unrealizedPLPercent)}%
                                             </div>
+                                            <div class="text-xs" style="font-weight: 500; color: var(--text-secondary);">
+                                                XIRR: ${xirr !== null ? (xirr >= 0 ? '+' : '') + xirr.toFixed(1) + '%' : 'N/A'}
+                                            </div>
                                         </td>
                                     </tr>
+                                    ${expanded && hasLots ? `
+                                    <tr>
+                                        <td colspan="9" style="background: var(--bg-primary); padding: 0;">
+                                            <div style="padding: 12px 20px;">
+                                                <div class="text-xs font-semibold mb-2" style="color: var(--text-secondary);">
+                                                    FIFO LOTS &nbsp;·&nbsp; Long-term P/L:
+                                                    <span class="${ltPL >= 0 ? 'text-green-600' : 'text-red-600'}">$${formatNumber(ltPL)}</span>
+                                                    &nbsp;·&nbsp; Short-term P/L:
+                                                    <span class="${stPL >= 0 ? 'text-green-600' : 'text-red-600'}">$${formatNumber(stPL)}</span>
+                                                </div>
+                                                <table style="width: 100%; font-size: 12px;">
+                                                    <thead>
+                                                        <tr style="color: var(--text-secondary);">
+                                                            <th style="text-align: left; padding: 4px 8px;">Buy Date</th>
+                                                            <th style="text-align: right; padding: 4px 8px;">Qty</th>
+                                                            <th style="text-align: right; padding: 4px 8px;">Cost/sh</th>
+                                                            <th style="text-align: right; padding: 4px 8px;">Cost Value</th>
+                                                            <th style="text-align: right; padding: 4px 8px;">Current Value</th>
+                                                            <th style="text-align: right; padding: 4px 8px;">Unrealized P/L</th>
+                                                            <th style="text-align: right; padding: 4px 8px;">Term</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        ${lots.map(l => {
+                                                            const lc = l.qty * l.cost;
+                                                            const lv = l.qty * currentPrice;
+                                                            const lpl = lv - lc;
+                                                            const lt = isLongTermLot(l.date, now);
+                                                            return `<tr>
+                                                                <td style="padding: 4px 8px;">${l.date}</td>
+                                                                <td style="text-align: right; padding: 4px 8px;">${formatNumber(l.qty)}</td>
+                                                                <td style="text-align: right; padding: 4px 8px;">$${formatNumber(l.cost)}</td>
+                                                                <td style="text-align: right; padding: 4px 8px;">$${formatNumber(lc)}</td>
+                                                                <td style="text-align: right; padding: 4px 8px;">$${formatNumber(lv)}</td>
+                                                                <td style="text-align: right; padding: 4px 8px;" class="${lpl >= 0 ? 'text-green-600' : 'text-red-600'}">$${formatNumber(lpl)}</td>
+                                                                <td style="text-align: right; padding: 4px 8px;"><span class="badge ${lt ? 'badge-green' : 'badge-red'}">${lt ? 'LT' : 'ST'}</span></td>
+                                                            </tr>`;
+                                                        }).join('')}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </td>
+                                    </tr>` : ''}
                                     `;
                                 }).join('')}
                             </tbody>
