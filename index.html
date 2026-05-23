@@ -1352,6 +1352,20 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
 
                 <div class="tab-content ${activeTab === 'overview' ? 'active' : ''}">
 
+                <!-- US Index Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    ${[['^GSPC','S&P 500'],['^IXIC','NASDAQ'],['^DJI','DOW JONES'],['^VIX','VIX']].map(([t, label]) => {
+                        const p = prices[t]?.price || 0;
+                        const ch = prices[t]?.change || 0;
+                        return `
+                        <div class="card p-4">
+                            <p class="text-xs font-semibold uppercase" style="color: var(--text-secondary); letter-spacing: 0.5px;">${label}</p>
+                            <p class="text-2xl font-bold mt-1">${p > 0 ? formatNumber(p) : '—'}</p>
+                            <p class="text-sm font-semibold mt-1 ${ch >= 0 ? 'text-green-600' : 'text-red-600'}">${p > 0 ? (ch >= 0 ? '+' : '') + formatNumber(ch) + '%' : '—'}</p>
+                        </div>`;
+                    }).join('')}
+                </div>
+
                 <!-- Report Generator Section -->
                 <div class="card p-6 mb-6">
                     <h2 class="text-xl font-bold mb-4">📊 Generate Report</h2>
