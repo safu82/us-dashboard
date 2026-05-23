@@ -82,12 +82,13 @@
         .chart-container { position: relative; height: 320px; padding: 20px; }
         input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: #667eea; }
 
-        .tab-nav { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 24px; border-bottom: 1px solid var(--border-color); }
-        .tab-button { padding: 12px 20px; border: none; background: transparent; color: var(--text-secondary); font-weight: 600; font-size: 14px; cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; display: flex; align-items: center; gap: 8px; }
-        .tab-button:hover { color: var(--text-primary); }
-        .tab-button.active { color: #667eea; border-bottom-color: #667eea; }
-        .tab-content { display: none; }
+        .tab-nav { display: flex; gap: 8px; background: var(--bg-card); border-radius: 12px; padding: 6px; border: 1px solid var(--border-color); margin-bottom: 24px; }
+        .tab-button { flex: 1; padding: 12px 20px; border-radius: 8px; border: none; background: transparent; color: var(--text-secondary); font-weight: 500; font-size: 14px; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .tab-button:hover { background: var(--bg-primary); color: var(--text-primary); }
+        .tab-button.active { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3); }
+        .tab-content { display: none; animation: fadeIn 0.3s ease-in; }
         .tab-content.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body>
@@ -699,6 +700,12 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
         function switchTab(tab) {
             activeTab = tab;
             render();
+        }
+
+        // Wrap a stock name in a TradingView chart link (US tickers; TV auto-resolves the exchange).
+        function tvLink(ticker, label) {
+            if (!ticker || label == null || label === '') return label || '-';
+            return `<a href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(ticker)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color: inherit; text-decoration: none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${label}</a>`;
         }
 
         function getSortedPortfolio() {
@@ -1770,8 +1777,8 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
 
                 <!-- Overview sub-tabs: Summary | Performance -->
                 <div class="flex gap-1 mb-4">
-                    <button onclick="overviewSubTab='summary'; render()" class="tab-button ${overviewSubTab === 'summary' ? 'active' : ''}" style="padding: 6px 14px; font-size: 13px;">📊 Summary</button>
-                    <button onclick="overviewSubTab='performance'; render()" class="tab-button ${overviewSubTab === 'performance' ? 'active' : ''}" style="padding: 6px 14px; font-size: 13px;">📈 Performance</button>
+                    <button onclick="overviewSubTab='summary'; render()" class="tab-button ${overviewSubTab === 'summary' ? 'active' : ''}" style="padding: 6px 14px; font-size: 13px; flex: 0 0 auto;">📊 Summary</button>
+                    <button onclick="overviewSubTab='performance'; render()" class="tab-button ${overviewSubTab === 'performance' ? 'active' : ''}" style="padding: 6px 14px; font-size: 13px; flex: 0 0 auto;">📈 Performance</button>
                 </div>
 
                 <div style="display: ${overviewSubTab === 'summary' ? 'block' : 'none'}">
@@ -1790,32 +1797,6 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     }).join('')}
                 </div>
 
-                <!-- Report Generator Section -->
-                <div class="card p-6 mb-6">
-                    <h2 class="text-xl font-bold mb-4">📊 Generate Report</h2>
-                    <div class="flex gap-4 items-end flex-wrap">
-                        <div>
-                            <label class="block text-sm font-medium mb-2" style="color: var(--text-secondary);">Start Date</label>
-                            <input type="date" id="report-start-date" class="border rounded px-3 py-2" style="background: var(--bg-card); border-color: var(--border-color); color: var(--text-primary);" value="2025-11-01">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-2" style="color: var(--text-secondary);">End Date</label>
-                            <input type="date" id="report-end-date" class="border rounded px-3 py-2" style="background: var(--bg-card); border-color: var(--border-color); color: var(--text-primary);" value="${new Date().toISOString().split('T')[0]}">
-                        </div>
-                        <div>
-                            <button onclick="generateReport()" class="px-6 py-2 rounded font-semibold" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; cursor: pointer; transition: transform 0.2s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
-                                Generate Report
-                            </button>
-                        </div>
-                        <div id="report-status" class="ml-4" style="display: none;">
-                            <span class="text-sm font-medium"></span>
-                        </div>
-                    </div>
-                    <p class="text-xs mt-3" style="color: var(--text-secondary);">
-                        💡 Reports include AI-powered insights, performance charts, and transaction history. Requires at least 2 daily snapshots.
-                    </p>
-                </div>
-
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
                     <div class="metric-card">
                         <div class="flex justify-between items-start mb-3">
@@ -1823,9 +1804,6 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                 <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Portfolio Value</p>
                                 <h3 class="text-3xl font-bold mt-1">${formatCurrency(metrics.totalCurrentValue)}</h3>
                                 <p class="text-xs mt-1" style="color: var(--text-secondary);">Cost: ${formatCurrency(metrics.totalCostValue)}</p>
-                            </div>
-                            <div class="icon-wrapper icon-blue">
-                                <i class="fas fa-wallet"></i>
                             </div>
                         </div>
                     </div>
@@ -1841,9 +1819,6 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                     ${metrics.totalUnrealizedPLPercent >= 0 ? '+' : ''}${formatNumber(metrics.totalUnrealizedPLPercent)}%
                                 </p>
                             </div>
-                            <div class="icon-wrapper ${metrics.totalUnrealizedPL >= 0 ? 'icon-green' : 'icon-red'}">
-                                <i class="fas fa-chart-line"></i>
-                            </div>
                         </div>
                     </div>
 
@@ -1857,9 +1832,6 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                 <p class="text-xs mt-1 ${metrics.totalDayChangePercent >= 0 ? 'text-green-600' : 'text-red-600'}">
                                     ${metrics.totalDayChangePercent >= 0 ? '+' : ''}${formatNumber(metrics.totalDayChangePercent)}%
                                 </p>
-                            </div>
-                            <div class="icon-wrapper ${metrics.totalDayChange >= 0 ? 'icon-green' : 'icon-red'}">
-                                <i class="fas fa-calendar-day"></i>
                             </div>
                         </div>
                     </div>
@@ -1877,9 +1849,6 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                         ${monthOptionsForXIRR(customXIRREnd, true)}
                                     </select>
                                 </div>
-                            </div>
-                            <div class="icon-wrapper icon-purple">
-                                <i class="fas fa-calendar-week"></i>
                             </div>
                         </div>
                         ${(() => {
@@ -1903,9 +1872,6 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                 <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Portfolio Strength</p>
                                 <h3 class="text-3xl font-bold mt-1" style="color: var(--text-secondary);">—</h3>
                                 <p class="text-xs mt-1" style="color: var(--text-secondary);">Activates in Phase 3 (needs scanner alerts)</p>
-                            </div>
-                            <div class="icon-wrapper icon-purple">
-                                <i class="fas fa-shield-halved"></i>
                             </div>
                         </div>
                     </div>
@@ -2047,7 +2013,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                         <div class="icon-wrapper icon-blue" style="width: 40px; height: 40px;"><i class="fas fa-crown" style="font-size: 16px;"></i></div>
                                         <div style="min-width: 0;">
                                             <p class="text-sm font-semibold">Largest Holding</p>
-                                            <p class="text-xs truncate" style="color: var(--text-secondary); max-width: 180px;" title="${lg.name}">${lg.name}</p>
+                                            <p class="text-xs truncate" style="color: var(--text-secondary); max-width: 180px;" title="${lg.name}">${tvLink(lg.ticker, lg.name)}</p>
                                         </div>
                                     </div>
                                     <div class="text-right" style="flex-shrink: 0;">
@@ -2068,7 +2034,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                         <div class="icon-wrapper icon-green" style="width: 40px; height: 40px;"><i class="fas fa-trophy" style="font-size: 16px;"></i></div>
                                         <div style="min-width: 0;">
                                             <p class="text-sm font-semibold">Most Profitable</p>
-                                            <p class="text-xs truncate" style="color: var(--text-secondary); max-width: 180px;" title="${mp.name}">${mp.name}</p>
+                                            <p class="text-xs truncate" style="color: var(--text-secondary); max-width: 180px;" title="${mp.name}">${tvLink(mp.ticker, mp.name)}</p>
                                         </div>
                                     </div>
                                     <div class="text-right" style="flex-shrink: 0;">
@@ -2090,7 +2056,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                         <div class="icon-wrapper ${lp.gain >= 0 ? 'icon-green' : 'icon-red'}" style="width: 40px; height: 40px;"><i class="fas fa-exclamation-triangle" style="font-size: 16px;"></i></div>
                                         <div style="min-width: 0;">
                                             <p class="text-sm font-semibold">Least Profitable</p>
-                                            <p class="text-xs truncate" style="color: var(--text-secondary); max-width: 180px;" title="${lp.name}">${lp.name}</p>
+                                            <p class="text-xs truncate" style="color: var(--text-secondary); max-width: 180px;" title="${lp.name}">${tvLink(lp.ticker, lp.name)}</p>
                                         </div>
                                     </div>
                                     <div class="text-right" style="flex-shrink: 0;">
@@ -2175,7 +2141,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         </div>
                         <p class="text-xs" style="color: var(--text-secondary);">Max Holding</p>
                         <p class="text-sm font-bold mt-1">${formatCurrency(metrics.maxHolding.value)}</p>
-                        <p class="text-xs truncate" style="color: var(--text-secondary);" title="${metrics.maxHolding.name}">${metrics.maxHolding.name.substring(0, 15)}${metrics.maxHolding.name.length > 15 ? '...' : ''}</p>
+                        <p class="text-xs truncate" style="color: var(--text-secondary);" title="${metrics.maxHolding.name}">${tvLink(metrics.maxHolding.ticker, metrics.maxHolding.name.substring(0, 15) + (metrics.maxHolding.name.length > 15 ? '...' : ''))}</p>
                     </div>
                     <div class="card p-4">
                         <div class="icon-wrapper icon-green mb-2" style="width: 36px; height: 36px; font-size: 14px;">
@@ -2183,7 +2149,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         </div>
                         <p class="text-xs" style="color: var(--text-secondary);">Biggest Gainer</p>
                         <p class="text-sm font-bold mt-1 text-green-600">${metrics.biggestGainer && metrics.biggestGainer.percent > -Infinity ? '+' + formatNumber(metrics.biggestGainer.percent) + '%' : '-'}</p>
-                        <p class="text-xs truncate" style="color: var(--text-secondary);" title="${metrics.biggestGainer ? metrics.biggestGainer.name : ''}">${metrics.biggestGainer && metrics.biggestGainer.name ? metrics.biggestGainer.name.substring(0, 15) + (metrics.biggestGainer.name.length > 15 ? '...' : '') : '-'}</p>
+                        <p class="text-xs truncate" style="color: var(--text-secondary);" title="${metrics.biggestGainer ? metrics.biggestGainer.name : ''}">${metrics.biggestGainer && metrics.biggestGainer.name ? tvLink(metrics.biggestGainer.ticker, metrics.biggestGainer.name.substring(0, 15) + (metrics.biggestGainer.name.length > 15 ? '...' : '')) : '-'}</p>
                     </div>
                     <div class="card p-4">
                         <div class="icon-wrapper icon-red mb-2" style="width: 36px; height: 36px; font-size: 14px;">
@@ -2191,7 +2157,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         </div>
                         <p class="text-xs" style="color: var(--text-secondary);">Biggest Loser</p>
                         <p class="text-sm font-bold mt-1 text-red-600">${metrics.biggestLoser && metrics.biggestLoser.percent < Infinity ? formatNumber(metrics.biggestLoser.percent) + '%' : '-'}</p>
-                        <p class="text-xs truncate" style="color: var(--text-secondary);" title="${metrics.biggestLoser ? metrics.biggestLoser.name : ''}">${metrics.biggestLoser && metrics.biggestLoser.name ? metrics.biggestLoser.name.substring(0, 15) + (metrics.biggestLoser.name.length > 15 ? '...' : '') : '-'}</p>
+                        <p class="text-xs truncate" style="color: var(--text-secondary);" title="${metrics.biggestLoser ? metrics.biggestLoser.name : ''}">${metrics.biggestLoser && metrics.biggestLoser.name ? tvLink(metrics.biggestLoser.ticker, metrics.biggestLoser.name.substring(0, 15) + (metrics.biggestLoser.name.length > 15 ? '...' : '')) : '-'}</p>
                     </div>
                 </div>
 
@@ -2285,7 +2251,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                     return `
                                     <tr style="cursor: pointer;" onclick="toggleHolding('${stock.ticker}')">
                                         <td class="font-medium">
-                                            <i class="fas fa-chevron-${expanded ? 'down' : 'right'} text-xs" style="color: var(--text-secondary); margin-right: 6px;"></i>${stock.name}
+                                            <i class="fas fa-chevron-${expanded ? 'down' : 'right'} text-xs" style="color: var(--text-secondary); margin-right: 6px;"></i>${tvLink(stock.ticker, stock.name)}
                                         </td>
                                         <td class="text-right">${formatNumber(stock.quantity)}</td>
                                         <td class="text-right">$${formatNumber(fifoAvg)}</td>
@@ -2565,7 +2531,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                             ${txn.type}
                                         </span>
                                     </td>
-                                    <td>${txn.stock}</td>
+                                    <td>${tvLink(txn.ticker, txn.stock)}</td>
                                     <td class="text-right">${formatNumber(txn.quantity)}</td>
                                     <td class="text-right">$${formatNumber(txn.price)}</td>
                                     <td class="text-right font-semibold">$${formatNumber(txn.quantity * txn.price)}</td>
