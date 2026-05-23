@@ -844,73 +844,47 @@ function formatDisplayDate(dateString) {
     return date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 }
 
-// Calculate ATH (All-Time High) from cumulative gains
+// Calculate ATH (All-Time High) of cumulative profit — walks every snapshot
+// for daily resolution. At each date, cumulative_profit = portfolio_value -
+// net_capital_added_since_inception (deposits + buys - withdrawals - sells).
 const athData = (() => {
-    const startDate = new Date('2021-11-01');
-    const endDate = new Date();
-    let runningTotal = 0;
-    let athValue = -Infinity;
-    let athMonth = '';
-    let athYear = 0;
-    let currentCumulative = 0;
-    
-    for (let d = new Date(startDate); d <= endDate; d.setMonth(d.getMonth() + 1)) {
-        const year = d.getFullYear();
-        const month = d.getMonth() + 1;
-        const monthStr = String(month).padStart(2, '0');
-        const monthStart = `${year}-${monthStr}-01`;
-        const monthEnd = `${year}-${monthStr}-${new Date(year, month, 0).getDate()}`;
-        
-        // Find most recent snapshot before period start (handles weekends/holidays)
-        const prevMonthEndDate = month === 1 
-            ? `${year-1}-12-31`
-            : `${year}-${String(month-1).padStart(2, '0')}-${new Date(year, month-1, 0).getDate()}`;
-        const prevMonthEnd = getClosestSnapshot(snapshots, prevMonthEndDate);
-        
-        let monthGain;
-        const isCurrentMonth = (year === endDate.getFullYear() && month === (endDate.getMonth() + 1));
-        
-        if (isCurrentMonth && selectedPeriodMonth === month) {
-            monthGain = periodGains;
-        } else {
-            const monthEndValue = getClosestSnapshot(snapshots, monthEnd);
-            
-            if (prevMonthEnd && monthEndValue) {
-                const monthCashFlows = HISTORICAL_CASH_FLOWS.filter(cf => cf.date >= monthStart && cf.date <= monthEnd);
-                const withdrawals = monthCashFlows.filter(cf => cf.type === 'Withdrawl' || cf.type === 'Withdrawal').reduce((sum, cf) => sum + cf.amount, 0);
-                const deposits = monthCashFlows.filter(cf => cf.type === 'Deposit').reduce((sum, cf) => sum + cf.amount, 0);
-                
-                const monthTransactions = transactions.filter(t => t.date >= monthStart && t.date <= monthEnd);
-                const soldValue = monthTransactions.filter(t => t.type === 'SELL').reduce((sum, t) => sum + (t.quantity * t.price), 0);
-                const purchasedValue = monthTransactions.filter(t => t.type === 'BUY').reduce((sum, t) => sum + (t.quantity * t.price), 0);
-                
-                monthGain = monthEndValue + withdrawals + soldValue - deposits - purchasedValue - prevMonthEnd;
-            } else {
-                monthGain = 0;
-            }
-        }
-        
-        runningTotal += monthGain;
-        
-        if (runningTotal > athValue) {
-            athValue = runningTotal;
-            athMonth = d.toLocaleDateString('en-US', { month: 'short' });
-            athYear = year;
-        }
-        
-        if (isCurrentMonth) {
-            currentCumulative = runningTotal;
-        }
+    const sortedSnaps = Object.entries(snapshots).sort(([a], [b]) => a.localeCompare(b));
+    if (!sortedSnaps.length) return { athDate: '', athDateFormatted: '-', athValue: 0, currentCumulative: 0, athDiffPercent: 0 };
+
+    // Collect all capital events by date (deposit/buy = +capital, withdrawal/sell = -capital).
+    const events = [];
+    HISTORICAL_CASH_FLOWS.forEach(cf => {
+        events.push({ date: cf.date, delta: cf.type === 'Deposit' ? cf.amount : -cf.amount });
+    });
+    transactions.forEach(t => {
+        events.push({ date: t.date, delta: t.type === 'BUY' ? (t.quantity * t.price) : -(t.quantity * t.price) });
+    });
+    events.sort((a, b) => a.date.localeCompare(b.date));
+
+    // Build the timeline: every snapshot + today (using totalCurrentValue) if not already in snapshots.
+    const todayStr = new Date().toISOString().split('T')[0];
+    const points = sortedSnaps.slice();
+    if (!snapshots[todayStr] && totalCurrentValue > 0) {
+        points.push([todayStr, totalCurrentValue]);
     }
-    
-    const athDiffPercent = athValue > 0 ? ((currentCumulative - athValue) / athValue) * 100 : 0;
-    
-    return {
-        athMonth: `${athMonth} ${athYear}`,
-        athValue: athValue,
-        currentCumulative: currentCumulative,
-        athDiffPercent: athDiffPercent
-    };
+
+    let runningCapital = 0, ei = 0, athValue = -Infinity, athDate = '', currentCumulative = 0;
+    for (const [d, v] of points) {
+        while (ei < events.length && events[ei].date <= d) {
+            runningCapital += events[ei].delta;
+            ei++;
+        }
+        const profit = v - runningCapital;
+        if (profit > athValue) { athValue = profit; athDate = d; }
+        currentCumulative = profit;
+    }
+
+    const athDiffPercent = athValue !== 0 ? ((currentCumulative - athValue) / Math.abs(athValue)) * 100 : 0;
+    const athDateFormatted = athDate
+        ? new Date(athDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : '-';
+
+    return { athDate, athDateFormatted, athValue, currentCumulative, athDiffPercent };
 })();
 
 
@@ -1943,7 +1917,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                     </div>
                                 </div>
                                 <div class="text-right" style="flex-shrink: 0;">
-                                    <p class="text-lg font-bold">${metrics.athData.athMonth}</p>
+                                    <p class="text-lg font-bold">${metrics.athData.athDateFormatted}</p>
                                     <p class="text-xs ${metrics.athData.athDiffPercent >= 0 ? 'text-green-600' : 'text-red-600'}">${metrics.athData.athDiffPercent >= 0 ? '+' : ''}${formatNumber(metrics.athData.athDiffPercent)}% from ATH</p>
                                 </div>
                             </div>
