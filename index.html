@@ -455,6 +455,7 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let selectedStackType = 'BULLISH'; // BULLISH | BEARISH (Stacked EMAs card)
         let selectedEma = 200;             // 20 | 50 | 200 (Above Key EMAs card)
         let overviewSubTab = 'summary';    // summary | performance (Overview sub-tab)
+        let holdingsSectorFilter = 'All';  // sector filter on the Holdings table
         let stockMeta = {};                // ticker -> {sector, marketCap}
         let perfCharts = {};               // Chart.js instances by canvas id (Performance sub-tab)
         let isNewStock = false;
@@ -706,6 +707,15 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
         function tvLink(ticker, label) {
             if (!ticker || label == null || label === '') return label || '-';
             return `<a href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(ticker)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color: inherit; text-decoration: none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${label}</a>`;
+        }
+
+        // Sum of all realized-gain slices from the FIFO engine (post-seed sells only).
+        // Historical realized P&L (sells before the lot-ledger seed) loads separately.
+        function totalRealizedGains() {
+            let total = 0;
+            const realized = (FIFO && FIFO.realizedByTicker) || {};
+            Object.values(realized).forEach(arr => arr.forEach(s => { total += s.gain; }));
+            return total;
         }
 
         function getSortedPortfolio() {
@@ -2182,9 +2192,80 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
 
                 <div class="tab-content ${activeTab === 'holdings' ? 'active' : ''}">
 
+                <!-- Holdings top metrics (4-up): Portfolio Value, Unrealized Gains, Day Change, Realized Gains -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                    <div class="metric-card">
+                        <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Portfolio Value</p>
+                        <h3 class="text-3xl font-bold mt-1">${formatCurrency(metrics.totalCurrentValue)}</h3>
+                        <p class="text-xs mt-1" style="color: var(--text-secondary);">Cost: ${formatCurrency(metrics.totalCostValue)}</p>
+                    </div>
+                    <div class="metric-card">
+                        <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Unrealized Gains</p>
+                        <h3 class="text-3xl font-bold mt-1 ${metrics.totalUnrealizedPL >= 0 ? 'text-green-600' : 'text-red-600'}">${formatCurrency(metrics.totalUnrealizedPL)}</h3>
+                        <p class="text-xs mt-1 ${metrics.totalUnrealizedPLPercent >= 0 ? 'text-green-600' : 'text-red-600'}">${metrics.totalUnrealizedPLPercent >= 0 ? '+' : ''}${formatNumber(metrics.totalUnrealizedPLPercent)}%</p>
+                    </div>
+                    <div class="metric-card">
+                        <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Day Change</p>
+                        <h3 class="text-3xl font-bold mt-1 ${metrics.totalDayChange >= 0 ? 'text-green-600' : 'text-red-600'}">${formatCurrency(metrics.totalDayChange)}</h3>
+                        <p class="text-xs mt-1 ${metrics.totalDayChangePercent >= 0 ? 'text-green-600' : 'text-red-600'}">${metrics.totalDayChangePercent >= 0 ? '+' : ''}${formatNumber(metrics.totalDayChangePercent)}%</p>
+                    </div>
+                    ${(() => {
+                        const realized = totalRealizedGains();
+                        const cls = realized >= 0 ? 'text-green-600' : 'text-red-600';
+                        return `
+                        <div class="metric-card">
+                            <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Realized Gains</p>
+                            <h3 class="text-3xl font-bold mt-1 ${cls}">${formatCurrency(realized)}</h3>
+                            <p class="text-xs mt-1" style="color: var(--text-secondary);">Sells from lot ledger (historical loads later)</p>
+                        </div>`;
+                    })()}
+                </div>
+
+                <!-- Holdings quick stats (5-up): Total Stocks, Gaining/Losing Today, Biggest Gainer/Loser -->
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+                    <div class="card p-4">
+                        <p class="text-xs" style="color: var(--text-secondary);">Total Stocks</p>
+                        <p class="text-2xl font-bold mt-1">${metrics.totalStocks}</p>
+                    </div>
+                    <div class="card p-4">
+                        <p class="text-xs" style="color: var(--text-secondary);">Gaining Today</p>
+                        <p class="text-2xl font-bold mt-1 text-green-600">${metrics.gainingToday}</p>
+                    </div>
+                    <div class="card p-4">
+                        <p class="text-xs" style="color: var(--text-secondary);">Losing Today</p>
+                        <p class="text-2xl font-bold mt-1 text-red-600">${metrics.losingToday}</p>
+                    </div>
+                    <div class="card p-4">
+                        <p class="text-xs" style="color: var(--text-secondary);">Biggest Gainer</p>
+                        <p class="text-sm font-bold mt-1 text-green-600">${metrics.biggestGainer && metrics.biggestGainer.percent > -Infinity ? '+' + formatNumber(metrics.biggestGainer.percent) + '%' : '-'}</p>
+                        <p class="text-xs truncate" style="color: var(--text-secondary);" title="${metrics.biggestGainer ? metrics.biggestGainer.name : ''}">${metrics.biggestGainer && metrics.biggestGainer.name ? tvLink(metrics.biggestGainer.ticker, metrics.biggestGainer.name.substring(0, 18) + (metrics.biggestGainer.name.length > 18 ? '...' : '')) : '-'}</p>
+                    </div>
+                    <div class="card p-4">
+                        <p class="text-xs" style="color: var(--text-secondary);">Biggest Loser</p>
+                        <p class="text-sm font-bold mt-1 text-red-600">${metrics.biggestLoser && metrics.biggestLoser.percent < Infinity ? formatNumber(metrics.biggestLoser.percent) + '%' : '-'}</p>
+                        <p class="text-xs truncate" style="color: var(--text-secondary);" title="${metrics.biggestLoser ? metrics.biggestLoser.name : ''}">${metrics.biggestLoser && metrics.biggestLoser.name ? tvLink(metrics.biggestLoser.ticker, metrics.biggestLoser.name.substring(0, 18) + (metrics.biggestLoser.name.length > 18 ? '...' : '')) : '-'}</p>
+                    </div>
+                </div>
+
                 <div class="table-wrapper mb-6">
-                    <div class="p-6">
-                        <h2 class="text-xl font-bold mb-4">Portfolio Holdings</h2>
+                    <div class="p-6 flex justify-between items-center flex-wrap gap-3">
+                        <h2 class="text-xl font-bold">Portfolio Holdings</h2>
+                        ${(() => {
+                            const counts = {};
+                            portfolio.forEach(s => {
+                                const sec = (stockMeta[s.ticker] && stockMeta[s.ticker].sector) || s.sector || 'Unknown';
+                                counts[sec] = (counts[sec] || 0) + 1;
+                            });
+                            const sectors = Object.keys(counts).sort();
+                            return `
+                            <div class="flex items-center gap-2">
+                                <label class="text-xs" style="color: var(--text-secondary);">Sector:</label>
+                                <select onchange="holdingsSectorFilter = this.value; render()" class="text-sm border rounded px-3 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
+                                    <option value="All" ${holdingsSectorFilter === 'All' ? 'selected' : ''}>All (${portfolio.length})</option>
+                                    ${sectors.map(sec => `<option value="${sec}" ${holdingsSectorFilter === sec ? 'selected' : ''}>${sec} (${counts[sec]})</option>`).join('')}
+                                </select>
+                            </div>`;
+                        })()}
                     </div>
                     <div class="overflow-x-auto">
                         <table>
@@ -2202,7 +2283,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${sortedPortfolio.map(stock => {
+                                ${sortedPortfolio.filter(s => holdingsSectorFilter === 'All' || ((stockMeta[s.ticker] && stockMeta[s.ticker].sector) || s.sector || 'Unknown') === holdingsSectorFilter).map(stock => {
                                     const currentPrice = prices[stock.ticker]?.price || 0;
                                     const priceChange = prices[stock.ticker]?.change || 0;
                                     const lots = FIFO.lotsByTicker[stock.ticker] || [];
