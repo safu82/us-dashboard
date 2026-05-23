@@ -1282,7 +1282,18 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 if (xirr !== null) break;
             }
 
-            const absoluteGain = endValue - startValue;
+            // Capital-aware gain (mirrors Period Gains / Annual Gains formula):
+            //   gain = endValue + withdrawals + sold - deposits - bought - startValue
+            // The naive endValue - startValue was wrong — buying $80k of stock raises
+            // endValue without it being a gain (it's capital, not P&L).
+            const periodCF = HISTORICAL_CASH_FLOWS.filter(cf => cf.date > startStr && cf.date <= endStr);
+            const cfWd = periodCF.filter(cf => cf.type !== 'Deposit').reduce((s, cf) => s + cf.amount, 0);
+            const cfDep = periodCF.filter(cf => cf.type === 'Deposit').reduce((s, cf) => s + cf.amount, 0);
+            const txnGainStart = startStr > CASH_FLOWS_END_DATE ? startStr : CASH_FLOWS_END_DATE;
+            const txInRange = transactions.filter(t => t.date > txnGainStart && t.date <= endStr);
+            const txSold = txInRange.filter(t => t.type === 'SELL').reduce((s, t) => s + t.quantity * t.price, 0);
+            const txBought = txInRange.filter(t => t.type === 'BUY').reduce((s, t) => s + t.quantity * t.price, 0);
+            const absoluteGain = endValue + cfWd + txSold - cfDep - txBought - startValue;
             const absoluteGainPct = startValue > 0 ? (absoluteGain / startValue) * 100 : 0;
             return { xirr, absoluteGain, absoluteGainPct };
         }
