@@ -453,6 +453,9 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let selectedWinLoseYear = new Date().getFullYear();
         let selectedStackType = 'BULLISH'; // BULLISH | BEARISH (Stacked EMAs card)
         let selectedEma = 200;             // 20 | 50 | 200 (Above Key EMAs card)
+        let overviewSubTab = 'summary';    // summary | performance (Overview sub-tab)
+        let stockMeta = {};                // ticker -> {sector, marketCap}
+        let perfCharts = {};               // Chart.js instances by canvas id (Performance sub-tab)
         let isNewStock = false;
         let isLiveData = false;
         let sortColumn = null;
@@ -1397,6 +1400,190 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             return { wins, losses, total: wins + losses };
         }
 
+        // ============ META + PERFORMANCE CHARTS (Overview Performance sub-tab) ============
+        async function loadMetaFromSupabase() {
+            try {
+                const tickers = portfolio.map(s => s.ticker);
+                if (!tickers.length) return {};
+                const [secRes, fundRes] = await Promise.all([
+                    supabase.from('us_stock_sectors').select('ticker, sector').in('ticker', tickers),
+                    supabase.from('stock_fundamentals').select('ticker, market_cap_usd').in('ticker', tickers)
+                ]);
+                if (secRes.error) throw secRes.error;
+                if (fundRes.error) throw fundRes.error;
+                const out = {};
+                (secRes.data || []).forEach(r => {
+                    out[r.ticker] = { sector: r.sector || 'Unknown', marketCap: 0 };
+                });
+                (fundRes.data || []).forEach(r => {
+                    if (!out[r.ticker]) out[r.ticker] = { sector: 'Unknown', marketCap: 0 };
+                    out[r.ticker].marketCap = r.market_cap_usd ? Number(r.market_cap_usd) : 0;
+                });
+                console.log(`✅ Loaded meta (sector + market cap) for ${Object.keys(out).length} tickers`);
+                return out;
+            } catch (e) {
+                console.error('❌ Error loading meta:', e);
+                return {};
+            }
+        }
+
+        function monthlyGainsForYear(year) {
+            const snapshots = getSnapshots();
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const maxMonth = year === currentYear ? now.getMonth() + 1 : 12;
+            const out = [];
+            for (let m = 1; m <= 12; m++) {
+                if (m > maxMonth) { out.push({ month: m, gain: null }); continue; }
+                const startStr = `${year}-${String(m).padStart(2, '0')}-01`;
+                const endDateObj = new Date(year, m, 0);
+                const endStr = `${year}-${String(m).padStart(2, '0')}-${String(endDateObj.getDate()).padStart(2, '0')}`;
+                const prevMonthEndObj = new Date(year, m - 1, 0);
+                const prevMonthEnd = m === 1
+                    ? `${year - 1}-12-31`
+                    : `${year}-${String(m - 1).padStart(2, '0')}-${String(prevMonthEndObj.getDate()).padStart(2, '0')}`;
+                const startValue = getClosestSnapshot(snapshots, prevMonthEnd);
+                const endValue = getClosestSnapshot(snapshots, endStr);
+                if (!startValue || !endValue) { out.push({ month: m, gain: null }); continue; }
+                const monthCF = HISTORICAL_CASH_FLOWS.filter(cf => cf.date >= startStr && cf.date <= endStr);
+                const wd = monthCF.filter(cf => cf.type !== 'Deposit').reduce((s, cf) => s + cf.amount, 0);
+                const dep = monthCF.filter(cf => cf.type === 'Deposit').reduce((s, cf) => s + cf.amount, 0);
+                const monthTxn = transactions.filter(t => t.date >= startStr && t.date <= endStr);
+                const sold = monthTxn.filter(t => t.type === 'SELL').reduce((s, t) => s + t.quantity * t.price, 0);
+                const bought = monthTxn.filter(t => t.type === 'BUY').reduce((s, t) => s + t.quantity * t.price, 0);
+                out.push({ month: m, gain: endValue + wd + sold - dep - bought - startValue });
+            }
+            return out;
+        }
+
+        function sectorAggregation() {
+            const out = {};
+            portfolio.forEach(s => {
+                const sec = (stockMeta[s.ticker] && stockMeta[s.ticker].sector) || s.sector || 'Unknown';
+                const price = prices[s.ticker]?.price || 0;
+                const val = s.quantity * price;
+                const cost = fifoCostOf(s);
+                if (!out[sec]) out[sec] = { value: 0, gain: 0 };
+                out[sec].value += val;
+                out[sec].gain += (val - cost);
+            });
+            return out;
+        }
+
+        function mcapAggregation() {
+            const buckets = {
+                'Mega ($200B+)': { value: 0, gain: 0 },
+                'Large ($10B-$200B)': { value: 0, gain: 0 },
+                'Mid ($2B-$10B)': { value: 0, gain: 0 },
+                'Small (<$2B)': { value: 0, gain: 0 },
+                'Unknown': { value: 0, gain: 0 }
+            };
+            portfolio.forEach(s => {
+                const mcap = (stockMeta[s.ticker] && stockMeta[s.ticker].marketCap) || 0;
+                const price = prices[s.ticker]?.price || 0;
+                const val = s.quantity * price;
+                const cost = fifoCostOf(s);
+                let b;
+                if (mcap >= 200e9) b = 'Mega ($200B+)';
+                else if (mcap >= 10e9) b = 'Large ($10B-$200B)';
+                else if (mcap >= 2e9) b = 'Mid ($2B-$10B)';
+                else if (mcap > 0) b = 'Small (<$2B)';
+                else b = 'Unknown';
+                buckets[b].value += val;
+                buckets[b].gain += (val - cost);
+            });
+            return Object.fromEntries(Object.entries(buckets).filter(([_, v]) => v.value > 0));
+        }
+
+        function renderPerformanceCharts() {
+            if (activeTab !== 'overview' || overviewSubTab !== 'performance') return;
+            const PALETTE = ['#667eea','#10b981','#f59e0b','#ef4444','#8b5cf6','#3b82f6','#ec4899','#14b8a6','#f97316','#84cc16','#06b6d4','#a855f7'];
+            const fmtY = v => '$' + (Math.abs(v) >= 1e6 ? (v/1e6).toFixed(1)+'M' : Math.abs(v) >= 1e3 ? (v/1e3).toFixed(0)+'K' : v.toFixed(0));
+
+            const draw = (id, config) => {
+                const canvas = document.getElementById(id);
+                if (!canvas) return;
+                const existing = Chart.getChart(canvas);
+                if (existing) existing.destroy();
+                perfCharts[id] = new Chart(canvas, config);
+            };
+
+            const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            const mg = monthlyGainsForYear(selectedChartYear);
+            draw('overviewMonthlyChart', {
+                type: 'bar',
+                data: { labels: months, datasets: [{
+                    data: mg.map(d => d.gain),
+                    backgroundColor: mg.map(d => d.gain == null ? '#e5e7eb' : d.gain >= 0 ? '#10b981' : '#ef4444')
+                }]},
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => '$' + (c.parsed.y || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }) } } },
+                    scales: { y: { ticks: { callback: fmtY } } }
+                }
+            });
+
+            const cumLabels = [], cumValues = [];
+            let cumul = 0;
+            const endYear = new Date().getFullYear();
+            for (let y = 2021; y <= endYear; y++) {
+                const yearMG = monthlyGainsForYear(y);
+                yearMG.forEach(d => {
+                    if (y === 2021 && d.month < 11) return;
+                    if (d.gain == null) return;
+                    cumul += d.gain;
+                    cumLabels.push(`${months[d.month-1]} ${y}`);
+                    cumValues.push(cumul);
+                });
+            }
+            draw('overviewCumulativeChart', {
+                type: 'line',
+                data: { labels: cumLabels, datasets: [{
+                    data: cumValues, borderColor: '#667eea', backgroundColor: 'rgba(102,126,234,0.1)',
+                    fill: true, tension: 0.3, pointRadius: 2
+                }]},
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => '$' + (c.parsed.y || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }) } } },
+                    scales: { y: { ticks: { callback: fmtY } } }
+                }
+            });
+
+            const sec = sectorAggregation();
+            const secLabels = Object.keys(sec);
+            draw('overviewSectorPie', {
+                type: 'pie',
+                data: { labels: secLabels, datasets: [{ data: secLabels.map(k => sec[k].value), backgroundColor: PALETTE }] },
+                options: { responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'right' }, tooltip: { callbacks: { label: c => `${c.label}: $${(c.parsed || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}` } } } }
+            });
+            const secVals = secLabels.map(k => sec[k].gain);
+            draw('overviewSectorBar', {
+                type: 'bar',
+                data: { labels: secLabels, datasets: [{ data: secVals, backgroundColor: secVals.map(v => v >= 0 ? '#10b981' : '#ef4444') }] },
+                options: { responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => '$' + (c.parsed.y || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }) } } },
+                    scales: { y: { ticks: { callback: fmtY } } } }
+            });
+
+            const mc = mcapAggregation();
+            const mcLabels = Object.keys(mc);
+            draw('overviewMCapPie', {
+                type: 'pie',
+                data: { labels: mcLabels, datasets: [{ data: mcLabels.map(k => mc[k].value), backgroundColor: PALETTE }] },
+                options: { responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'right' }, tooltip: { callbacks: { label: c => `${c.label}: $${(c.parsed || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}` } } } }
+            });
+            const mcVals = mcLabels.map(k => mc[k].gain);
+            draw('overviewMCapBar', {
+                type: 'bar',
+                data: { labels: mcLabels, datasets: [{ data: mcVals, backgroundColor: mcVals.map(v => v >= 0 ? '#10b981' : '#ef4444') }] },
+                options: { responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => '$' + (c.parsed.y || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }) } } },
+                    scales: { y: { ticks: { callback: fmtY } } } }
+            });
+        }
+
         async function migrateLocalTransactionsToSupabase() {
             try {
                 console.log('🔄 Starting migration of localStorage transactions to Supabase...');
@@ -1569,6 +1756,14 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 </div>
 
                 <div class="tab-content ${activeTab === 'overview' ? 'active' : ''}">
+
+                <!-- Overview sub-tabs: Summary | Performance -->
+                <div class="flex gap-1 mb-4">
+                    <button onclick="overviewSubTab='summary'; render()" class="tab-button ${overviewSubTab === 'summary' ? 'active' : ''}" style="padding: 6px 14px; font-size: 13px;">📊 Summary</button>
+                    <button onclick="overviewSubTab='performance'; render()" class="tab-button ${overviewSubTab === 'performance' ? 'active' : ''}" style="padding: 6px 14px; font-size: 13px;">📈 Performance</button>
+                </div>
+
+                <div style="display: ${overviewSubTab === 'summary' ? 'block' : 'none'}">
 
                 <!-- US Index Cards -->
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -1989,6 +2184,49 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     </div>
                 </div>
 
+                </div><!-- /sub-tab: summary -->
+
+                <div style="display: ${overviewSubTab === 'performance' ? 'block' : 'none'}">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        <div class="card p-6">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-lg font-bold">Monthly Gains</h3>
+                                <select onchange="selectedChartYear = parseInt(this.value); render()" class="text-sm border rounded px-3 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
+                                    ${new Date().getFullYear() >= 2026 ? `<option value="2026" ${selectedChartYear === 2026 ? 'selected' : ''}>2026</option>` : ''}
+                                    <option value="2025" ${selectedChartYear === 2025 ? 'selected' : ''}>2025</option>
+                                    <option value="2024" ${selectedChartYear === 2024 ? 'selected' : ''}>2024</option>
+                                    <option value="2023" ${selectedChartYear === 2023 ? 'selected' : ''}>2023</option>
+                                </select>
+                            </div>
+                            <div class="chart-container"><canvas id="overviewMonthlyChart"></canvas></div>
+                        </div>
+                        <div class="card p-6">
+                            <h3 class="text-lg font-bold mb-4">Cumulative Portfolio Gains</h3>
+                            <div class="chart-container"><canvas id="overviewCumulativeChart"></canvas></div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        <div class="card p-6">
+                            <h3 class="text-lg font-bold mb-4">Sector Allocation</h3>
+                            <div class="chart-container" style="height: 320px;"><canvas id="overviewSectorPie"></canvas></div>
+                        </div>
+                        <div class="card p-6">
+                            <h3 class="text-lg font-bold mb-4">Sector Performance (Unrealized P/L)</h3>
+                            <div class="chart-container" style="height: 320px;"><canvas id="overviewSectorBar"></canvas></div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        <div class="card p-6">
+                            <h3 class="text-lg font-bold mb-4">Market Cap Allocation</h3>
+                            <div class="chart-container" style="height: 320px;"><canvas id="overviewMCapPie"></canvas></div>
+                        </div>
+                        <div class="card p-6">
+                            <h3 class="text-lg font-bold mb-4">Market Cap Performance (Unrealized P/L)</h3>
+                            <div class="chart-container" style="height: 320px;"><canvas id="overviewMCapBar"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+
                 </div><!-- /tab: overview -->
 
                 <div class="tab-content ${activeTab === 'holdings' ? 'active' : ''}">
@@ -2355,6 +2593,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
 
             // Create chart after render (Overview tab only)
             if (activeTab === 'overview') setTimeout(() => createChart(metrics), 100);
+            if (activeTab === 'overview' && overviewSubTab === 'performance') setTimeout(renderPerformanceCharts, 100);
         }
 
         
@@ -2681,6 +2920,9 @@ if (supabaseTransactions && supabaseTransactions.length > 0) {
 
     // Load EMA data (latest daily_stock_snapshots per held ticker) for Stacked / Above EMAs cards
     stockEmaData = await loadEmaDataFromSupabase();
+
+    // Load meta (sector + market cap) for sector/market-cap charts
+    stockMeta = await loadMetaFromSupabase();
 
     // Initialize snapshots from Supabase
     await initializeSnapshots();
