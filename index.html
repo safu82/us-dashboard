@@ -437,6 +437,47 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         const LTCG_YEARS = 2;  // US holdings held > 24 months = long-term (Indian tax residency)
         const CASH_FLOWS_END_DATE = '2025-08-15';  // cash_flows go to here; transactions start after — for Custom Period XIRR partition
 
+        // Fully-exited tickers need historical buy lots for FIFO realized P&L.
+        // They are NOT in holding_lots (which seeds only currently-held positions)
+        // and NOT inserted into `transactions` (would double-count vs HISTORICAL_CASH_FLOWS
+        // deposits in calculateXIRR / Period Gains / ATH). Hand-maintained.
+        const EXITED_LOTS = {
+            META: [
+                { date: '2025-04-03', qty: 30, cost: 543.97 },
+                { date: '2025-04-07', qty: 10, cost: 511.40 },
+                // Nov 25, 2025 buy is in `transactions` — do not duplicate here.
+            ],
+        };
+
+        // Pre-FIFO_SEED_DATE realized P&L for currently-held tickers. holding_lots
+        // is the survivor-lot snapshot as of seed date, so lots that were sold
+        // before the seed are gone from the snapshot — computeFIFO can't derive
+        // their realized gain from the seed alone. These entries are computed by
+        // hand from the broker's full transaction history (FIFO from oldest lot).
+        const PRE_SEED_REALIZED = {
+            MSFT: [
+                // 2025-01-30 SELL 25 @ $420.67 (consumed Nov 2021 + Apr 2022 lots)
+                { sellDate: '2025-01-30', buyDate: '2021-11-05', qty: 15, cost: 335.94,   sellPrice: 420.67,  gain: 15 * (420.67 - 335.94),   term: 'LT' },
+                { sellDate: '2025-01-30', buyDate: '2022-04-27', qty: 10, cost: 282.17,   sellPrice: 420.67,  gain: 10 * (420.67 - 282.17),   term: 'LT' },
+                // 2025-04-16 SELL 20 @ $376.6764 (consumed Sep 2022 + Mar 2023 lot 1)
+                { sellDate: '2025-04-16', buyDate: '2022-09-03', qty: 10, cost: 256.15,   sellPrice: 376.6764, gain: 10 * (376.6764 - 256.15),  term: 'LT' },
+                { sellDate: '2025-04-16', buyDate: '2023-03-22', qty: 10, cost: 273.60,   sellPrice: 376.6764, gain: 10 * (376.6764 - 273.60),  term: 'LT' },
+                // 2026-02-04 SELL 25 @ $416.10 (DB precision; consumed rest of Mar-22 + all Mar-29 + part of Mar-31)
+                { sellDate: '2026-02-04', buyDate: '2023-03-22', qty: 5,  cost: 273.60,   sellPrice: 416.10,  gain: 5  * (416.10 - 273.60),   term: 'LT' },
+                { sellDate: '2026-02-04', buyDate: '2023-03-29', qty: 15, cost: 279.3876, sellPrice: 416.10,  gain: 15 * (416.10 - 279.3876), term: 'LT' },
+                { sellDate: '2026-02-04', buyDate: '2023-03-31', qty: 5,  cost: 284.295,  sellPrice: 416.10,  gain: 5  * (416.10 - 284.295),  term: 'LT' },
+                // 2026-05-06 SELL 25 @ $409.27 (DB precision; consumed rest of Mar-31 + part of Apr-12)
+                { sellDate: '2026-05-06', buyDate: '2023-03-31', qty: 10, cost: 284.295,  sellPrice: 409.27,  gain: 10 * (409.27 - 284.295),  term: 'LT' },
+                { sellDate: '2026-05-06', buyDate: '2023-04-12', qty: 15, cost: 284.875,  sellPrice: 409.27,  gain: 15 * (409.27 - 284.875),  term: 'LT' },
+            ],
+        };
+
+        // Capital-gains tax estimate (Indian resident, foreign-equity rules):
+        //   STCG (<24mo holding): slab rate — configurable (default 20% slab + 4% cess = 20.8%)
+        //   LTCG (>=24mo holding): 12.5% flat (post-2024 Budget)
+        let stcgTaxRate = 20.8;
+        const LTCG_TAX_RATE = 12.5;
+
         let portfolio = []; // Will be loaded async
         let seedLots = {};                                  // ticker -> frozen seed lots
         let FIFO = { lotsByTicker: {}, realizedByTicker: {} }; // derived open lots + realized gains
@@ -1104,15 +1145,26 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             const lotsByTicker = {};
             const realizedByTicker = {};
 
+            // Seed currently-held positions from the frozen lot snapshot.
             Object.entries(seedLots).forEach(([ticker, lots]) => {
                 lotsByTicker[ticker] = lots.map(l => ({ date: l.date, qty: l.qty, cost: l.cost }));
             });
 
-            const postSeed = transactions
-                .filter(t => t.date > FIFO_SEED_DATE)
+            // Seed fully-exited tickers (hand-kept historical lots not in DB).
+            Object.entries(EXITED_LOTS).forEach(([ticker, lots]) => {
+                lotsByTicker[ticker] = (lotsByTicker[ticker] || []).concat(
+                    lots.map(l => ({ date: l.date, qty: l.qty, cost: l.cost }))
+                );
+            });
+
+            // Held tickers: only post-seed transactions need replay (seed already bakes
+            // in pre-seed state). Exited tickers: replay every transaction — their
+            // buy/sell chain may start before the seed date.
+            const replay = transactions
+                .filter(t => EXITED_LOTS[t.ticker] ? true : t.date > FIFO_SEED_DATE)
                 .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-            postSeed.forEach(t => {
+            replay.forEach(t => {
                 const qty = Number(t.quantity), price = Number(t.price);
                 lotsByTicker[t.ticker] = lotsByTicker[t.ticker] || [];
                 if (t.type === 'BUY') {
@@ -1137,8 +1189,54 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 }
             });
 
+            // Merge hand-computed pre-seed realized P&L (sells on held tickers that
+            // pre-date FIFO_SEED_DATE — their consumed lots are no longer in the seed).
+            Object.entries(PRE_SEED_REALIZED).forEach(([ticker, entries]) => {
+                realizedByTicker[ticker] = (realizedByTicker[ticker] || []).concat(entries);
+            });
+
             FIFO = { lotsByTicker, realizedByTicker };
             return FIFO;
+        }
+
+        // Realized gain attributable to a single SELL row, summed across the lots
+        // it consumed. `term` is 'LT' / 'ST' / 'MIX' if the sell straddled both.
+        function realizedForSell(txn) {
+            const lots = (FIFO.realizedByTicker[txn.ticker] || [])
+                .filter(r => r.sellDate === txn.date && r.sellPrice === Number(txn.price));
+            if (!lots.length) return null;
+            const gain = lots.reduce((s, l) => s + l.gain, 0);
+            const terms = new Set(lots.map(l => l.term));
+            const term = terms.size === 1 ? [...terms][0] : 'MIX';
+            return { gain, term, lots };
+        }
+
+        // Returns DB transactions + virtual BUY rows for fully-exited tickers,
+        // so the Transactions tab UI surfaces the historical buy lots that aren't
+        // in the DB but are needed to explain a SELL's realized P&L.
+        function displayTransactions() {
+            const virtual = Object.entries(EXITED_LOTS).flatMap(([ticker, lots]) =>
+                lots.map(l => ({
+                    date: l.date, type: 'BUY', ticker, stock: ticker,
+                    quantity: l.qty, price: l.cost, _historical: true,
+                }))
+            );
+            return [...transactions, ...virtual];
+        }
+
+        // Aggregate realized gains over an Indian FY window (Apr 1 -> Mar 31).
+        function realizedForFY(fyStart, fyEnd) {
+            let stcg = 0, ltcg = 0;
+            const rows = [];
+            Object.entries(FIFO.realizedByTicker || {}).forEach(([ticker, rs]) => {
+                rs.forEach(r => {
+                    if (r.sellDate >= fyStart && r.sellDate <= fyEnd) {
+                        if (r.term === 'ST') stcg += r.gain; else ltcg += r.gain;
+                        rows.push({ ticker, ...r });
+                    }
+                });
+            });
+            return { stcg, ltcg, rows };
         }
 
         // Reusable Newton-Raphson XIRR kernel (ported from the India dashboard).
@@ -2451,6 +2549,86 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 </div>
                 ` : ''}
 
+                ${(() => {
+                    const fyStart = '2026-04-01', fyEnd = '2027-03-31';
+                    const { stcg, ltcg, rows } = realizedForFY(fyStart, fyEnd);
+                    const stcgTax = stcg > 0 ? stcg * (stcgTaxRate / 100) : 0;
+                    const ltcgTax = ltcg > 0 ? ltcg * (LTCG_TAX_RATE / 100) : 0;
+                    const totalTax = stcgTax + ltcgTax;
+                    const fmt = n => '$' + formatNumber(n);
+                    const colorFor = n => n >= 0 ? 'text-green-700' : 'text-red-700';
+                    const tickerList = [...new Set(rows.map(r => r.ticker))];
+                    return `
+                <div class="card p-6 mb-6">
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <h2 class="text-xl font-bold">Capital Gains Tax Estimate</h2>
+                            <p class="text-sm" style="color: var(--text-secondary);">FY 2026-27 (Apr 1, 2026 – Mar 31, 2027) · Indian resident, foreign-equity rules</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <label class="text-sm" style="color: var(--text-secondary);">STCG rate:</label>
+                            <input type="number" step="0.1" min="0" max="50" value="${stcgTaxRate}"
+                                onchange="stcgTaxRate = Number(this.value) || 0; render()"
+                                class="text-sm rounded px-2 py-1 w-20 text-right"
+                                style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                            <span class="text-sm" style="color: var(--text-secondary);">%</span>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-4">
+                        <div class="rounded-lg p-4" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                            <div class="text-xs uppercase tracking-wide" style="color: var(--text-secondary);">Short-Term (slab)</div>
+                            <div class="text-2xl font-bold mt-1 ${colorFor(stcg)}">${stcg >= 0 ? '+' : '-'}${fmt(Math.abs(stcg))}</div>
+                            <div class="text-sm mt-2" style="color: var(--text-secondary);">Tax @ ${stcgTaxRate}% = <span class="font-semibold" style="color: var(--text-primary);">${fmt(stcgTax)}</span></div>
+                        </div>
+                        <div class="rounded-lg p-4" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                            <div class="text-xs uppercase tracking-wide" style="color: var(--text-secondary);">Long-Term (12.5% flat)</div>
+                            <div class="text-2xl font-bold mt-1 ${colorFor(ltcg)}">${ltcg >= 0 ? '+' : '-'}${fmt(Math.abs(ltcg))}</div>
+                            <div class="text-sm mt-2" style="color: var(--text-secondary);">Tax @ ${LTCG_TAX_RATE}% = <span class="font-semibold" style="color: var(--text-primary);">${fmt(ltcgTax)}</span></div>
+                        </div>
+                        <div class="rounded-lg p-4" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white;">
+                            <div class="text-xs uppercase tracking-wide opacity-90">Total Estimated Tax</div>
+                            <div class="text-2xl font-bold mt-1">${fmt(totalTax)}</div>
+                            <div class="text-sm mt-2 opacity-90">${rows.length} lot${rows.length === 1 ? '' : 's'} from ${tickerList.length} ticker${tickerList.length === 1 ? '' : 's'}${tickerList.length ? ': ' + tickerList.map(t => tvLink(t, t)).join(', ') : ''}</div>
+                        </div>
+                    </div>
+                    ${rows.length === 0 ? `
+                    <div class="mt-4 text-sm" style="color: var(--text-secondary);">No realized sells in FY 2026-27 yet.</div>
+                    ` : `
+                    <div class="mt-5 overflow-x-auto">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Sell Date</th>
+                                    <th>Ticker</th>
+                                    <th class="text-right">Qty</th>
+                                    <th class="text-right">Buy Date</th>
+                                    <th class="text-right">Cost</th>
+                                    <th class="text-right">Sell</th>
+                                    <th class="text-right">Realized</th>
+                                    <th class="text-center">Term</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows.sort((a, b) => a.sellDate.localeCompare(b.sellDate) || a.buyDate.localeCompare(b.buyDate)).map(r => `
+                                <tr>
+                                    <td>${r.sellDate}</td>
+                                    <td>${tvLink(r.ticker, r.ticker)}</td>
+                                    <td class="text-right">${formatNumber(r.qty)}</td>
+                                    <td class="text-right">${r.buyDate}</td>
+                                    <td class="text-right">$${formatNumber(r.cost)}</td>
+                                    <td class="text-right">$${formatNumber(r.sellPrice)}</td>
+                                    <td class="text-right font-semibold ${colorFor(r.gain)}">${r.gain >= 0 ? '+' : '-'}$${formatNumber(Math.abs(r.gain))}</td>
+                                    <td class="text-center"><span class="badge ${r.term === 'LT' ? 'badge-green' : 'badge-red'}">${r.term}</span></td>
+                                </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    `}
+                </div>
+                    `;
+                })()}
+
                 <div class="card p-6">
                     <div class="flex justify-between items-center mb-4">
                         <h2 class="text-xl font-bold">Transaction History</h2>
@@ -2460,10 +2638,10 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                 const currentDate = new Date();
                                 const currentYear = currentDate.getFullYear();
                                 const currentMonth = currentDate.getMonth() + 1;
-                                
-                                // Generate months from Oct 2025 to current month
+
+                                // Generate months from Apr 2025 (covers historical META buys) to current month
                                 for (let year = 2025; year <= currentYear; year++) {
-                                    const startMonth = (year === 2025) ? 10 : 1;
+                                    const startMonth = (year === 2025) ? 4 : 1;
                                     const endMonth = (year === currentYear) ? currentMonth : 12;
                                     
                                     for (let month = startMonth; month <= endMonth; month++) {
@@ -2477,64 +2655,60 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         </select>
                     </div>
                     
+                    ${(() => {
+                        const mStart = `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-01`;
+                        const mEnd = `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-32`;
+                        const all = displayTransactions().filter(t => t.date >= mStart && t.date < mEnd);
+                        const buys = all.filter(t => t.type === 'BUY');
+                        const sells = all.filter(t => t.type === 'SELL');
+                        const buyTotal = buys.reduce((s, t) => s + (t.quantity * t.price), 0);
+                        const sellTotal = sells.reduce((s, t) => s + (t.quantity * t.price), 0);
+                        const mtmTotal = all.reduce((s, t) => {
+                            if (t.price > 0 && mtmPrices[t.ticker]) {
+                                const cmp = mtmPrices[t.ticker];
+                                return s + (t.type === 'BUY' ? (cmp - t.price) : (t.price - cmp)) * t.quantity;
+                            }
+                            return s;
+                        }, 0);
+                        const realizedTotal = sells.reduce((s, t) => {
+                            const r = realizedForSell(t);
+                            return s + (r ? r.gain : 0);
+                        }, 0);
+                        const rows = all.slice().sort((a, b) => b.date.localeCompare(a.date))
+                            .filter(t => (t.type === 'BUY' && showBuyTransactions) || (t.type === 'SELL' && showSellTransactions));
+
+                        return `
                     <div class="mb-4 flex gap-4 items-center flex-wrap">
                         <div class="flex gap-4">
                             <label class="flex items-center gap-2">
                                 <input type="checkbox" ${showBuyTransactions ? 'checked' : ''} onchange="showBuyTransactions = this.checked; render()">
-                                <span class="text-sm font-semibold text-green-700">Buy Transactions (${transactions.filter(t => t.type === 'BUY' && t.date >= `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-01` && t.date < `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-32`).length})</span>
+                                <span class="text-sm font-semibold text-green-700">Buy Transactions (${buys.length})</span>
                             </label>
                             <label class="flex items-center gap-2">
                                 <input type="checkbox" ${showSellTransactions ? 'checked' : ''} onchange="showSellTransactions = this.checked; render()">
-                                <span class="text-sm font-semibold text-red-700">Sell Transactions (${transactions.filter(t => t.type === 'SELL' && t.date >= `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-01` && t.date < `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-32`).length})</span>
+                                <span class="text-sm font-semibold text-red-700">Sell Transactions (${sells.length})</span>
                             </label>
                         </div>
-                        <div class="ml-auto flex gap-6">
+                        <div class="ml-auto flex gap-6 flex-wrap">
                             <div>
-                                <span class="text-sm" style="color: var(--text-secondary);">Total Purchased:</span>
-                                <span class="text-sm font-bold text-green-700">$${formatNumber(transactions.filter(t => t.type === 'BUY' && t.date >= `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-01` && t.date < `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-32`).reduce((sum, t) => sum + (t.quantity * t.price), 0))}</span>
+                                <span class="text-sm" style="color: var(--text-secondary);">Purchased:</span>
+                                <span class="text-sm font-bold text-green-700">$${formatNumber(buyTotal)}</span>
                             </div>
                             <div>
-                                <span class="text-sm" style="color: var(--text-secondary);">Total Sold:</span>
-                                <span class="text-sm font-bold text-red-700">$${formatNumber(transactions.filter(t => t.type === 'SELL' && t.date >= `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-01` && t.date < `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-32`).reduce((sum, t) => sum + (t.quantity * t.price), 0))}</span>
+                                <span class="text-sm" style="color: var(--text-secondary);">Sold:</span>
+                                <span class="text-sm font-bold text-red-700">$${formatNumber(sellTotal)}</span>
                             </div>
                             <div>
-                                <span class="text-sm" style="color: var(--text-secondary);">Total MTM:</span>
-                                <span class="text-sm font-bold ${(() => {
-                                    const startDate = selectedTransactionYear + '-' + String(selectedTransactionMonth).padStart(2, '0') + '-01';
-                                    const endDate = selectedTransactionYear + '-' + String(selectedTransactionMonth).padStart(2, '0') + '-32';
-                                    const totalMTM = transactions.filter(t => t.date >= startDate && t.date < endDate).reduce((sum, t) => {
-                                        if (t.price > 0 && mtmPrices[t.ticker]) {
-                                            const cmp = mtmPrices[t.ticker];
-                                            if (t.type === 'BUY') {
-                                                return sum + ((cmp - t.price) * t.quantity);
-                                            } else {
-                                                return sum + ((t.price - cmp) * t.quantity);
-                                            }
-                                        }
-                                        return sum;
-                                    }, 0);
-                                    return totalMTM >= 0 ? 'text-green-700' : 'text-red-700';
-                                })()}">${(() => {
-                                    const startDate = selectedTransactionYear + '-' + String(selectedTransactionMonth).padStart(2, '0') + '-01';
-                                    const endDate = selectedTransactionYear + '-' + String(selectedTransactionMonth).padStart(2, '0') + '-32';
-                                    const totalMTM = transactions.filter(t => t.date >= startDate && t.date < endDate).reduce((sum, t) => {
-                                        if (t.price > 0 && mtmPrices[t.ticker]) {
-                                            const cmp = mtmPrices[t.ticker];
-                                            if (t.type === 'BUY') {
-                                                return sum + ((cmp - t.price) * t.quantity);
-                                            } else {
-                                                return sum + ((t.price - cmp) * t.quantity);
-                                            }
-                                        }
-                                        return sum;
-                                    }, 0);
-                                    const sign = totalMTM >= 0 ? '+' : '';
-                                    return sign + '$' + formatNumber(Math.abs(totalMTM));
-                                })()}</span>
+                                <span class="text-sm" style="color: var(--text-secondary);">Realized P&L:</span>
+                                <span class="text-sm font-bold ${realizedTotal >= 0 ? 'text-green-700' : 'text-red-700'}">${realizedTotal >= 0 ? '+' : '-'}$${formatNumber(Math.abs(realizedTotal))}</span>
+                            </div>
+                            <div>
+                                <span class="text-sm" style="color: var(--text-secondary);">MTM:</span>
+                                <span class="text-sm font-bold ${mtmTotal >= 0 ? 'text-green-700' : 'text-red-700'}">${mtmTotal >= 0 ? '+' : '-'}$${formatNumber(Math.abs(mtmTotal))}</span>
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="overflow-x-auto">
                         <table>
                             <thead>
@@ -2545,51 +2719,43 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                     <th class="text-right">Quantity</th>
                                     <th class="text-right">Price</th>
                                     <th class="text-right">Total Value</th>
+                                    <th class="text-right">Realized P&L</th>
                                     <th class="text-right">MTM</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                ${transactions.slice().reverse()
-                                .filter(txn => txn.date >= `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-01` && txn.date < `${selectedTransactionYear}-${String(selectedTransactionMonth).padStart(2, '0')}-32`)
-                                .filter(txn => 
-                                    (txn.type === 'BUY' && showBuyTransactions) || 
-                                    (txn.type === 'SELL' && showSellTransactions)
-                                ).map(txn => {
-                                    // Calculate MTM
-                                    let mtm = null;
-                                    let mtmClass = '';
-                                    let mtmText = '-';
-                                    
-                                    // Skip if transaction price is 0 (corporate action)
+                                ${rows.map(txn => {
+                                    // MTM
+                                    let mtmClass = '', mtmText = '-';
                                     if (txn.price > 0 && mtmPrices[txn.ticker]) {
                                         const cmp = mtmPrices[txn.ticker];
-                                        if (txn.type === 'BUY') {
-                                            // For BUY: MTM = (CMP - Buy Price) × Quantity
-                                            mtm = (cmp - txn.price) * txn.quantity;
-                                        } else {
-                                            // For SELL: MTM = (Sell Price - CMP) × Quantity
-                                            mtm = (txn.price - cmp) * txn.quantity;
-                                        }
-                                        
-                                        if (mtm !== null) {
-                                            mtmClass = mtm >= 0 ? 'text-green-600' : 'text-red-600';
-                                            const sign = mtm >= 0 ? '+' : '';
-                                            mtmText = `${sign}$${formatNumber(Math.abs(mtm))}`;
+                                        const mtm = (txn.type === 'BUY' ? (cmp - txn.price) : (txn.price - cmp)) * txn.quantity;
+                                        mtmClass = mtm >= 0 ? 'text-green-600' : 'text-red-600';
+                                        mtmText = `${mtm >= 0 ? '+' : '-'}$${formatNumber(Math.abs(mtm))}`;
+                                    }
+                                    // Realized P&L (SELL rows only)
+                                    let realizedCell = '<span style="color: var(--text-secondary);">-</span>';
+                                    if (txn.type === 'SELL') {
+                                        const r = realizedForSell(txn);
+                                        if (r) {
+                                            const gainClass = r.gain >= 0 ? 'text-green-600' : 'text-red-600';
+                                            const sign = r.gain >= 0 ? '+' : '-';
+                                            const badgeClass = r.term === 'LT' ? 'badge-green' : 'badge-red';
+                                            realizedCell = `<span class="font-semibold ${gainClass}">${sign}$${formatNumber(Math.abs(r.gain))}</span> <span class="badge ${badgeClass}" style="margin-left:6px;">${r.term}</span>`;
                                         }
                                     }
-                                    
+                                    const dateCell = txn._historical
+                                        ? `${txn.date} <span class="badge" style="background:#94a3b820;color:#64748b;margin-left:4px;font-size:10px;">historical</span>`
+                                        : txn.date;
                                     return `
                                 <tr>
-                                    <td>${txn.date}</td>
-                                    <td>
-                                        <span class="badge ${txn.type === 'BUY' ? 'badge-green' : 'badge-red'}">
-                                            ${txn.type}
-                                        </span>
-                                    </td>
+                                    <td>${dateCell}</td>
+                                    <td><span class="badge ${txn.type === 'BUY' ? 'badge-green' : 'badge-red'}">${txn.type}</span></td>
                                     <td>${tvLink(txn.ticker, txn.stock)}</td>
                                     <td class="text-right">${formatNumber(txn.quantity)}</td>
                                     <td class="text-right">$${formatNumber(txn.price)}</td>
                                     <td class="text-right font-semibold">$${formatNumber(txn.quantity * txn.price)}</td>
+                                    <td class="text-right">${realizedCell}</td>
                                     <td class="text-right font-semibold ${mtmClass}">${mtmText}</td>
                                 </tr>
                                 `;
@@ -2597,6 +2763,8 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                             </tbody>
                         </table>
                     </div>
+                        `;
+                    })()}
                 </div>
 
                 </div><!-- /tab: transactions -->
