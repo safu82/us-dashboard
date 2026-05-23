@@ -434,6 +434,7 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         // date; transactions dated after it are replayed to derive open lots.
         const FIFO_SEED_DATE = '2026-05-22';
         const LTCG_YEARS = 2;  // US holdings held > 24 months = long-term (Indian tax residency)
+        const CASH_FLOWS_END_DATE = '2025-08-15';  // cash_flows go to here; transactions start after — for Custom Period XIRR partition
 
         let portfolio = []; // Will be loaded async
         let seedLots = {};                                  // ticker -> frozen seed lots
@@ -446,6 +447,8 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let showTransactionForm = false;
         let expandedHolding = null;   // Holdings tab — ticker whose lot detail is open
         let activeTab = 'overview';   // overview | holdings | transactions | analytics | alerts | paper
+        let customXIRRStart = '2021-11';  // Custom Period start (YYYY-MM)
+        let customXIRREnd = 'current';     // Custom Period end (YYYY-MM or 'current')
         let isNewStock = false;
         let isLiveData = false;
         let sortColumn = null;
@@ -1179,6 +1182,104 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             } catch (e) { return null; }
         }
 
+        // ============ CUSTOM PERIOD XIRR ============
+        // Range XIRR for any start-month -> end-month (or 'current') range.
+        // Ports the India custom-XIRR pattern: snapshot baseline + intervening
+        // cash_flows + post-CASH_FLOWS_END_DATE transactions + terminal value.
+        // Uses solveXIRR-style Newton-Raphson with multiple starting guesses.
+        function monthOptionsForXIRR(selected, allowCurrent) {
+            const out = [];
+            if (allowCurrent) {
+                out.push(`<option value="current" ${selected === 'current' ? 'selected' : ''}>Current</option>`);
+            }
+            const today = new Date();
+            const cy = today.getFullYear(), cm = today.getMonth() + 1;
+            const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            for (let y = cy; y >= 2021; y--) {
+                const startM = (y === cy) ? cm : 12;
+                const endM = (y === 2021) ? 11 : 1;
+                for (let m = startM; m >= endM; m--) {
+                    const ym = `${y}-${String(m).padStart(2, '0')}`;
+                    out.push(`<option value="${ym}" ${selected === ym ? 'selected' : ''}>${M[m-1]} ${y}</option>`);
+                }
+            }
+            return out.join('');
+        }
+
+        function calculateCustomXIRR(startYM, endYM, currentPortfolioValue) {
+            const snapshots = getSnapshots();
+            const startEntry = Object.entries(snapshots)
+                .filter(([d]) => d.startsWith(startYM))
+                .sort(([a], [b]) => b.localeCompare(a))[0];
+            if (!startEntry) return { xirr: null, error: 'No snapshot for start month' };
+            const startValue = startEntry[1];
+            const startDate = new Date(startEntry[0]);
+            const startStr = startEntry[0];
+
+            let endValue, endDate, endStr;
+            if (endYM === 'current') {
+                endValue = currentPortfolioValue;
+                endDate = new Date();
+                endStr = new Date().toISOString().split('T')[0];
+            } else {
+                const endEntry = Object.entries(snapshots)
+                    .filter(([d]) => d.startsWith(endYM))
+                    .sort(([a], [b]) => b.localeCompare(a))[0];
+                if (!endEntry) return { xirr: null, error: 'No snapshot for end month' };
+                endValue = endEntry[1];
+                endDate = new Date(endEntry[0]);
+                endStr = endEntry[0];
+            }
+            if (endDate <= startDate) return { xirr: null, error: 'End must be after start' };
+
+            const cashFlows = [-startValue];
+            const dates = [startDate];
+
+            HISTORICAL_CASH_FLOWS.forEach(cf => {
+                if (cf.date > startStr && cf.date <= endStr) {
+                    cashFlows.push(cf.type === 'Deposit' ? -cf.amount : cf.amount);
+                    dates.push(new Date(cf.date));
+                }
+            });
+
+            const txnStart = startStr > CASH_FLOWS_END_DATE ? startStr : CASH_FLOWS_END_DATE;
+            transactions.filter(t => t.date > txnStart && t.date <= endStr).forEach(t => {
+                cashFlows.push(t.type === 'BUY' ? -(t.quantity * t.price) : (t.quantity * t.price));
+                dates.push(new Date(t.date));
+            });
+
+            cashFlows.push(endValue);
+            dates.push(endDate);
+
+            const npvFn = r => cashFlows.reduce((s, cf, j) => {
+                const yf = (dates[j] - dates[0]) / (1000 * 60 * 60 * 24 * 365);
+                return s + cf / Math.pow(1 + r, yf);
+            }, 0);
+            const dnpvFn = r => cashFlows.reduce((s, cf, j) => {
+                const yf = (dates[j] - dates[0]) / (1000 * 60 * 60 * 24 * 365);
+                return s - yf * cf / Math.pow(1 + r, yf) / (1 + r);
+            }, 0);
+
+            let xirr = null;
+            for (const startGuess of [0.1, -0.1, 0.5, -0.5, 1.0, -0.9]) {
+                let guess = startGuess;
+                for (let i = 0; i < 200; i++) {
+                    const npv = npvFn(guess);
+                    const dnpv = dnpvFn(guess);
+                    if (dnpv === 0 || !isFinite(dnpv)) break;
+                    const ng = guess - npv / dnpv;
+                    if (!isFinite(ng) || ng <= -1) break;
+                    if (Math.abs(ng - guess) < 0.00001) { xirr = ng * 100; break; }
+                    guess = ng;
+                }
+                if (xirr !== null) break;
+            }
+
+            const absoluteGain = endValue - startValue;
+            const absoluteGainPct = startValue > 0 ? (absoluteGain / startValue) * 100 : 0;
+            return { xirr, absoluteGain, absoluteGainPct };
+        }
+
         async function migrateLocalTransactionsToSupabase() {
             try {
                 console.log('🔄 Starting migration of localStorage transactions to Supabase...');
@@ -1392,7 +1493,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     </p>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
                     <div class="metric-card">
                         <div class="flex justify-between items-start mb-3">
                             <div>
@@ -1442,15 +1543,46 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
 
                     <div class="metric-card">
                         <div class="flex justify-between items-start mb-3">
-                            <div>
-                                <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">XIRR (Since Nov '21)</p>
-                                <h3 class="text-3xl font-bold mt-1 ${metrics.xirr >= 0 ? 'text-green-600' : 'text-red-600'}">
-                                    ${metrics.xirr !== null ? (metrics.xirr >= 0 ? '+' : '') + formatNumber(metrics.xirr) + '%' : 'N/A'}
-                                </h3>
-                                <p class="text-xs mt-1" style="color: var(--text-secondary);">vs QQQ: ${metrics.qqqXIRR ? metrics.qqqXIRR.toFixed(2) : '0.00'}% ${metrics.xirr > (metrics.qqqXIRR || 0) ? '🟢' : '🔴'}</p>
+                            <div style="min-width: 0;">
+                                <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Custom Period</p>
+                                <div class="flex gap-1 mt-1 flex-wrap">
+                                    <select onchange="customXIRRStart = this.value; render()" class="text-xs border rounded px-1 py-0.5" style="background: var(--bg-card); border-color: var(--border-color);">
+                                        ${monthOptionsForXIRR(customXIRRStart, false)}
+                                    </select>
+                                    <span class="text-xs self-center" style="color: var(--text-secondary);">→</span>
+                                    <select onchange="customXIRREnd = this.value; render()" class="text-xs border rounded px-1 py-0.5" style="background: var(--bg-card); border-color: var(--border-color);">
+                                        ${monthOptionsForXIRR(customXIRREnd, true)}
+                                    </select>
+                                </div>
                             </div>
                             <div class="icon-wrapper icon-purple">
-                                <i class="fas fa-trophy"></i>
+                                <i class="fas fa-calendar-week"></i>
+                            </div>
+                        </div>
+                        ${(() => {
+                            const r = calculateCustomXIRR(customXIRRStart, customXIRREnd, metrics.totalCurrentValue);
+                            if (!r || r.error) {
+                                return `<p class="text-sm mt-2" style="color: var(--text-secondary);">${r && r.error ? r.error : '—'}</p>`;
+                            }
+                            const gCls = r.absoluteGain >= 0 ? 'text-green-600' : 'text-red-600';
+                            const xCls = (r.xirr !== null && r.xirr >= 0) ? 'text-green-600' : 'text-red-600';
+                            return `
+                                <p class="text-xl font-bold ${gCls}">${r.absoluteGain >= 0 ? '+' : ''}${formatCurrency(r.absoluteGain)}</p>
+                                <p class="text-xs ${gCls}">${r.absoluteGainPct >= 0 ? '+' : ''}${formatNumber(r.absoluteGainPct)}%</p>
+                                <p class="text-sm font-semibold mt-1 ${xCls}">XIRR: ${r.xirr !== null ? (r.xirr >= 0 ? '+' : '') + formatNumber(r.xirr) + '%' : 'N/A'}</p>
+                            `;
+                        })()}
+                    </div>
+
+                    <div class="metric-card" style="opacity: 0.65;">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Portfolio Strength</p>
+                                <h3 class="text-3xl font-bold mt-1" style="color: var(--text-secondary);">—</h3>
+                                <p class="text-xs mt-1" style="color: var(--text-secondary);">Activates in Phase 3 (needs scanner alerts)</p>
+                            </div>
+                            <div class="icon-wrapper icon-purple">
+                                <i class="fas fa-shield-halved"></i>
                             </div>
                         </div>
                     </div>
