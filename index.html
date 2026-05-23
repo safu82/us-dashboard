@@ -2307,16 +2307,11 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         <h3 class="text-3xl font-bold mt-1 ${metrics.totalDayChange >= 0 ? 'text-green-600' : 'text-red-600'}">${formatCurrency(metrics.totalDayChange)}</h3>
                         <p class="text-xs mt-1 ${metrics.totalDayChangePercent >= 0 ? 'text-green-600' : 'text-red-600'}">${metrics.totalDayChangePercent >= 0 ? '+' : ''}${formatNumber(metrics.totalDayChangePercent)}%</p>
                     </div>
-                    ${(() => {
-                        const realized = totalRealizedGains();
-                        const cls = realized >= 0 ? 'text-green-600' : 'text-red-600';
-                        return `
-                        <div class="metric-card">
-                            <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Realized Gains</p>
-                            <h3 class="text-3xl font-bold mt-1 ${cls}">${formatCurrency(realized)}</h3>
-                            <p class="text-xs mt-1" style="color: var(--text-secondary);">Sells from lot ledger (historical loads later)</p>
-                        </div>`;
-                    })()}
+                    <div class="metric-card">
+                        <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Realized Gains</p>
+                        <h3 class="text-3xl font-bold mt-1" style="color: var(--text-secondary);">—</h3>
+                        <p class="text-xs mt-1" style="color: var(--text-secondary);">Currently-held positions only — TBD</p>
+                    </div>
                 </div>
 
                 <!-- Holdings quick stats (5-up): Total Stocks, Gaining/Losing Today, Biggest Gainer/Loser -->
@@ -2549,87 +2544,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 </div>
                 ` : ''}
 
-                ${(() => {
-                    const fyStart = '2026-04-01', fyEnd = '2027-03-31';
-                    const { stcg, ltcg, rows } = realizedForFY(fyStart, fyEnd);
-                    const stcgTax = stcg > 0 ? stcg * (stcgTaxRate / 100) : 0;
-                    const ltcgTax = ltcg > 0 ? ltcg * (LTCG_TAX_RATE / 100) : 0;
-                    const totalTax = stcgTax + ltcgTax;
-                    const fmt = n => '$' + formatNumber(n);
-                    const colorFor = n => n >= 0 ? 'text-green-700' : 'text-red-700';
-                    const tickerList = [...new Set(rows.map(r => r.ticker))];
-                    return `
                 <div class="card p-6 mb-6">
-                    <div class="flex justify-between items-start mb-4">
-                        <div>
-                            <h2 class="text-xl font-bold">Capital Gains Tax Estimate</h2>
-                            <p class="text-sm" style="color: var(--text-secondary);">FY 2026-27 (Apr 1, 2026 – Mar 31, 2027) · Indian resident, foreign-equity rules</p>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <label class="text-sm" style="color: var(--text-secondary);">STCG rate:</label>
-                            <input type="number" step="0.1" min="0" max="50" value="${stcgTaxRate}"
-                                onchange="stcgTaxRate = Number(this.value) || 0; render()"
-                                class="text-sm rounded px-2 py-1 w-20 text-right"
-                                style="border: 1px solid var(--border-color); background: var(--bg-card);">
-                            <span class="text-sm" style="color: var(--text-secondary);">%</span>
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-3 gap-4">
-                        <div class="rounded-lg p-4" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
-                            <div class="text-xs uppercase tracking-wide" style="color: var(--text-secondary);">Short-Term (slab)</div>
-                            <div class="text-2xl font-bold mt-1 ${colorFor(stcg)}">${stcg >= 0 ? '+' : '-'}${fmt(Math.abs(stcg))}</div>
-                            <div class="text-sm mt-2" style="color: var(--text-secondary);">Tax @ ${stcgTaxRate}% = <span class="font-semibold" style="color: var(--text-primary);">${fmt(stcgTax)}</span></div>
-                        </div>
-                        <div class="rounded-lg p-4" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
-                            <div class="text-xs uppercase tracking-wide" style="color: var(--text-secondary);">Long-Term (12.5% flat)</div>
-                            <div class="text-2xl font-bold mt-1 ${colorFor(ltcg)}">${ltcg >= 0 ? '+' : '-'}${fmt(Math.abs(ltcg))}</div>
-                            <div class="text-sm mt-2" style="color: var(--text-secondary);">Tax @ ${LTCG_TAX_RATE}% = <span class="font-semibold" style="color: var(--text-primary);">${fmt(ltcgTax)}</span></div>
-                        </div>
-                        <div class="rounded-lg p-4" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white;">
-                            <div class="text-xs uppercase tracking-wide opacity-90">Total Estimated Tax</div>
-                            <div class="text-2xl font-bold mt-1">${fmt(totalTax)}</div>
-                            <div class="text-sm mt-2 opacity-90">${rows.length} lot${rows.length === 1 ? '' : 's'} from ${tickerList.length} ticker${tickerList.length === 1 ? '' : 's'}${tickerList.length ? ': ' + tickerList.map(t => tvLink(t, t)).join(', ') : ''}</div>
-                        </div>
-                    </div>
-                    ${rows.length === 0 ? `
-                    <div class="mt-4 text-sm" style="color: var(--text-secondary);">No realized sells in FY 2026-27 yet.</div>
-                    ` : `
-                    <div class="mt-5 overflow-x-auto">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Sell Date</th>
-                                    <th>Ticker</th>
-                                    <th class="text-right">Qty</th>
-                                    <th class="text-right">Buy Date</th>
-                                    <th class="text-right">Cost</th>
-                                    <th class="text-right">Sell</th>
-                                    <th class="text-right">Realized</th>
-                                    <th class="text-center">Term</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${rows.sort((a, b) => a.sellDate.localeCompare(b.sellDate) || a.buyDate.localeCompare(b.buyDate)).map(r => `
-                                <tr>
-                                    <td>${r.sellDate}</td>
-                                    <td>${tvLink(r.ticker, r.ticker)}</td>
-                                    <td class="text-right">${formatNumber(r.qty)}</td>
-                                    <td class="text-right">${r.buyDate}</td>
-                                    <td class="text-right">$${formatNumber(r.cost)}</td>
-                                    <td class="text-right">$${formatNumber(r.sellPrice)}</td>
-                                    <td class="text-right font-semibold ${colorFor(r.gain)}">${r.gain >= 0 ? '+' : '-'}$${formatNumber(Math.abs(r.gain))}</td>
-                                    <td class="text-center"><span class="badge ${r.term === 'LT' ? 'badge-green' : 'badge-red'}">${r.term}</span></td>
-                                </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                    `}
-                </div>
-                    `;
-                })()}
-
-                <div class="card p-6">
                     <div class="flex justify-between items-center mb-4">
                         <h2 class="text-xl font-bold">Transaction History</h2>
                         <select onchange="const [year, month] = this.value.split('-'); selectedTransactionYear = parseInt(year); selectedTransactionMonth = parseInt(month); render()" class="text-sm border rounded px-3 py-2" style="background: var(--bg-card); border-color: var(--border-color);">
@@ -2766,6 +2681,86 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         `;
                     })()}
                 </div>
+
+                ${(() => {
+                    const fyStart = '2026-04-01', fyEnd = '2027-03-31';
+                    const { stcg, ltcg, rows } = realizedForFY(fyStart, fyEnd);
+                    const stcgTax = stcg > 0 ? stcg * (stcgTaxRate / 100) : 0;
+                    const ltcgTax = ltcg > 0 ? ltcg * (LTCG_TAX_RATE / 100) : 0;
+                    const totalTax = stcgTax + ltcgTax;
+                    const fmt = n => '$' + formatNumber(n);
+                    const colorFor = n => n >= 0 ? 'text-green-700' : 'text-red-700';
+                    const tickerList = [...new Set(rows.map(r => r.ticker))];
+                    return `
+                <div class="card p-6">
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <h2 class="text-xl font-bold">Capital Gains Tax Estimate</h2>
+                            <p class="text-sm" style="color: var(--text-secondary);">FY 2026-27 (Apr 1, 2026 – Mar 31, 2027) · Indian resident, foreign-equity rules</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <label class="text-sm" style="color: var(--text-secondary);">STCG rate:</label>
+                            <input type="number" step="0.1" min="0" max="50" value="${stcgTaxRate}"
+                                onchange="stcgTaxRate = Number(this.value) || 0; render()"
+                                class="text-sm rounded px-2 py-1 w-20 text-right"
+                                style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                            <span class="text-sm" style="color: var(--text-secondary);">%</span>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-4">
+                        <div class="rounded-lg p-4" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                            <div class="text-xs uppercase tracking-wide" style="color: var(--text-secondary);">Short-Term (slab)</div>
+                            <div class="text-2xl font-bold mt-1 ${colorFor(stcg)}">${stcg >= 0 ? '+' : '-'}${fmt(Math.abs(stcg))}</div>
+                            <div class="text-sm mt-2" style="color: var(--text-secondary);">Tax @ ${stcgTaxRate}% = <span class="font-semibold" style="color: var(--text-primary);">${fmt(stcgTax)}</span></div>
+                        </div>
+                        <div class="rounded-lg p-4" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                            <div class="text-xs uppercase tracking-wide" style="color: var(--text-secondary);">Long-Term (12.5% flat)</div>
+                            <div class="text-2xl font-bold mt-1 ${colorFor(ltcg)}">${ltcg >= 0 ? '+' : '-'}${fmt(Math.abs(ltcg))}</div>
+                            <div class="text-sm mt-2" style="color: var(--text-secondary);">Tax @ ${LTCG_TAX_RATE}% = <span class="font-semibold" style="color: var(--text-primary);">${fmt(ltcgTax)}</span></div>
+                        </div>
+                        <div class="rounded-lg p-4" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white;">
+                            <div class="text-xs uppercase tracking-wide opacity-90">Total Estimated Tax</div>
+                            <div class="text-2xl font-bold mt-1">${fmt(totalTax)}</div>
+                            <div class="text-sm mt-2 opacity-90">${rows.length} lot${rows.length === 1 ? '' : 's'} from ${tickerList.length} ticker${tickerList.length === 1 ? '' : 's'}${tickerList.length ? ': ' + tickerList.map(t => tvLink(t, t)).join(', ') : ''}</div>
+                        </div>
+                    </div>
+                    ${rows.length === 0 ? `
+                    <div class="mt-4 text-sm" style="color: var(--text-secondary);">No realized sells in FY 2026-27 yet.</div>
+                    ` : `
+                    <div class="mt-5 overflow-x-auto">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Sell Date</th>
+                                    <th>Ticker</th>
+                                    <th class="text-right">Qty</th>
+                                    <th class="text-right">Buy Date</th>
+                                    <th class="text-right">Cost</th>
+                                    <th class="text-right">Sell</th>
+                                    <th class="text-right">Realized</th>
+                                    <th class="text-center">Term</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows.sort((a, b) => a.sellDate.localeCompare(b.sellDate) || a.buyDate.localeCompare(b.buyDate)).map(r => `
+                                <tr>
+                                    <td>${r.sellDate}</td>
+                                    <td>${tvLink(r.ticker, r.ticker)}</td>
+                                    <td class="text-right">${formatNumber(r.qty)}</td>
+                                    <td class="text-right">${r.buyDate}</td>
+                                    <td class="text-right">$${formatNumber(r.cost)}</td>
+                                    <td class="text-right">$${formatNumber(r.sellPrice)}</td>
+                                    <td class="text-right font-semibold ${colorFor(r.gain)}">${r.gain >= 0 ? '+' : '-'}$${formatNumber(Math.abs(r.gain))}</td>
+                                    <td class="text-center"><span class="badge ${r.term === 'LT' ? 'badge-green' : 'badge-red'}">${r.term}</span></td>
+                                </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    `}
+                </div>
+                    `;
+                })()}
 
                 </div><!-- /tab: transactions -->
 
