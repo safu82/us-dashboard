@@ -2052,240 +2052,227 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     </div>
                 </div>
 
-                <!-- 2x5 Secondary Metric Grid (India parity) -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                    <!-- LEFT COLUMN -->
-                    <div class="flex flex-col gap-4">
-                        <!-- Period Gains -->
+                <!-- 2x5 Secondary Metric Grid (India parity).
+                     Row-major: each <div class="card"> below is one grid cell, so each
+                     row's left/right cells auto-size to the tallest of the pair. -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4 mb-6" style="align-items: stretch;">
+
+                    <!-- ROW 1: Period Gains | Largest Holding -->
+                    <div class="card p-4">
+                        <div class="flex justify-between items-center gap-2 h-full">
+                            <div class="flex items-center gap-3" style="min-width: 0;">
+                                <div class="icon-wrapper icon-purple" style="width: 40px; height: 40px;"><i class="fas fa-calendar-alt" style="font-size: 16px;"></i></div>
+                                <div style="min-width: 0;">
+                                    <p class="text-sm font-semibold">Period Gains</p>
+                                    <div style="display: flex; gap: 4px;">
+                                        <select onchange="selectedPeriodMonth = parseInt(this.value); render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
+                                            ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => `<option value="${m}" ${selectedPeriodMonth === m ? 'selected' : ''}>${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1]}</option>`).join('')}
+                                        </select>
+                                        <select onchange="selectedPeriodYear = parseInt(this.value); render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
+                                            ${new Date().getFullYear() >= 2026 ? `<option value="2026" ${selectedPeriodYear === 2026 ? 'selected' : ''}>2026</option>` : ''}
+                                            <option value="2025" ${selectedPeriodYear === 2025 ? 'selected' : ''}>2025</option>
+                                            <option value="2024" ${selectedPeriodYear === 2024 ? 'selected' : ''}>2024</option>
+                                            <option value="2023" ${selectedPeriodYear === 2023 ? 'selected' : ''}>2023</option>
+                                            <option value="2022" ${selectedPeriodYear === 2022 ? 'selected' : ''}>2022</option>
+                                            <option value="2021" ${selectedPeriodYear === 2021 ? 'selected' : ''}>2021</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="text-right" style="flex-shrink: 0;">
+                                <p class="text-lg font-bold ${metrics.periodGains >= 0 ? 'text-green-600' : 'text-red-600'}">${formatCurrency(metrics.periodGains)}</p>
+                                <p class="text-xs ${metrics.periodGainsPercent >= 0 ? 'text-green-600' : 'text-red-600'}">${metrics.periodGainsPercent >= 0 ? '+' : ''}${formatNumber(metrics.periodGainsPercent)}%</p>
+                            </div>
+                        </div>
+                    </div>
+                    ${(() => {
+                        const lg = getLargestHolding();
+                        return `
                         <div class="card p-4">
-                            <div class="flex justify-between items-center gap-2">
+                            <div class="flex justify-between items-center gap-2 h-full">
                                 <div class="flex items-center gap-3" style="min-width: 0;">
-                                    <div class="icon-wrapper icon-purple" style="width: 40px; height: 40px;"><i class="fas fa-calendar-alt" style="font-size: 16px;"></i></div>
+                                    <div class="icon-wrapper icon-blue" style="width: 40px; height: 40px;"><i class="fas fa-crown" style="font-size: 16px;"></i></div>
                                     <div style="min-width: 0;">
-                                        <p class="text-sm font-semibold">Period Gains</p>
-                                        <div style="display: flex; gap: 4px;">
-                                            <select onchange="selectedPeriodMonth = parseInt(this.value); render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
-                                                ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => `<option value="${m}" ${selectedPeriodMonth === m ? 'selected' : ''}>${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1]}</option>`).join('')}
-                                            </select>
-                                            <select onchange="selectedPeriodYear = parseInt(this.value); render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
-                                                ${new Date().getFullYear() >= 2026 ? `<option value="2026" ${selectedPeriodYear === 2026 ? 'selected' : ''}>2026</option>` : ''}
-                                                <option value="2025" ${selectedPeriodYear === 2025 ? 'selected' : ''}>2025</option>
-                                                <option value="2024" ${selectedPeriodYear === 2024 ? 'selected' : ''}>2024</option>
-                                                <option value="2023" ${selectedPeriodYear === 2023 ? 'selected' : ''}>2023</option>
-                                                <option value="2022" ${selectedPeriodYear === 2022 ? 'selected' : ''}>2022</option>
-                                                <option value="2021" ${selectedPeriodYear === 2021 ? 'selected' : ''}>2021</option>
-                                            </select>
-                                        </div>
+                                        <p class="text-sm font-semibold">Largest Holding</p>
+                                        <p class="text-xs truncate" style="color: var(--text-secondary); max-width: 180px;" title="${lg.name}">${tvLink(lg.ticker, lg.name)}</p>
                                     </div>
                                 </div>
                                 <div class="text-right" style="flex-shrink: 0;">
-                                    <p class="text-lg font-bold ${metrics.periodGains >= 0 ? 'text-green-600' : 'text-red-600'}">${formatCurrency(metrics.periodGains)}</p>
-                                    <p class="text-xs ${metrics.periodGainsPercent >= 0 ? 'text-green-600' : 'text-red-600'}">${metrics.periodGainsPercent >= 0 ? '+' : ''}${formatNumber(metrics.periodGainsPercent)}%</p>
+                                    <p class="text-lg font-bold">${formatCurrency(lg.value)}</p>
+                                    <p class="text-xs" style="color: var(--text-secondary);">${lg.pct.toFixed(1)}% of portfolio</p>
                                 </div>
                             </div>
-                        </div>
+                        </div>`;
+                    })()}
 
-                        <!-- Annual Gains -->
+                    <!-- ROW 2: Annual Gains | Most Profitable -->
+                    <div class="card p-4">
+                        <div class="flex justify-between items-center gap-2 h-full">
+                            <div class="flex items-center gap-3" style="min-width: 0;">
+                                <div class="icon-wrapper icon-blue" style="width: 40px; height: 40px;"><i class="fas fa-chart-area" style="font-size: 16px;"></i></div>
+                                <div style="min-width: 0;">
+                                    <p class="text-sm font-semibold">Annual Gains</p>
+                                    <select onchange="selectedYTDYear = parseInt(this.value); render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
+                                        ${new Date().getFullYear() >= 2026 ? `<option value="2026" ${selectedYTDYear === 2026 ? 'selected' : ''}>2026</option>` : ''}
+                                        <option value="2025" ${selectedYTDYear === 2025 ? 'selected' : ''}>2025</option>
+                                        <option value="2024" ${selectedYTDYear === 2024 ? 'selected' : ''}>2024</option>
+                                        <option value="2023" ${selectedYTDYear === 2023 ? 'selected' : ''}>2023</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="text-right" style="flex-shrink: 0;">
+                                <p class="text-lg font-bold ${metrics.ytdGains >= 0 ? 'text-green-600' : 'text-red-600'}">${formatCurrency(metrics.ytdGains)}</p>
+                                <p class="text-xs ${metrics.ytdGainsPercent >= 0 ? 'text-green-600' : 'text-red-600'}">${metrics.ytdGainsPercent >= 0 ? '+' : ''}${formatNumber(metrics.ytdGainsPercent)}%</p>
+                            </div>
+                        </div>
+                    </div>
+                    ${(() => {
+                        const mp = getMostProfitable();
+                        return `
                         <div class="card p-4">
-                            <div class="flex justify-between items-center gap-2">
+                            <div class="flex justify-between items-center gap-2 h-full">
                                 <div class="flex items-center gap-3" style="min-width: 0;">
-                                    <div class="icon-wrapper icon-blue" style="width: 40px; height: 40px;"><i class="fas fa-chart-area" style="font-size: 16px;"></i></div>
+                                    <div class="icon-wrapper icon-green" style="width: 40px; height: 40px;"><i class="fas fa-trophy" style="font-size: 16px;"></i></div>
                                     <div style="min-width: 0;">
-                                        <p class="text-sm font-semibold">Annual Gains</p>
-                                        <select onchange="selectedYTDYear = parseInt(this.value); render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
-                                            ${new Date().getFullYear() >= 2026 ? `<option value="2026" ${selectedYTDYear === 2026 ? 'selected' : ''}>2026</option>` : ''}
-                                            <option value="2025" ${selectedYTDYear === 2025 ? 'selected' : ''}>2025</option>
-                                            <option value="2024" ${selectedYTDYear === 2024 ? 'selected' : ''}>2024</option>
-                                            <option value="2023" ${selectedYTDYear === 2023 ? 'selected' : ''}>2023</option>
+                                        <p class="text-sm font-semibold">Most Profitable</p>
+                                        <p class="text-xs truncate" style="color: var(--text-secondary); max-width: 180px;" title="${mp.name}">${tvLink(mp.ticker, mp.name)}</p>
+                                    </div>
+                                </div>
+                                <div class="text-right" style="flex-shrink: 0;">
+                                    <p class="text-lg font-bold text-green-600">${formatCurrency(mp.gain)}</p>
+                                    <p class="text-xs text-green-600">${mp.pct >= 0 ? '+' : ''}${formatNumber(mp.pct)}%</p>
+                                </div>
+                            </div>
+                        </div>`;
+                    })()}
+
+                    <!-- ROW 3: ATH Details | Least Profitable -->
+                    <div class="card p-4">
+                        <div class="flex justify-between items-center gap-2 h-full">
+                            <div class="flex items-center gap-3" style="min-width: 0;">
+                                <div class="icon-wrapper ${metrics.athData.athDiffPercent >= 0 ? 'icon-green' : 'icon-red'}" style="width: 40px; height: 40px;"><i class="fas fa-mountain" style="font-size: 16px;"></i></div>
+                                <div style="min-width: 0;">
+                                    <p class="text-sm font-semibold">ATH Details</p>
+                                    <p class="text-xs" style="color: var(--text-secondary); margin-top: 2px;">Cumulative profit peak</p>
+                                </div>
+                            </div>
+                            <div class="text-right" style="flex-shrink: 0;">
+                                <p class="text-lg font-bold">${metrics.athData.athDateFormatted}</p>
+                                <p class="text-xs ${metrics.athData.athDiffPercent >= 0 ? 'text-green-600' : 'text-red-600'}">${metrics.athData.athDiffPercent >= 0 ? '+' : ''}${formatNumber(metrics.athData.athDiffPercent)}% from ATH</p>
+                            </div>
+                        </div>
+                    </div>
+                    ${(() => {
+                        const lp = getLeastProfitable();
+                        const cls = lp.gain >= 0 ? 'text-green-600' : 'text-red-600';
+                        return `
+                        <div class="card p-4">
+                            <div class="flex justify-between items-center gap-2 h-full">
+                                <div class="flex items-center gap-3" style="min-width: 0;">
+                                    <div class="icon-wrapper ${lp.gain >= 0 ? 'icon-green' : 'icon-red'}" style="width: 40px; height: 40px;"><i class="fas fa-exclamation-triangle" style="font-size: 16px;"></i></div>
+                                    <div style="min-width: 0;">
+                                        <p class="text-sm font-semibold">Least Profitable</p>
+                                        <p class="text-xs truncate" style="color: var(--text-secondary); max-width: 180px;" title="${lp.name}">${tvLink(lp.ticker, lp.name)}</p>
+                                    </div>
+                                </div>
+                                <div class="text-right" style="flex-shrink: 0;">
+                                    <p class="text-lg font-bold ${cls}">${formatCurrency(lp.gain)}</p>
+                                    <p class="text-xs ${cls}">${lp.pct >= 0 ? '+' : ''}${formatNumber(lp.pct)}%</p>
+                                </div>
+                            </div>
+                        </div>`;
+                    })()}
+
+                    <!-- ROW 4: Winning/Losing Months | Stocks in Profit/Loss -->
+                    <div class="card p-4">
+                        <div class="flex justify-between items-center gap-2 h-full">
+                            <div class="flex items-center gap-3" style="min-width: 0;">
+                                <div class="icon-wrapper icon-green" style="width: 40px; height: 40px;"><i class="fas fa-medal" style="font-size: 16px;"></i></div>
+                                <div style="min-width: 0;">
+                                    <p class="text-sm font-semibold">Winning/Losing Months</p>
+                                    <select onchange="selectedWinLoseYear = parseInt(this.value); render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
+                                        ${[2026,2025,2024,2023,2022].map(y => `<option value="${y}" ${selectedWinLoseYear === y ? 'selected' : ''}>${y}</option>`).join('')}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="text-right" style="flex-shrink: 0;">
+                                ${(() => {
+                                    const wl = getWinningLosingMonths(selectedWinLoseYear);
+                                    const pct = wl.total > 0 ? (wl.wins / wl.total) * 100 : 0;
+                                    return `
+                                        <p class="text-lg font-bold"><span class="text-green-600">${wl.wins}</span> <span style="color: var(--text-secondary); font-weight: 500;">/</span> <span class="text-red-600">${wl.losses}</span></p>
+                                        <p class="text-xs" style="color: var(--text-secondary);">${pct.toFixed(0)}% winning</p>
+                                    `;
+                                })()}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card p-4">
+                        <div class="flex justify-between items-center gap-2 h-full">
+                            <div class="flex items-center gap-3" style="min-width: 0;">
+                                <div class="icon-wrapper icon-green" style="width: 40px; height: 40px;"><i class="fas fa-chart-pie" style="font-size: 16px;"></i></div>
+                                <div style="min-width: 0;">
+                                    <p class="text-sm font-semibold">Stocks in Profit/Loss</p>
+                                    <p class="text-xs" style="color: var(--text-secondary); margin-top: 2px;">Based on unrealized P&L</p>
+                                </div>
+                            </div>
+                            <div class="text-right" style="flex-shrink: 0;">
+                                <p class="text-lg font-bold"><span class="text-green-600">${metrics.stocksInProfit}</span> <span style="color: var(--text-secondary); font-weight: 500;">/</span> <span class="text-red-600">${metrics.stocksInLoss}</span></p>
+                                <p class="text-xs" style="color: var(--text-secondary);">${((metrics.stocksInProfit / portfolio.length) * 100).toFixed(0)}% profitable</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ROW 5: Stacked EMAs | Above Key EMAs -->
+                    ${(() => {
+                        const e = calculateEmaStats(portfolio);
+                        const n = selectedStackType === 'BULLISH' ? e.bullStack : e.bearStack;
+                        const pct = e.total > 0 ? (n / e.total) * 100 : 0;
+                        return `
+                        <div class="card p-4">
+                            <div class="flex justify-between items-center gap-2 h-full">
+                                <div class="flex items-center gap-3" style="min-width: 0;">
+                                    <div class="icon-wrapper ${selectedStackType === 'BULLISH' ? 'icon-green' : 'icon-red'}" style="width: 40px; height: 40px;"><i class="fas fa-layer-group" style="font-size: 16px;"></i></div>
+                                    <div style="min-width: 0;">
+                                        <p class="text-sm font-semibold">Stacked EMAs</p>
+                                        <select onchange="selectedStackType = this.value; render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
+                                            <option value="BULLISH" ${selectedStackType === 'BULLISH' ? 'selected' : ''}>Bullish</option>
+                                            <option value="BEARISH" ${selectedStackType === 'BEARISH' ? 'selected' : ''}>Bearish</option>
                                         </select>
                                     </div>
                                 </div>
                                 <div class="text-right" style="flex-shrink: 0;">
-                                    <p class="text-lg font-bold ${metrics.ytdGains >= 0 ? 'text-green-600' : 'text-red-600'}">${formatCurrency(metrics.ytdGains)}</p>
-                                    <p class="text-xs ${metrics.ytdGainsPercent >= 0 ? 'text-green-600' : 'text-red-600'}">${metrics.ytdGainsPercent >= 0 ? '+' : ''}${formatNumber(metrics.ytdGainsPercent)}%</p>
+                                    <p class="text-lg font-bold">${n} <span style="color: var(--text-secondary); font-weight: 500;">/ ${e.total}</span></p>
+                                    <p class="text-xs" style="color: var(--text-secondary);">${pct.toFixed(0)}% stacked</p>
                                 </div>
                             </div>
-                        </div>
-
-                        <!-- ATH Details -->
+                        </div>`;
+                    })()}
+                    ${(() => {
+                        const e = calculateEmaStats(portfolio);
+                        const n = selectedEma === 20 ? e.above20 : selectedEma === 50 ? e.above50 : e.above200;
+                        const pct = e.total > 0 ? (n / e.total) * 100 : 0;
+                        return `
                         <div class="card p-4">
-                            <div class="flex justify-between items-center gap-2">
+                            <div class="flex justify-between items-center gap-2 h-full">
                                 <div class="flex items-center gap-3" style="min-width: 0;">
-                                    <div class="icon-wrapper ${metrics.athData.athDiffPercent >= 0 ? 'icon-green' : 'icon-red'}" style="width: 40px; height: 40px;"><i class="fas fa-mountain" style="font-size: 16px;"></i></div>
+                                    <div class="icon-wrapper icon-blue" style="width: 40px; height: 40px;"><i class="fas fa-arrow-trend-up" style="font-size: 16px;"></i></div>
                                     <div style="min-width: 0;">
-                                        <p class="text-sm font-semibold">ATH Details</p>
-                                        <p class="text-xs" style="color: var(--text-secondary); margin-top: 2px;">Cumulative profit peak</p>
-                                    </div>
-                                </div>
-                                <div class="text-right" style="flex-shrink: 0;">
-                                    <p class="text-lg font-bold">${metrics.athData.athDateFormatted}</p>
-                                    <p class="text-xs ${metrics.athData.athDiffPercent >= 0 ? 'text-green-600' : 'text-red-600'}">${metrics.athData.athDiffPercent >= 0 ? '+' : ''}${formatNumber(metrics.athData.athDiffPercent)}% from ATH</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Winning/Losing Months -->
-                        <div class="card p-4">
-                            <div class="flex justify-between items-center gap-2">
-                                <div class="flex items-center gap-3" style="min-width: 0;">
-                                    <div class="icon-wrapper icon-green" style="width: 40px; height: 40px;"><i class="fas fa-medal" style="font-size: 16px;"></i></div>
-                                    <div style="min-width: 0;">
-                                        <p class="text-sm font-semibold">Winning/Losing Months</p>
-                                        <select onchange="selectedWinLoseYear = parseInt(this.value); render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
-                                            ${[2026,2025,2024,2023,2022].map(y => `<option value="${y}" ${selectedWinLoseYear === y ? 'selected' : ''}>${y}</option>`).join('')}
+                                        <p class="text-sm font-semibold">Above Key EMAs</p>
+                                        <select onchange="selectedEma = parseInt(this.value); render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
+                                            <option value="20" ${selectedEma === 20 ? 'selected' : ''}>EMA 20</option>
+                                            <option value="50" ${selectedEma === 50 ? 'selected' : ''}>EMA 50</option>
+                                            <option value="200" ${selectedEma === 200 ? 'selected' : ''}>EMA 200</option>
                                         </select>
                                     </div>
                                 </div>
                                 <div class="text-right" style="flex-shrink: 0;">
-                                    ${(() => {
-                                        const wl = getWinningLosingMonths(selectedWinLoseYear);
-                                        const pct = wl.total > 0 ? (wl.wins / wl.total) * 100 : 0;
-                                        return `
-                                            <p class="text-lg font-bold"><span class="text-green-600">${wl.wins}</span> <span style="color: var(--text-secondary); font-weight: 500;">/</span> <span class="text-red-600">${wl.losses}</span></p>
-                                            <p class="text-xs" style="color: var(--text-secondary);">${pct.toFixed(0)}% winning</p>
-                                        `;
-                                    })()}
+                                    <p class="text-lg font-bold">${n} <span style="color: var(--text-secondary); font-weight: 500;">/ ${e.total}</span></p>
+                                    <p class="text-xs" style="color: var(--text-secondary);">${pct.toFixed(0)}% above</p>
                                 </div>
                             </div>
-                        </div>
-
-                        <!-- Stacked EMAs -->
-                        ${(() => {
-                            const e = calculateEmaStats(portfolio);
-                            const n = selectedStackType === 'BULLISH' ? e.bullStack : e.bearStack;
-                            const pct = e.total > 0 ? (n / e.total) * 100 : 0;
-                            return `
-                            <div class="card p-4">
-                                <div class="flex justify-between items-center gap-2">
-                                    <div class="flex items-center gap-3" style="min-width: 0;">
-                                        <div class="icon-wrapper ${selectedStackType === 'BULLISH' ? 'icon-green' : 'icon-red'}" style="width: 40px; height: 40px;"><i class="fas fa-layer-group" style="font-size: 16px;"></i></div>
-                                        <div style="min-width: 0;">
-                                            <p class="text-sm font-semibold">Stacked EMAs</p>
-                                            <select onchange="selectedStackType = this.value; render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
-                                                <option value="BULLISH" ${selectedStackType === 'BULLISH' ? 'selected' : ''}>Bullish</option>
-                                                <option value="BEARISH" ${selectedStackType === 'BEARISH' ? 'selected' : ''}>Bearish</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="text-right" style="flex-shrink: 0;">
-                                        <p class="text-lg font-bold">${n} <span style="color: var(--text-secondary); font-weight: 500;">/ ${e.total}</span></p>
-                                        <p class="text-xs" style="color: var(--text-secondary);">${pct.toFixed(0)}% stacked</p>
-                                    </div>
-                                </div>
-                            </div>`;
-                        })()}
-                    </div>
-
-                    <!-- RIGHT COLUMN -->
-                    <div class="flex flex-col gap-4">
-                        <!-- Largest Holding -->
-                        ${(() => {
-                            const lg = getLargestHolding();
-                            return `
-                            <div class="card p-4">
-                                <div class="flex justify-between items-center gap-2">
-                                    <div class="flex items-center gap-3" style="min-width: 0;">
-                                        <div class="icon-wrapper icon-blue" style="width: 40px; height: 40px;"><i class="fas fa-crown" style="font-size: 16px;"></i></div>
-                                        <div style="min-width: 0;">
-                                            <p class="text-sm font-semibold">Largest Holding</p>
-                                            <p class="text-xs truncate" style="color: var(--text-secondary); max-width: 180px;" title="${lg.name}">${tvLink(lg.ticker, lg.name)}</p>
-                                        </div>
-                                    </div>
-                                    <div class="text-right" style="flex-shrink: 0;">
-                                        <p class="text-lg font-bold">${formatCurrency(lg.value)}</p>
-                                        <p class="text-xs" style="color: var(--text-secondary);">${lg.pct.toFixed(1)}% of portfolio</p>
-                                    </div>
-                                </div>
-                            </div>`;
-                        })()}
-
-                        <!-- Most Profitable -->
-                        ${(() => {
-                            const mp = getMostProfitable();
-                            return `
-                            <div class="card p-4">
-                                <div class="flex justify-between items-center gap-2">
-                                    <div class="flex items-center gap-3" style="min-width: 0;">
-                                        <div class="icon-wrapper icon-green" style="width: 40px; height: 40px;"><i class="fas fa-trophy" style="font-size: 16px;"></i></div>
-                                        <div style="min-width: 0;">
-                                            <p class="text-sm font-semibold">Most Profitable</p>
-                                            <p class="text-xs truncate" style="color: var(--text-secondary); max-width: 180px;" title="${mp.name}">${tvLink(mp.ticker, mp.name)}</p>
-                                        </div>
-                                    </div>
-                                    <div class="text-right" style="flex-shrink: 0;">
-                                        <p class="text-lg font-bold text-green-600">${formatCurrency(mp.gain)}</p>
-                                        <p class="text-xs text-green-600">${mp.pct >= 0 ? '+' : ''}${formatNumber(mp.pct)}%</p>
-                                    </div>
-                                </div>
-                            </div>`;
-                        })()}
-
-                        <!-- Least Profitable -->
-                        ${(() => {
-                            const lp = getLeastProfitable();
-                            const cls = lp.gain >= 0 ? 'text-green-600' : 'text-red-600';
-                            return `
-                            <div class="card p-4">
-                                <div class="flex justify-between items-center gap-2">
-                                    <div class="flex items-center gap-3" style="min-width: 0;">
-                                        <div class="icon-wrapper ${lp.gain >= 0 ? 'icon-green' : 'icon-red'}" style="width: 40px; height: 40px;"><i class="fas fa-exclamation-triangle" style="font-size: 16px;"></i></div>
-                                        <div style="min-width: 0;">
-                                            <p class="text-sm font-semibold">Least Profitable</p>
-                                            <p class="text-xs truncate" style="color: var(--text-secondary); max-width: 180px;" title="${lp.name}">${tvLink(lp.ticker, lp.name)}</p>
-                                        </div>
-                                    </div>
-                                    <div class="text-right" style="flex-shrink: 0;">
-                                        <p class="text-lg font-bold ${cls}">${formatCurrency(lp.gain)}</p>
-                                        <p class="text-xs ${cls}">${lp.pct >= 0 ? '+' : ''}${formatNumber(lp.pct)}%</p>
-                                    </div>
-                                </div>
-                            </div>`;
-                        })()}
-
-                        <!-- Stocks in Profit/Loss -->
-                        <div class="card p-4">
-                            <div class="flex justify-between items-center gap-2">
-                                <div class="flex items-center gap-3" style="min-width: 0;">
-                                    <div class="icon-wrapper icon-green" style="width: 40px; height: 40px;"><i class="fas fa-chart-pie" style="font-size: 16px;"></i></div>
-                                    <div style="min-width: 0;">
-                                        <p class="text-sm font-semibold">Stocks in Profit/Loss</p>
-                                        <p class="text-xs" style="color: var(--text-secondary); margin-top: 2px;">Based on unrealized P&L</p>
-                                    </div>
-                                </div>
-                                <div class="text-right" style="flex-shrink: 0;">
-                                    <p class="text-lg font-bold"><span class="text-green-600">${metrics.stocksInProfit}</span> <span style="color: var(--text-secondary); font-weight: 500;">/</span> <span class="text-red-600">${metrics.stocksInLoss}</span></p>
-                                    <p class="text-xs" style="color: var(--text-secondary);">${((metrics.stocksInProfit / portfolio.length) * 100).toFixed(0)}% profitable</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Above Key EMAs -->
-                        ${(() => {
-                            const e = calculateEmaStats(portfolio);
-                            const n = selectedEma === 20 ? e.above20 : selectedEma === 50 ? e.above50 : e.above200;
-                            const pct = e.total > 0 ? (n / e.total) * 100 : 0;
-                            return `
-                            <div class="card p-4">
-                                <div class="flex justify-between items-center gap-2">
-                                    <div class="flex items-center gap-3" style="min-width: 0;">
-                                        <div class="icon-wrapper icon-blue" style="width: 40px; height: 40px;"><i class="fas fa-arrow-trend-up" style="font-size: 16px;"></i></div>
-                                        <div style="min-width: 0;">
-                                            <p class="text-sm font-semibold">Above Key EMAs</p>
-                                            <select onchange="selectedEma = parseInt(this.value); render()" class="text-xs mt-1 border rounded px-2 py-1" style="background: var(--bg-card); border-color: var(--border-color);">
-                                                <option value="20" ${selectedEma === 20 ? 'selected' : ''}>EMA 20</option>
-                                                <option value="50" ${selectedEma === 50 ? 'selected' : ''}>EMA 50</option>
-                                                <option value="200" ${selectedEma === 200 ? 'selected' : ''}>EMA 200</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="text-right" style="flex-shrink: 0;">
-                                        <p class="text-lg font-bold">${n} <span style="color: var(--text-secondary); font-weight: 500;">/ ${e.total}</span></p>
-                                        <p class="text-xs" style="color: var(--text-secondary);">${pct.toFixed(0)}% above</p>
-                                    </div>
-                                </div>
-                            </div>`;
-                        })()}
-                    </div>
+                        </div>`;
+                    })()}
                 </div>
 
                 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
