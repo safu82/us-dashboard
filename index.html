@@ -496,6 +496,7 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let customXIRRStart = '2021-11';  // Custom Period start (YYYY-MM)
         let customXIRREnd = 'current';     // Custom Period end (YYYY-MM or 'current')
         let stockEmaData = {};             // ticker -> {ema_20, ema_50, ema_200, close, date} from daily_stock_snapshots
+        let qqqHistory = {};               // 'YYYY-MM-DD' -> close, loaded from benchmark_history (Nov 2021+)
         let selectedWinLoseYear = new Date().getFullYear();
         let selectedStackType = 'BULLISH'; // BULLISH | BEARISH (Stacked EMAs card)
         let selectedEma = 200;             // 20 | 50 | 200 (Above Key EMAs card)
@@ -1391,6 +1392,72 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             return { xirr, absoluteGain, absoluteGainPct };
         }
 
+        // ============ QQQ BENCHMARK HISTORY ============
+        // Loads all daily QQQ closes (Nov 2021+) so the Custom Period card can
+        // compute a QQQ CAGR for any user-selected start month.
+        async function loadQqqHistoryFromSupabase() {
+            try {
+                let all = [], from = 0, page = 1000;  // Supabase caps a single response at 1000
+                while (true) {
+                    const { data, error } = await supabase
+                        .from('benchmark_history')
+                        .select('snapshot_date, close')
+                        .eq('ticker', 'QQQ')
+                        .order('snapshot_date', { ascending: true })
+                        .range(from, from + page - 1);
+                    if (error) throw error;
+                    if (!data || !data.length) break;
+                    all = all.concat(data);
+                    if (data.length < page) break;
+                    from += page;
+                }
+                const out = {};
+                all.forEach(r => { out[r.snapshot_date] = Number(r.close); });
+                console.log(`✅ Loaded ${all.length} QQQ history rows`);
+                return out;
+            } catch (e) {
+                console.error('❌ Error loading QQQ history:', e);
+                return {};
+            }
+        }
+
+        // Closest QQQ close on or before the given date string (YYYY-MM-DD).
+        function qqqCloseOnOrBefore(dateStr) {
+            const keys = Object.keys(qqqHistory).filter(d => d <= dateStr).sort();
+            return keys.length ? qqqHistory[keys[keys.length - 1]] : null;
+        }
+
+        // CAGR (annualized return) for QQQ over the same window as the
+        // portfolio's Custom Period XIRR. Single buy / single sell, so CAGR =
+        // ((endPrice / startPrice) ^ (1/years) - 1) * 100.
+        function calculateQqqReturnForRange(startYM, endYM) {
+            // Start = last QQQ close in start month
+            const startMonthEnd = new Date(Number(startYM.slice(0, 4)), Number(startYM.slice(5, 7)), 0)
+                .toISOString().split('T')[0];
+            const startPrice = qqqCloseOnOrBefore(startMonthEnd);
+            if (!startPrice) return { xirr: null, gainPct: null };
+
+            let endDateStr, endPrice;
+            if (endYM === 'current') {
+                endDateStr = new Date().toISOString().split('T')[0];
+                endPrice = prices['QQQ']?.price || qqqCloseOnOrBefore(endDateStr);
+            } else {
+                endDateStr = new Date(Number(endYM.slice(0, 4)), Number(endYM.slice(5, 7)), 0)
+                    .toISOString().split('T')[0];
+                endPrice = qqqCloseOnOrBefore(endDateStr);
+            }
+            if (!endPrice) return { xirr: null, gainPct: null };
+
+            const startDate = new Date(startMonthEnd);
+            const endDate = new Date(endDateStr);
+            const years = (endDate - startDate) / (1000 * 60 * 60 * 24 * 365.25);
+            if (years <= 0) return { xirr: null, gainPct: null };
+
+            const gainPct = (endPrice / startPrice - 1) * 100;
+            const xirr = (Math.pow(endPrice / startPrice, 1 / years) - 1) * 100;
+            return { xirr, gainPct };
+        }
+
         // ============ EMA DATA (Stacked EMAs / Above Key EMAs cards) ============
         // Loads the latest daily_stock_snapshots row per held ticker (ema_20/50/200 + close).
         async function loadEmaDataFromSupabase() {
@@ -1930,12 +1997,12 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         <div class="flex justify-between items-start mb-3">
                             <div style="min-width: 0;">
                                 <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Custom Period</p>
-                                <div class="flex gap-1 mt-1 flex-wrap">
-                                    <select onchange="customXIRRStart = this.value; render()" class="text-xs border rounded px-1 py-0.5" style="background: var(--bg-card); border-color: var(--border-color);">
+                                <div class="flex gap-1 mt-1 items-center" style="flex-wrap: nowrap;">
+                                    <select onchange="customXIRRStart = this.value; render()" class="text-xs border rounded px-1 py-0.5" style="background: var(--bg-card); border-color: var(--border-color); min-width: 0;">
                                         ${monthOptionsForXIRR(customXIRRStart, false)}
                                     </select>
-                                    <span class="text-xs self-center" style="color: var(--text-secondary);">→</span>
-                                    <select onchange="customXIRREnd = this.value; render()" class="text-xs border rounded px-1 py-0.5" style="background: var(--bg-card); border-color: var(--border-color);">
+                                    <span class="text-xs" style="color: var(--text-secondary);">→</span>
+                                    <select onchange="customXIRREnd = this.value; render()" class="text-xs border rounded px-1 py-0.5" style="background: var(--bg-card); border-color: var(--border-color); min-width: 0;">
                                         ${monthOptionsForXIRR(customXIRREnd, true)}
                                     </select>
                                 </div>
@@ -1948,10 +2015,16 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                             }
                             const gCls = r.absoluteGain >= 0 ? 'text-green-600' : 'text-red-600';
                             const xCls = (r.xirr !== null && r.xirr >= 0) ? 'text-green-600' : 'text-red-600';
+                            const q = calculateQqqReturnForRange(customXIRRStart, customXIRREnd);
+                            const qCls = (q.xirr !== null && q.xirr >= 0) ? 'text-green-600' : 'text-red-600';
+                            const qqqLine = q.xirr !== null
+                                ? `<p class="text-xs mt-1" style="color: var(--text-secondary);">QQQ: <span class="font-semibold ${qCls}">${q.xirr >= 0 ? '+' : ''}${formatNumber(q.xirr)}%</span></p>`
+                                : '';
                             return `
                                 <p class="text-xl font-bold ${gCls}">${r.absoluteGain >= 0 ? '+' : ''}${formatCurrency(r.absoluteGain)}</p>
                                 <p class="text-xs ${gCls}">${r.absoluteGainPct >= 0 ? '+' : ''}${formatNumber(r.absoluteGainPct)}%</p>
                                 <p class="text-sm font-semibold mt-1 ${xCls}">XIRR: ${r.xirr !== null ? (r.xirr >= 0 ? '+' : '') + formatNumber(r.xirr) + '%' : 'N/A'}</p>
+                                ${qqqLine}
                             `;
                         })()}
                     </div>
@@ -3257,6 +3330,9 @@ if (supabaseTransactions && supabaseTransactions.length > 0) {
 
     // Load EMA data (latest daily_stock_snapshots per held ticker) for Stacked / Above EMAs cards
     stockEmaData = await loadEmaDataFromSupabase();
+
+    // Load QQQ history for the Custom Period card's NASDAQ benchmark comparison
+    qqqHistory = await loadQqqHistoryFromSupabase();
 
     // Load meta (sector + market cap) for sector/market-cap charts
     stockMeta = await loadMetaFromSupabase();
