@@ -356,18 +356,20 @@ async function loadLotsFromSupabase() {
                 price: transaction.price,
                 sector: transaction.sector || null
             };
-            
-            const { error } = await supabase
+
+            const { data, error } = await supabase
                 .from('transactions')
-                .insert(txnData);
-            
+                .insert(txnData)
+                .select('id')
+                .single();
+
             if (error) throw error;
-            
-            console.log(`✅ Saved transaction to Supabase`);
-            return true;
+
+            console.log(`✅ Saved transaction to Supabase (id=${data.id})`);
+            return data.id;
         } catch (error) {
             console.error('❌ Error saving transaction to Supabase:', error);
-            return false;
+            return null;
         }
     }
     
@@ -487,6 +489,8 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let lastUpdate = null;
         let loading = false;
         let showTransactionForm = false;
+        let editingTxnId = null;          // when set, the form runs in edit mode
+        let editingTxnOriginal = null;    // snapshot of the row being edited (for reverse-and-apply)
         let expandedHolding = null;   // Holdings tab — ticker whose lot detail is open
         let activeTab = 'overview';   // overview | holdings | transactions | analytics | alerts | paper
         let customXIRRStart = '2021-11';  // Custom Period start (YYYY-MM)
@@ -1766,9 +1770,11 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
         async function addTransaction(txn) {
             transactions.push(txn);
             localStorage.setItem('us_transactions', JSON.stringify(transactions));
-            
-            // Save transaction to Supabase
-            await saveTransactionToSupabase(txn);
+
+            // Save transaction to Supabase, then patch the local row with the DB id
+            // so the new row supports edit/delete without a page reload.
+            const newId = await saveTransactionToSupabase(txn);
+            if (newId) txn.id = newId;
             
             const existingStock = portfolio.find(s => s.ticker === txn.ticker);
             if (txn.type === 'BUY') {
@@ -2501,50 +2507,58 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 <div class="tab-content ${activeTab === 'transactions' ? 'active' : ''}">
 
                 <div class="mb-6">
-                    <button onclick="showTransactionForm = true; render()" class="btn flex items-center gap-2" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
+                    <button onclick="editingTxnId = null; editingTxnOriginal = null; isNewStock = false; showTransactionForm = true; render()" class="btn flex items-center gap-2" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
                         <i class="fas fa-plus"></i>
                         Add Transaction
                     </button>
                 </div>
 
-                ${showTransactionForm ? `
+                ${showTransactionForm ? (() => {
+                    const e = editingTxnOriginal;
+                    const isEdit = !!editingTxnId;
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    return `
                 <div class="card p-6 mb-6">
-                    <h2 class="text-xl font-bold mb-4">Add Transaction</h2>
+                    <h2 class="text-xl font-bold mb-4">${isEdit ? 'Edit Transaction' : 'Add Transaction'}</h2>
+                    ${isEdit ? '' : `
                     <div class="mb-4">
                         <label class="flex items-center gap-2">
                             <input type="checkbox" onchange="isNewStock = this.checked; render()" ${isNewStock ? 'checked' : ''}>
                             <span class="text-sm">Add new stock (not in portfolio)</span>
                         </label>
                     </div>
+                    `}
                     <form onsubmit="handleTransactionSubmit(event)" class="space-y-4">
-                        ${isNewStock ? `
+                        ${isNewStock && !isEdit ? `
                         <input type="text" id="stockName" placeholder="Stock Name" required class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
                         <input type="text" id="ticker" placeholder="Ticker Symbol (e.g., NVDA)" required class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
                         <input type="text" id="sector" placeholder="Sector (optional)" class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
                         ` : `
                         <select id="stockSelect" required class="w-full rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
                             <option value="">Select Stock</option>
-                            ${portfolio.map(s => `<option value="${s.ticker}">${s.name}</option>`).join('')}
+                            ${portfolio.map(s => `<option value="${s.ticker}" ${isEdit && e && e.ticker === s.ticker ? 'selected' : ''}>${s.name}</option>`).join('')}
+                            ${isEdit && e && !portfolio.find(s => s.ticker === e.ticker) ? `<option value="${e.ticker}" selected>${e.stock || e.ticker}</option>` : ''}
                         </select>
                         `}
                         <div class="grid grid-cols-2 gap-4">
-                            <input type="number" id="quantity" placeholder="Quantity" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
+                            <input type="number" id="quantity" placeholder="Quantity" step="any" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);" value="${isEdit && e ? e.quantity : ''}">
                             <select id="type" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
-                                <option value="BUY">BUY</option>
-                                <option value="SELL">SELL</option>
+                                <option value="BUY" ${isEdit && e && e.type === 'BUY' ? 'selected' : ''}>BUY</option>
+                                <option value="SELL" ${isEdit && e && e.type === 'SELL' ? 'selected' : ''}>SELL</option>
                             </select>
                         </div>
                         <div class="grid grid-cols-2 gap-4">
-                            <input type="number" id="price" placeholder="Price" step="0.01" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);">
-                            <input type="date" id="date" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);" value="${new Date().toISOString().split('T')[0]}">
+                            <input type="number" id="price" placeholder="Price" step="0.01" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);" value="${isEdit && e ? e.price : ''}">
+                            <input type="date" id="date" required class="rounded-lg p-3" style="border: 1px solid var(--border-color); background: var(--bg-card);" value="${isEdit && e ? e.date : todayStr}">
                         </div>
                         <div class="flex gap-2">
-                            <button type="submit" class="btn btn-primary">Add Transaction</button>
-                            <button type="button" onclick="showTransactionForm = false; isNewStock = false; render()" class="btn" style="background: var(--border-color);">Cancel</button>
+                            <button type="submit" class="btn btn-primary">${isEdit ? 'Save Changes' : 'Add Transaction'}</button>
+                            <button type="button" onclick="cancelTransactionForm()" class="btn" style="background: var(--border-color);">Cancel</button>
                         </div>
                     </form>
                 </div>
-                ` : ''}
+                    `;
+                })() : ''}
 
                 <div class="card p-6 mb-6">
                     <div class="flex justify-between items-center mb-4">
@@ -2638,6 +2652,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                     <th class="text-right">Total Value</th>
                                     <th class="text-right">Realized P&L</th>
                                     <th class="text-right">MTM</th>
+                                    <th class="text-center">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -2664,6 +2679,10 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                     const dateCell = txn._historical
                                         ? `${txn.date} <span class="badge" style="background:#94a3b820;color:#64748b;margin-left:4px;font-size:10px;">historical</span>`
                                         : txn.date;
+                                    const actionsCell = txn._historical || !txn.id
+                                        ? '<span style="color: var(--text-secondary);">-</span>'
+                                        : `<button onclick="editTransactionRow('${txn.id}')" class="text-blue-600 hover:text-blue-800 mx-1" title="Edit"><i class="fas fa-pen"></i></button>
+                                           <button onclick="deleteTransactionRow('${txn.id}')" class="text-red-600 hover:text-red-800 mx-1" title="Delete"><i class="fas fa-trash"></i></button>`;
                                     return `
                                 <tr>
                                     <td>${dateCell}</td>
@@ -2674,6 +2693,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                     <td class="text-right font-semibold">$${formatNumber(txn.quantity * txn.price)}</td>
                                     <td class="text-right">${realizedCell}</td>
                                     <td class="text-right font-semibold ${mtmClass}">${mtmText}</td>
+                                    <td class="text-center">${actionsCell}</td>
                                 </tr>
                                 `;
                                 }).join('')}
@@ -3031,7 +3051,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
         window.handleTransactionSubmit = function(e) {
             e.preventDefault();
             let txn;
-            if (isNewStock) {
+            if (isNewStock && !editingTxnId) {
                 txn = {
                     date: document.getElementById('date').value,
                     type: document.getElementById('type').value,
@@ -3043,18 +3063,138 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 };
             } else {
                 const ticker = document.getElementById('stockSelect').value;
-                const stock = portfolio.find(s => s.ticker === ticker);
+                const stock = portfolio.find(s => s.ticker === ticker)
+                    || (editingTxnOriginal && editingTxnOriginal.ticker === ticker ? { name: editingTxnOriginal.stock } : null);
                 txn = {
                     date: document.getElementById('date').value,
                     type: document.getElementById('type').value,
-                    stock: stock.name,
+                    stock: stock ? stock.name : ticker,
                     ticker: ticker,
                     quantity: parseFloat(document.getElementById('quantity').value),
                     price: parseFloat(document.getElementById('price').value)
                 };
             }
-            addTransaction(txn);
+            if (editingTxnId) {
+                updateTransactionRow(editingTxnId, txn);
+            } else {
+                addTransaction(txn);
+            }
         };
+
+        // Cancel: reset any edit-mode state and close the form.
+        window.cancelTransactionForm = function() {
+            editingTxnId = null;
+            editingTxnOriginal = null;
+            showTransactionForm = false;
+            isNewStock = false;
+            render();
+        };
+
+        // Open the form pre-filled with this transaction's values.
+        window.editTransactionRow = function(id) {
+            const txn = transactions.find(t => String(t.id) === String(id));
+            if (!txn) return;
+            editingTxnId = txn.id;
+            editingTxnOriginal = { ...txn };
+            showTransactionForm = true;
+            isNewStock = false;
+            render();
+        };
+
+        // Reverse a transaction's effect on the in-memory portfolio.
+        // BUY: subtract qty + reverse the weighted-average cost.
+        // SELL: add qty back.
+        function reverseTxnOnPortfolio(txn) {
+            const stock = portfolio.find(s => s.ticker === txn.ticker);
+            if (txn.type === 'BUY') {
+                if (!stock) return;
+                const newQty = stock.quantity - txn.quantity;
+                if (newQty <= 0) {
+                    portfolio = portfolio.filter(s => s.ticker !== txn.ticker);
+                } else {
+                    // Reverse weighted-avg: avg_new * qty_new = avg_old * qty_old - txnQty * txnPrice
+                    stock.avgCost = (stock.avgCost * stock.quantity - txn.quantity * txn.price) / newQty;
+                    stock.quantity = newQty;
+                }
+            } else if (txn.type === 'SELL') {
+                if (stock) {
+                    stock.quantity += txn.quantity;
+                } else {
+                    // Position had been fully exited by this sell — re-create at cost = sell price (best-effort).
+                    portfolio.push({
+                        name: txn.stock || txn.ticker, ticker: txn.ticker,
+                        quantity: txn.quantity, avgCost: txn.price,
+                        sector: txn.sector || 'Other',
+                    });
+                }
+            }
+        }
+
+        // Apply a transaction's effect on the in-memory portfolio (mirrors addTransaction).
+        function applyTxnOnPortfolio(txn) {
+            const existing = portfolio.find(s => s.ticker === txn.ticker);
+            if (txn.type === 'BUY') {
+                if (existing) {
+                    const totalCost = existing.quantity * existing.avgCost + txn.quantity * txn.price;
+                    const totalQty = existing.quantity + txn.quantity;
+                    existing.avgCost = totalCost / totalQty;
+                    existing.quantity = totalQty;
+                } else {
+                    portfolio.push({
+                        name: txn.stock, ticker: txn.ticker, quantity: txn.quantity,
+                        avgCost: txn.price, sector: txn.sector || 'Other',
+                    });
+                }
+            } else if (txn.type === 'SELL') {
+                if (existing) {
+                    existing.quantity -= txn.quantity;
+                    if (existing.quantity <= 0) {
+                        portfolio = portfolio.filter(s => s.ticker !== txn.ticker);
+                    }
+                }
+            }
+        }
+
+        // Confirm + delete a transaction; reverse its portfolio effect; persist; refresh.
+        window.deleteTransactionRow = async function(id) {
+            const txn = transactions.find(t => String(t.id) === String(id));
+            if (!txn) return;
+            if (!confirm(`Delete ${txn.type} ${txn.quantity} ${txn.ticker} on ${txn.date}?`)) return;
+            const { error } = await supabase.from('transactions').delete().eq('id', id);
+            if (error) { alert('Delete failed: ' + error.message); return; }
+            reverseTxnOnPortfolio(txn);
+            transactions = transactions.filter(t => String(t.id) !== String(id));
+            localStorage.setItem('us_transactions', JSON.stringify(transactions));
+            await saveHoldingsToSupabase(portfolio);
+            localStorage.setItem('us_portfolio', JSON.stringify(portfolio));
+            computeFIFO();
+            render();
+        };
+
+        // Update an existing transaction: reverse the old row, apply the new values, persist.
+        async function updateTransactionRow(id, newTxn) {
+            const old = editingTxnOriginal;
+            if (!old) return;
+            const { error } = await supabase.from('transactions').update({
+                date: newTxn.date, type: newTxn.type, stock: newTxn.stock,
+                ticker: newTxn.ticker, quantity: newTxn.quantity, price: newTxn.price,
+            }).eq('id', id);
+            if (error) { alert('Update failed: ' + error.message); return; }
+            // Reverse old → apply new on portfolio (BUY/SELL math)
+            reverseTxnOnPortfolio(old);
+            applyTxnOnPortfolio(newTxn);
+            // Update local transactions array
+            const idx = transactions.findIndex(t => String(t.id) === String(id));
+            if (idx !== -1) transactions[idx] = { ...old, ...newTxn, id: old.id };
+            localStorage.setItem('us_transactions', JSON.stringify(transactions));
+            await saveHoldingsToSupabase(portfolio);
+            localStorage.setItem('us_portfolio', JSON.stringify(portfolio));
+            editingTxnId = null;
+            editingTxnOriginal = null;
+            showTransactionForm = false;
+            computeFIFO();
+            render();
+        }
 
         setInterval(() => {
             const estTime = getESTTime();
