@@ -271,7 +271,7 @@ def compute_records(ticker, df, index_closes):
             'adx_14': f(row['adx_14']),
             'plus_di_14': f(row['plus_di_14']), 'minus_di_14': f(row['minus_di_14']),
             'bz_streak': int(row['bz_streak']) if pd.notna(row['bz_streak']) else None,
-            'gc_crossover_date': gc_date.strftime('%Y-%m-%d') if gc_date is not None else None,
+            'gc_crossover_date': gc_date.strftime('%Y-%m-%d') if (gc_date is not None and pd.notna(gc_date)) else None,
         })
     return records
 
