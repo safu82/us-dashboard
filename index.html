@@ -1952,73 +1952,63 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
 
                 <div style="display: ${overviewSubTab === 'summary' ? 'block' : 'none'}">
 
-                <!-- US Index Cards -->
+                <!-- US Index Cards (India parity: label + arrow/% on top row, value below) -->
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                     ${[['^GSPC','S&P 500'],['^IXIC','NASDAQ'],['^DJI','DOW JONES'],['^VIX','VIX']].map(([t, label]) => {
                         const p = prices[t]?.price || 0;
                         const ch = prices[t]?.change || 0;
+                        const cls = ch >= 0 ? 'text-green-600' : 'text-red-600';
+                        const arrow = ch >= 0 ? '▲' : '▼';
                         return `
                         <div class="card p-4">
-                            <p class="text-xs font-semibold uppercase" style="color: var(--text-secondary); letter-spacing: 0.5px;">${label}</p>
-                            <p class="text-2xl font-bold mt-1">${p > 0 ? formatNumber(p) : '—'}</p>
-                            <p class="text-sm font-semibold mt-1 ${ch >= 0 ? 'text-green-600' : 'text-red-600'}">${p > 0 ? (ch >= 0 ? '+' : '') + formatNumber(ch) + '%' : '—'}</p>
+                            <div class="flex justify-between items-center">
+                                <p class="text-xs font-semibold uppercase" style="color: var(--text-secondary); letter-spacing: 0.5px;">${label}</p>
+                                <p class="text-sm font-semibold ${cls}">${p > 0 ? `${arrow} ${formatNumber(Math.abs(ch))}%` : '—'}</p>
+                            </div>
+                            <p class="text-2xl font-bold mt-2">${p > 0 ? formatNumber(p) : '—'}</p>
                         </div>`;
                     }).join('')}
                 </div>
 
+                <!-- Top metric cards (India parity: all text center-aligned) -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
-                    <div class="metric-card">
-                        <div class="flex justify-between items-start mb-3">
-                            <div>
-                                <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Portfolio Value</p>
-                                <h3 class="text-3xl font-bold mt-1">${formatCurrency(metrics.totalCurrentValue)}</h3>
-                                <p class="text-xs mt-1" style="color: var(--text-secondary);">Cost: ${formatCurrency(metrics.totalCostValue)}</p>
-                            </div>
-                        </div>
+                    <div class="metric-card" style="text-align: center;">
+                        <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Portfolio Value</p>
+                        <h3 class="text-3xl font-bold mt-1">${formatCurrency(metrics.totalCurrentValue)}</h3>
+                        <p class="text-xs mt-1" style="color: var(--text-secondary);">Cost: ${formatCurrency(metrics.totalCostValue)}</p>
                     </div>
 
-                    <div class="metric-card">
-                        <div class="flex justify-between items-start mb-3">
-                            <div>
-                                <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Unrealized Gains</p>
-                                <h3 class="text-3xl font-bold mt-1 ${metrics.totalUnrealizedPL >= 0 ? 'text-green-600' : 'text-red-600'}">
-                                    ${formatCurrency(metrics.totalUnrealizedPL)}
-                                </h3>
-                                <p class="text-xs mt-1 ${metrics.totalUnrealizedPLPercent >= 0 ? 'text-green-600' : 'text-red-600'}">
-                                    ${metrics.totalUnrealizedPLPercent >= 0 ? '+' : ''}${formatNumber(metrics.totalUnrealizedPLPercent)}%
-                                </p>
-                            </div>
-                        </div>
+                    <div class="metric-card" style="text-align: center;">
+                        <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Unrealized Gains</p>
+                        <h3 class="text-3xl font-bold mt-1 ${metrics.totalUnrealizedPL >= 0 ? 'text-green-600' : 'text-red-600'}">
+                            ${formatCurrency(metrics.totalUnrealizedPL)}
+                        </h3>
+                        <p class="text-xs mt-1 ${metrics.totalUnrealizedPLPercent >= 0 ? 'text-green-600' : 'text-red-600'}">
+                            (${metrics.totalUnrealizedPLPercent >= 0 ? '+' : ''}${formatNumber(metrics.totalUnrealizedPLPercent)}%)
+                        </p>
                     </div>
 
-                    <div class="metric-card">
-                        <div class="flex justify-between items-start mb-3">
-                            <div>
-                                <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Day Change</p>
-                                <h3 class="text-3xl font-bold mt-1 ${metrics.totalDayChange >= 0 ? 'text-green-600' : 'text-red-600'}">
-                                    ${formatCurrency(metrics.totalDayChange)}
-                                </h3>
-                                <p class="text-xs mt-1 ${metrics.totalDayChangePercent >= 0 ? 'text-green-600' : 'text-red-600'}">
-                                    ${metrics.totalDayChangePercent >= 0 ? '+' : ''}${formatNumber(metrics.totalDayChangePercent)}%
-                                </p>
-                            </div>
-                        </div>
+                    <div class="metric-card" style="text-align: center;">
+                        <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Day Change</p>
+                        <h3 class="text-3xl font-bold mt-1 ${metrics.totalDayChange >= 0 ? 'text-green-600' : 'text-red-600'}">
+                            ${formatCurrency(metrics.totalDayChange)}
+                        </h3>
+                        <p class="text-xs mt-1 ${metrics.totalDayChangePercent >= 0 ? 'text-green-600' : 'text-red-600'}">
+                            (${metrics.totalDayChangePercent >= 0 ? '+' : ''}${formatNumber(metrics.totalDayChangePercent)}%)
+                        </p>
                     </div>
 
-                    <div class="metric-card">
-                        <div class="flex justify-between items-start mb-3">
-                            <div style="min-width: 0;">
-                                <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Custom Period</p>
-                                <div class="flex gap-1 mt-1 items-center" style="flex-wrap: nowrap;">
-                                    <select onchange="customXIRRStart = this.value; render()" class="text-xs border rounded px-1 py-0.5" style="background: var(--bg-card); border-color: var(--border-color); min-width: 0;">
-                                        ${monthOptionsForXIRR(customXIRRStart, false)}
-                                    </select>
-                                    <span class="text-xs" style="color: var(--text-secondary);">→</span>
-                                    <select onchange="customXIRREnd = this.value; render()" class="text-xs border rounded px-1 py-0.5" style="background: var(--bg-card); border-color: var(--border-color); min-width: 0;">
-                                        ${monthOptionsForXIRR(customXIRREnd, true)}
-                                    </select>
-                                </div>
-                            </div>
+                    <!-- Custom Period: India layout — portfolio gain $ + (gain % vs QQQ %) + (XIRR · QQQ) -->
+                    <div class="metric-card" style="text-align: center;">
+                        <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Custom Period</p>
+                        <div class="flex gap-1 mt-1 items-center justify-center" style="flex-wrap: nowrap;">
+                            <select onchange="customXIRRStart = this.value; render()" class="text-xs border rounded px-1 py-0.5" style="background: var(--bg-card); border-color: var(--border-color); min-width: 0;">
+                                ${monthOptionsForXIRR(customXIRRStart, false)}
+                            </select>
+                            <span class="text-xs" style="color: var(--text-secondary);">→</span>
+                            <select onchange="customXIRREnd = this.value; render()" class="text-xs border rounded px-1 py-0.5" style="background: var(--bg-card); border-color: var(--border-color); min-width: 0;">
+                                ${monthOptionsForXIRR(customXIRREnd, true)}
+                            </select>
                         </div>
                         ${(() => {
                             const r = calculateCustomXIRR(customXIRRStart, customXIRREnd, metrics.totalCurrentValue);
@@ -2026,29 +2016,36 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                 return `<p class="text-sm mt-2" style="color: var(--text-secondary);">${r && r.error ? r.error : '—'}</p>`;
                             }
                             const gCls = r.absoluteGain >= 0 ? 'text-green-600' : 'text-red-600';
+                            const pCls = r.absoluteGainPct >= 0 ? 'text-green-600' : 'text-red-600';
                             const xCls = (r.xirr !== null && r.xirr >= 0) ? 'text-green-600' : 'text-red-600';
                             const q = calculateQqqReturnForRange(customXIRRStart, customXIRREnd);
-                            const qCls = (q.xirr !== null && q.xirr >= 0) ? 'text-green-600' : 'text-red-600';
-                            const qqqLine = q.xirr !== null
-                                ? `<p class="text-xs mt-1" style="color: var(--text-secondary);">QQQ: <span class="font-semibold ${qCls}">${q.xirr >= 0 ? '+' : ''}${formatNumber(q.xirr)}%</span></p>`
+                            const qPctCls = (q.gainPct !== null && q.gainPct >= 0) ? 'text-green-600' : 'text-red-600';
+                            const qXCls = (q.xirr !== null && q.xirr >= 0) ? 'text-green-600' : 'text-red-600';
+                            const pctRow = q.gainPct !== null
+                                ? `<p class="text-xs mt-1">
+                                    <span class="${pCls}">(${r.absoluteGainPct >= 0 ? '+' : ''}${formatNumber(r.absoluteGainPct)}%)</span>
+                                    <span style="color: var(--text-secondary);"> vs QQQ </span>
+                                    <span class="${qPctCls}">(${q.gainPct >= 0 ? '+' : ''}${formatNumber(q.gainPct)}%)</span>
+                                   </p>`
+                                : `<p class="text-xs mt-1 ${pCls}">(${r.absoluteGainPct >= 0 ? '+' : ''}${formatNumber(r.absoluteGainPct)}%)</p>`;
+                            const xirrRow = r.xirr !== null
+                                ? `<p class="text-xs mt-1" style="color: var(--text-secondary);">
+                                    XIRR <span class="font-semibold ${xCls}">${r.xirr >= 0 ? '+' : ''}${formatNumber(r.xirr)}%</span>
+                                    ${q.xirr !== null ? ` · QQQ <span class="font-semibold ${qXCls}">${q.xirr >= 0 ? '+' : ''}${formatNumber(q.xirr)}%</span>` : ''}
+                                   </p>`
                                 : '';
                             return `
-                                <p class="text-xl font-bold ${gCls}">${r.absoluteGain >= 0 ? '+' : ''}${formatCurrency(r.absoluteGain)}</p>
-                                <p class="text-xs ${gCls}">${r.absoluteGainPct >= 0 ? '+' : ''}${formatNumber(r.absoluteGainPct)}%</p>
-                                <p class="text-sm font-semibold mt-1 ${xCls}">XIRR: ${r.xirr !== null ? (r.xirr >= 0 ? '+' : '') + formatNumber(r.xirr) + '%' : 'N/A'}</p>
-                                ${qqqLine}
+                                <p class="text-xl font-bold mt-2 ${gCls}">${r.absoluteGain >= 0 ? '+' : ''}${formatCurrency(r.absoluteGain)}</p>
+                                ${pctRow}
+                                ${xirrRow}
                             `;
                         })()}
                     </div>
 
-                    <div class="metric-card" style="opacity: 0.65;">
-                        <div class="flex justify-between items-start mb-3">
-                            <div>
-                                <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Portfolio Strength</p>
-                                <h3 class="text-3xl font-bold mt-1" style="color: var(--text-secondary);">—</h3>
-                                <p class="text-xs mt-1" style="color: var(--text-secondary);">Activates in Phase 3 (needs scanner alerts)</p>
-                            </div>
-                        </div>
+                    <div class="metric-card" style="opacity: 0.65; text-align: center;">
+                        <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Portfolio Strength</p>
+                        <h3 class="text-3xl font-bold mt-1" style="color: var(--text-secondary);">—</h3>
+                        <p class="text-xs mt-1" style="color: var(--text-secondary);">Activates in Phase 3</p>
                     </div>
                 </div>
 
