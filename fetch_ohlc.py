@@ -45,6 +45,7 @@ STORE_DAYS = 90            # most recent N daily rows upserted per ticker
 BATCH_SIZE = 50            # tickers per yf.download call
 SLEEP_BATCH = 2            # seconds between batches
 BENCHMARK = '^GSPC'        # S&P 500 — Alkalyme RS reference index
+ALWAYS_FETCH = ['QQQ']     # extras the dashboard always needs (Custom Period card benchmark)
 
 
 # ── Indicator math (ported verbatim from the India fetcher) ────────────────
@@ -229,7 +230,7 @@ def benchmark_ohlc_records(ticker, df):
 
 
 def load_universe(sb):
-    """CLI args override; otherwise S&P 500 file + held tickers not in it."""
+    """CLI args override; otherwise S&P 500 file + held tickers + ALWAYS_FETCH benchmarks."""
     if len(sys.argv) > 1:
         return [t.strip().upper() for t in sys.argv[1:]]
     with open(os.path.join(BASE, 'tickers_sp500.txt'), encoding='utf-8') as fh:
@@ -239,7 +240,11 @@ def load_universe(sb):
     extras = sorted(held - set(tickers))
     if extras:
         print(f'  + {len(extras)} held extras outside the S&P 500: {extras}')
-    return tickers + extras
+    # Dashboard benchmarks that must stay current even if no longer held.
+    benchmark_extras = [t for t in ALWAYS_FETCH if t not in tickers and t not in extras]
+    if benchmark_extras:
+        print(f'  + {len(benchmark_extras)} always-fetch benchmarks: {benchmark_extras}')
+    return tickers + extras + benchmark_extras
 
 
 def cleanup_old(sb):
