@@ -1393,11 +1393,16 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
         }
 
         // ============ QQQ BENCHMARK HISTORY ============
-        // Loads all daily QQQ closes (Nov 2021+) so the Custom Period card can
-        // compute a QQQ CAGR for any user-selected start month.
+        // Builds a date → close map for QQQ from two sources, so the Custom
+        // Period card can find a close for any user-selected month:
+        //   1. benchmark_history  — the frozen archive (Nov 2021 → backfill date)
+        //   2. daily_stock_snapshots — fetch_ohlc.py's rolling 90-day window
+        // Union keeps the lookup fresh going forward without re-running the backfill.
         async function loadQqqHistoryFromSupabase() {
             try {
-                let all = [], from = 0, page = 1000;  // Supabase caps a single response at 1000
+                const out = {};
+                // 1) Archive (paginated; Supabase caps a single response at 1000 rows)
+                let from = 0, page = 1000, archiveCount = 0;
                 while (true) {
                     const { data, error } = await supabase
                         .from('benchmark_history')
@@ -1407,13 +1412,20 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         .range(from, from + page - 1);
                     if (error) throw error;
                     if (!data || !data.length) break;
-                    all = all.concat(data);
+                    data.forEach(r => { out[r.snapshot_date] = Number(r.close); });
+                    archiveCount += data.length;
                     if (data.length < page) break;
                     from += page;
                 }
-                const out = {};
-                all.forEach(r => { out[r.snapshot_date] = Number(r.close); });
-                console.log(`✅ Loaded ${all.length} QQQ history rows`);
+                // 2) Rolling 90-day window (overwrites the tail of the archive with fresh values)
+                const { data: recent, error: recentErr } = await supabase
+                    .from('daily_stock_snapshots')
+                    .select('snapshot_date, close')
+                    .eq('ticker', 'QQQ')
+                    .order('snapshot_date', { ascending: true });
+                if (recentErr) throw recentErr;
+                (recent || []).forEach(r => { out[r.snapshot_date] = Number(r.close); });
+                console.log(`✅ Loaded QQQ: ${archiveCount} archive + ${recent?.length || 0} rolling rows`);
                 return out;
             } catch (e) {
                 console.error('❌ Error loading QQQ history:', e);
