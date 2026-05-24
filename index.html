@@ -1794,8 +1794,10 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             
             // Save updated holdings to Supabase
             await saveHoldingsToSupabase(portfolio);
-            
+
             localStorage.setItem('us_portfolio', JSON.stringify(portfolio));
+            // Refresh FIFO lot ledger so realized P&L / open lots reflect the new txn.
+            computeFIFO();
             showTransactionForm = false;
             render();
             fetchPrices();
