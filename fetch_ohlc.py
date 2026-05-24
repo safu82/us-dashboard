@@ -124,6 +124,58 @@ def calculate_atr(df, period=14):
     return tr.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
 
 
+def calculate_macd(close, fast=12, slow=26, signal=9):
+    """MACD (line, signal, histogram). Standard 12/26/9 parameters."""
+    ema_fast = close.ewm(span=fast, adjust=False, min_periods=fast).mean()
+    ema_slow = close.ewm(span=slow, adjust=False, min_periods=slow).mean()
+    line = ema_fast - ema_slow
+    sig = line.ewm(span=signal, adjust=False, min_periods=signal).mean()
+    return line, sig, line - sig
+
+
+def calculate_adx(df, period=14):
+    """ADX(14) with Wilder smoothing. Returns (adx, +DI, -DI)."""
+    high, low, close = df['High'], df['Low'], df['Close']
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+    prev_close = close.shift(1)
+    tr = pd.concat([high - low, (high - prev_close).abs(),
+                    (low - prev_close).abs()], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+    plus_di = 100 * plus_dm.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean() / atr
+    minus_di = 100 * minus_dm.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean() / atr
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+    adx = dx.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+    return adx, plus_di, minus_di
+
+
+def calculate_bz_streak(close, high_52w, threshold=0.10):
+    """Blue-Zone streak: rolling count of consecutive days where close is within
+    `threshold` (default 10%) of the rolling 52-week high. Resets when the close
+    drops outside the zone."""
+    in_zone = (close >= high_52w * (1 - threshold)).astype(int)
+    # Count consecutive 1s; reset to 0 on any 0.
+    streak, out = 0, []
+    for v in in_zone:
+        streak = streak + 1 if v else 0
+        out.append(streak)
+    return pd.Series(out, index=close.index)
+
+
+def calculate_gc_crossover_date(ema20, ema50, dates):
+    """For each bar, the date of the most recent EMA20×EMA50 bullish crossover
+    (EMA20 crossed from below to above EMA50). None until the first crossover."""
+    crossed_today = (ema20.shift(1) <= ema50.shift(1)) & (ema20 > ema50)
+    last_cross, out = None, []
+    for d, c in zip(dates, crossed_today):
+        if c:
+            last_cross = d
+        out.append(last_cross)
+    return out
+
+
 def resample_to_weekly(df):
     weekly = df.resample('W-FRI').agg({'Open': 'first', 'High': 'max',
                                        'Low': 'min', 'Close': 'last',
@@ -170,6 +222,12 @@ def compute_records(ticker, df, index_closes):
     df['vol_20_avg'] = df['Volume'].shift(1).rolling(window=20, min_periods=5).mean()
     df['vol_ratio'] = (df['Volume'] / df['vol_20_avg']).round(2)
 
+    # Phase 3 entry-signal inputs: MACD, ADX, Blue-Zone streak, last Golden Cross date.
+    df['macd_line'], df['macd_signal'], df['macd_hist'] = calculate_macd(df['Close'])
+    df['adx_14'], df['plus_di_14'], df['minus_di_14'] = calculate_adx(df, 14)
+    df['bz_streak'] = calculate_bz_streak(df['Close'], df['high_52w'])
+    df['gc_crossover_date'] = calculate_gc_crossover_date(df['ema_20'], df['ema_50'], df.index)
+
     if index_closes is not None and len(index_closes) >= 25:
         df['alkalyme_rs'] = calculate_alkalyme_rs(df['Close'], index_closes)
     else:
@@ -191,6 +249,7 @@ def compute_records(ticker, df, index_closes):
 
     records = []
     for date, row in df.tail(STORE_DAYS).iterrows():
+        gc_date = row['gc_crossover_date']
         records.append({
             'ticker': ticker,
             'snapshot_date': date.strftime('%Y-%m-%d'),
@@ -207,6 +266,12 @@ def compute_records(ticker, df, index_closes):
             'high_52w': f(row['high_52w']),
             'vol_ratio': f(row['vol_ratio']),
             'alkalyme_rs': f(row['alkalyme_rs']),
+            'macd_line': f(row['macd_line']), 'macd_signal': f(row['macd_signal']),
+            'macd_hist': f(row['macd_hist']),
+            'adx_14': f(row['adx_14']),
+            'plus_di_14': f(row['plus_di_14']), 'minus_di_14': f(row['minus_di_14']),
+            'bz_streak': int(row['bz_streak']) if pd.notna(row['bz_streak']) else None,
+            'gc_crossover_date': gc_date.strftime('%Y-%m-%d') if gc_date is not None else None,
         })
     return records
 
@@ -230,21 +295,38 @@ def benchmark_ohlc_records(ticker, df):
 
 
 def load_universe(sb):
-    """CLI args override; otherwise S&P 500 file + held tickers + ALWAYS_FETCH benchmarks."""
+    """CLI args override; otherwise S&P 500 ∪ NASDAQ 100 ∪ held tickers ∪ ALWAYS_FETCH benchmarks."""
     if len(sys.argv) > 1:
         return [t.strip().upper() for t in sys.argv[1:]]
-    with open(os.path.join(BASE, 'tickers_sp500.txt'), encoding='utf-8') as fh:
-        tickers = [ln.strip() for ln in fh if ln.strip()]
+    seen = set()
+    tickers = []
+    for fname in ('tickers_sp500.txt', 'tickers_nasdaq100.txt'):
+        path = os.path.join(BASE, fname)
+        if not os.path.exists(path):
+            print(f'  WARN: {fname} not found, skipping')
+            continue
+        added = 0
+        with open(path, encoding='utf-8') as fh:
+            for ln in fh:
+                t = ln.strip().upper()
+                if t and t not in seen:
+                    seen.add(t)
+                    tickers.append(t)
+                    added += 1
+        print(f'  + {added} new from {fname}')
     held = {h['ticker'] for h in (sb.table('holdings').select('ticker')
                                   .execute().data or []) if h.get('ticker')}
-    extras = sorted(held - set(tickers))
+    extras = sorted(held - seen)
     if extras:
-        print(f'  + {len(extras)} held extras outside the S&P 500: {extras}')
+        print(f'  + {len(extras)} held extras outside the index files: {extras}')
+        tickers += extras
+        seen.update(extras)
     # Dashboard benchmarks that must stay current even if no longer held.
-    benchmark_extras = [t for t in ALWAYS_FETCH if t not in tickers and t not in extras]
+    benchmark_extras = [t for t in ALWAYS_FETCH if t not in seen]
     if benchmark_extras:
         print(f'  + {len(benchmark_extras)} always-fetch benchmarks: {benchmark_extras}')
-    return tickers + extras + benchmark_extras
+        tickers += benchmark_extras
+    return tickers
 
 
 def cleanup_old(sb):
