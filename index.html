@@ -1815,19 +1815,17 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
         }
 
         function renderAlertsSummary() {
-            // Apply the active filter — breakdown grid + listed signals all reflect this set.
-            // The 5-card top row stays on TOTAL counts so the user can always see every option.
-            const totalSignals  = entrySignalsData;
-            const totalStrong   = totalSignals.filter(s => s.signal_strength === 'Strong');
-            const totalBuy      = totalSignals.filter(s => s.signal_strength === 'Buy');
-            const totalCounts   = {};
-            totalSignals.forEach(s => { totalCounts[s.ticker] = (totalCounts[s.ticker] || 0) + 1; });
-            const totalMultipleTickers = Object.entries(totalCounts).filter(([_, c]) => c > 1).map(([t]) => t);
-            const totalStrongCounts = {};
-            totalStrong.forEach(s => { totalStrongCounts[s.ticker] = (totalStrongCounts[s.ticker] || 0) + 1; });
-            const totalMultiStrongTickers = Object.entries(totalStrongCounts).filter(([_, c]) => c > 1).map(([t]) => t);
-
-            const filtered = applySummaryFilter(totalSignals);
+            // India parity: filter is GLOBAL. The 5-card values, breakdown grid,
+            // and every per-pattern tab all read from this filtered set.
+            const filtered = applySummaryFilter(entrySignalsData);
+            const fStrong  = filtered.filter(s => s.signal_strength === 'Strong');
+            const fBuy     = filtered.filter(s => s.signal_strength === 'Buy');
+            const fCounts  = {};
+            filtered.forEach(s => { fCounts[s.ticker] = (fCounts[s.ticker] || 0) + 1; });
+            const fMultipleTickers = Object.entries(fCounts).filter(([_, c]) => c > 1).map(([t]) => t);
+            const fStrongCounts = {};
+            fStrong.forEach(s => { fStrongCounts[s.ticker] = (fStrongCounts[s.ticker] || 0) + 1; });
+            const fMultiStrongTickers = Object.entries(fStrongCounts).filter(([_, c]) => c > 1).map(([t]) => t);
 
             const filterCard = (val, num, emoji, label, color) => {
                 const active = summaryFilter === val;
@@ -1840,21 +1838,17 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 </div>`;
             };
 
-            // Filtered tickers — when a filter is active, list each ticker once with its matching signals
-            const filteredByTicker = {};
-            filtered.forEach(s => { (filteredByTicker[s.ticker] = filteredByTicker[s.ticker] || []).push(s); });
-
             return `
             <div class="card p-6 mb-6">
                 <h2 class="text-2xl font-bold mb-6">📊 Entry Signals Summary</h2>
 
-                <!-- 5-card top row — clickable filters (India parity) -->
+                <!-- 5-card top row — values reflect the filtered set (India parity) -->
                 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-                    ${filterCard('multiple',     totalMultipleTickers.length,   '🔥',   'Multiple Signals', '#667eea')}
-                    ${filterCard('strong_buy',   totalStrong.length,            '🟢🟢', 'Strong Buy',       '#10b981')}
-                    ${filterCard('multi_strong', totalMultiStrongTickers.length,'🔥🔥', 'Multi-Strong',     '#f59e0b')}
-                    ${filterCard('buy',          totalBuy.length,               '🟢',   'Buy',              '#3b82f6')}
-                    ${filterCard('all',          totalSignals.length,           '',     'Total Signals',    '#667eea')}
+                    ${filterCard('multiple',     fMultipleTickers.length,    '🔥',   'Multiple Signals', '#667eea')}
+                    ${filterCard('strong_buy',   fStrong.length,             '🟢🟢', 'Strong Buy',       '#10b981')}
+                    ${filterCard('multi_strong', fMultiStrongTickers.length, '🔥🔥', 'Multi-Strong',     '#f59e0b')}
+                    ${filterCard('buy',          fBuy.length,                '🟢',   'Buy',              '#3b82f6')}
+                    ${filterCard('all',          filtered.length,            '',     'Total Signals',    '#667eea')}
                 </div>
 
                 ${summaryFilter !== 'all' ? `
@@ -1866,15 +1860,13 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                           : summaryFilter === 'strong_buy' ? '🟢🟢 Strong Buy Only'
                           : '🟢 Buy Only'}
                     </span>
-                    <span class="ml-2 text-sm" style="color: var(--text-secondary);">— ${Object.keys(filteredByTicker).length} stocks · ${filtered.length} signals</span>
                     <button onclick="summaryFilter='all'; render()"
                             style="margin-left: 10px; padding: 4px 12px; border-radius: 4px; border: none; background: var(--border-color); color: var(--text-primary); cursor: pointer; font-size: 12px;">
                         Clear Filter
                     </button>
                 </div>` : ''}
 
-                <!-- Breakdown by Signal Type (3-col card grid). When a filter is active,
-                     counts reflect the filtered set; patterns with zero hits are hidden. -->
+                <!-- Breakdown by Signal Type — same filtered set as 5-card row. Patterns with zero hits hide. -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     ${ALERT_PATTERNS.map(p => {
                         const hits = filtered.filter(s => s.pattern === p.slug);
@@ -1893,39 +1885,49 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         </div>`;
                     }).join('')}
                 </div>
-            </div>
-
-            ${summaryFilter !== 'all' && filtered.length ? `
-            <!-- When filtered: show the matching signal cards inline so the user sees actual stocks, not just counts -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                ${filtered.slice().sort((a, b) => {
-                    if (a.signal_strength !== b.signal_strength) return a.signal_strength === 'Strong' ? -1 : 1;
-                    return (a.rs_rank ?? 9999) - (b.rs_rank ?? 9999);
-                }).map(renderSignalCard).join('')}
-            </div>` : ''}`;
+            </div>`;
         }
 
         function renderAlertsPattern(slug) {
             const meta = ALERT_PATTERNS.find(p => p.slug === slug);
-            const all = alertsForPattern(slug);
+            // India parity: per-pattern tab also respects the global summaryFilter
+            const filtered = applySummaryFilter(entrySignalsData);
+            const all = filtered.filter(s => s.pattern === slug);
             const sorted = all.slice().sort((a, b) => {
                 if (a.signal_strength !== b.signal_strength) return a.signal_strength === 'Strong' ? -1 : 1;
                 return (a.rs_rank ?? 9999) - (b.rs_rank ?? 9999);
             });
 
+            const activeFilterBanner = summaryFilter !== 'all' ? `
+                <div class="mb-4 p-3 rounded-lg" style="background: var(--bg-secondary); border: 1px solid #667eea;">
+                    <span style="color: var(--text-secondary);">Filter active: </span>
+                    <span style="color: #667eea; font-weight: bold;">
+                        ${summaryFilter === 'multiple'     ? '🔥 Multiple Signals'
+                          : summaryFilter === 'multi_strong' ? '🔥🔥 Multi-Strong Buy'
+                          : summaryFilter === 'strong_buy' ? '🟢🟢 Strong Buy'
+                          : '🟢 Buy'}
+                    </span>
+                    <button onclick="summaryFilter='all'; render()"
+                            style="margin-left: 10px; padding: 4px 12px; border-radius: 4px; border: none; background: var(--border-color); color: var(--text-primary); cursor: pointer; font-size: 12px;">
+                        Clear Filter
+                    </button>
+                </div>` : '';
+
             if (sorted.length === 0) {
                 return `
+                ${activeFilterBanner}
                 <div class="card p-8 text-center">
                     <div class="text-6xl mb-4">🔍</div>
-                    <h3 class="text-xl font-semibold mb-2">No ${meta?.label || slug} signals today</h3>
+                    <h3 class="text-xl font-semibold mb-2">No ${meta?.label || slug} signals${summaryFilter !== 'all' ? ' match the current filter' : ' today'}</h3>
                     <p style="color: var(--text-secondary);">${meta?.desc || ''}</p>
                 </div>`;
             }
 
             return `
+            ${activeFilterBanner}
             <div class="card p-6 mb-4">
                 <h2 class="text-2xl font-bold mb-2">${meta?.emoji || ''} ${meta?.label || slug}</h2>
-                <p class="text-sm" style="color: var(--text-secondary);">${meta?.desc || ''} · ${sorted.length} signals today</p>
+                <p class="text-sm" style="color: var(--text-secondary);">${meta?.desc || ''} · ${sorted.length} signals${summaryFilter !== 'all' ? ' matching filter' : ' today'}</p>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 ${sorted.map(renderSignalCard).join('')}
