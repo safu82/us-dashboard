@@ -501,7 +501,7 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let presignalScoresData = [];      // rows from presignal_scores (latest scan day)
         let portfolioAlertsData = [];      // rows from alerts (latest scan day)
         let alertsSubTab = 'summary';      // summary | by_sector | narrow_cpr | blue_zone | golden_cross | macd | darvas | pullback_bounce | bull_flag | vcp | presignal
-        let alertsStrengthFilter = 'all';  // all | Strong | Buy — per-pattern tab filter
+        let summaryFilter = 'all';         // all | multiple | strong_buy | multi_strong | buy — Summary tab clickable filter
         let selectedWinLoseYear = new Date().getFullYear();
         let selectedStackType = 'BULLISH'; // BULLISH | BEARISH (Stacked EMAs card)
         let selectedEma = 200;             // 20 | 50 | 200 (Above Key EMAs card)
@@ -1738,249 +1738,339 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             return Object.fromEntries(Object.entries(buckets).filter(([_, v]) => v.value > 0));
         }
 
-        // ============ TECHNICAL ALERTS UI (Phase 3d, incremental: Summary + 3 patterns) ============
-        // Pattern catalogue — keep the slugs in sync with entry_signals_scanner.py emits.
+        // ============ TECHNICAL ALERTS UI (Phase 3d — India parity) ============
+        // Pattern catalogue — slugs match entry_signals_scanner.py output.
         const ALERT_PATTERNS = [
-            { slug: 'narrow_cpr',      label: 'Narrow CPR' },
-            { slug: 'blue_zone',       label: 'Blue Zone' },
-            { slug: 'golden_cross',    label: 'Golden Cross' },
-            { slug: 'macd',            label: 'MACD' },
-            { slug: 'darvas',          label: 'Darvas Box' },
-            { slug: 'pullback_bounce', label: 'Pullback Bounce' },
-            { slug: 'bull_flag',       label: 'Bull Flag' },
-            { slug: 'vcp',             label: 'VCP' },
+            { slug: 'narrow_cpr',      label: 'Narrow CPR',      emoji: '📍', desc: 'Breakaway from narrow range' },
+            { slug: 'blue_zone',       label: 'Blue Zone',       emoji: '🔵', desc: 'Momentum + Pullback setup' },
+            { slug: 'golden_cross',    label: 'Golden Cross',    emoji: '⚡', desc: 'EMA crossover with momentum' },
+            { slug: 'macd',            label: 'MACD',            emoji: '📊', desc: 'MACD momentum crossover' },
+            { slug: 'darvas',          label: 'Darvas Box',      emoji: '📦', desc: 'Consolidation near 52W high breaking out' },
+            { slug: 'pullback_bounce', label: 'Pullback Bounce', emoji: '🔄', desc: 'EMA20 touch-and-recover in uptrend' },
+            { slug: 'bull_flag',       label: 'Bull Flag',       emoji: '🚩', desc: 'Pole + orderly flag consolidation' },
+            { slug: 'vcp',             label: 'VCP',             emoji: '📉', desc: 'Tightening volatility near pivot breakout' },
         ];
-
-        // Sub-tabs we've built so far. Others render a "coming next" placeholder.
-        const ALERT_SUBTABS_BUILT = new Set(['summary', 'blue_zone', 'macd', 'bull_flag']);
 
         function alertsForPattern(slug) {
             return entrySignalsData.filter(s => s.pattern === slug);
         }
 
+        // Apply the Summary tab's clickable filter to a signal list.
+        function applySummaryFilter(signals) {
+            if (summaryFilter === 'all') return signals;
+            if (summaryFilter === 'strong_buy') return signals.filter(s => s.signal_strength === 'Strong');
+            if (summaryFilter === 'buy')        return signals.filter(s => s.signal_strength === 'Buy');
+            if (summaryFilter === 'multiple' || summaryFilter === 'multi_strong') {
+                const targets = summaryFilter === 'multi_strong'
+                    ? signals.filter(s => s.signal_strength === 'Strong')
+                    : signals;
+                const counts = {};
+                targets.forEach(s => { counts[s.ticker] = (counts[s.ticker] || 0) + 1; });
+                const multiTickers = new Set(Object.entries(counts).filter(([_, c]) => c > 1).map(([t]) => t));
+                return signals.filter(s => multiTickers.has(s.ticker));
+            }
+            return signals;
+        }
+
+        // Sub-tab navigation — centered pills (India parity).
         function renderAlertsSubNav() {
             const items = [
                 { id: 'summary',    label: '📊 Summary' },
                 { id: 'by_sector',  label: '🌐 By Sector' },
-                ...ALERT_PATTERNS.map(p => {
-                    const n = alertsForPattern(p.slug).length;
-                    return { id: p.slug, label: `${p.label}${n ? ` (${n})` : ''}` };
-                }),
-                { id: 'presignal',  label: `🔮 Pre-Signal${presignalScoresData.length ? ` (${presignalScoresData.length})` : ''}` },
+                ...ALERT_PATTERNS.map(p => ({ id: p.slug, label: `${p.emoji} ${p.label}` })),
+                { id: 'presignal',  label: '🔮 Pre-Signal' },
             ];
             return `
-                <div class="flex gap-1 mb-4 flex-wrap" style="background: var(--bg-card); border-radius: 10px; padding: 5px; border: 1px solid var(--border-color);">
-                    ${items.map(it => `
-                        <button onclick="alertsSubTab='${it.id}'; alertsStrengthFilter='all'; render()"
-                                class="tab-button ${alertsSubTab === it.id ? 'active' : ''}"
-                                style="padding: 6px 12px; font-size: 12px; flex: 0 0 auto;">${it.label}</button>
-                    `).join('')}
-                </div>
-            `;
+                <div class="card p-3 mb-4">
+                    <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+                        ${items.map(it => {
+                            const active = alertsSubTab === it.id;
+                            return `
+                            <button onclick="alertsSubTab='${it.id}'; summaryFilter='all'; render()"
+                                    style="padding: 6px 16px; border-radius: 4px; cursor: pointer; border: none; font-size: 13px;
+                                           background: ${active ? '#667eea' : 'var(--border-color)'};
+                                           color: ${active ? 'white' : 'var(--text-secondary)'};">
+                                ${it.label}
+                            </button>`;
+                        }).join('')}
+                    </div>
+                </div>`;
         }
 
         function renderTechnicalAlerts() {
-            const total = entrySignalsData.length;
-            if (total === 0 && presignalScoresData.length === 0) {
+            if (entrySignalsData.length === 0 && presignalScoresData.length === 0) {
                 return `
                 <div class="card p-6">
                     <h2 class="text-xl font-bold mb-2">Technical Alerts</h2>
-                    <p style="color: var(--text-secondary);">No signals or pre-signals loaded. If the scanners haven't run yet, run <code>entry_signals_scanner.py</code> + <code>score_presignals.py</code>.</p>
+                    <p style="color: var(--text-secondary);">No signals or pre-signals loaded. Run <code>entry_signals_scanner.py</code> + <code>score_presignals.py</code>.</p>
                 </div>`;
             }
             let body = '';
-            if (alertsSubTab === 'summary')        body = renderAlertsSummary();
-            else if (alertsSubTab === 'presignal') body = renderAlertsPresignalPlaceholder();
-            else if (alertsSubTab === 'by_sector') body = renderAlertsBySectorPlaceholder();
+            if (alertsSubTab === 'summary')         body = renderAlertsSummary();
+            else if (alertsSubTab === 'by_sector')  body = renderAlertsBySectorPlaceholder();
+            else if (alertsSubTab === 'presignal')  body = renderAlertsPresignalPlaceholder();
             else if (ALERT_PATTERNS.find(p => p.slug === alertsSubTab))
                 body = renderAlertsPattern(alertsSubTab);
-            else body = '';
             return `${renderAlertsSubNav()}${body}`;
         }
 
         function renderAlertsSummary() {
-            const strong = entrySignalsData.filter(s => s.signal_strength === 'Strong').length;
-            const buy    = entrySignalsData.filter(s => s.signal_strength === 'Buy').length;
-            const patternCounts = {};
-            entrySignalsData.forEach(s => { patternCounts[s.pattern] = (patternCounts[s.pattern] || 0) + 1; });
+            const strong = entrySignalsData.filter(s => s.signal_strength === 'Strong');
+            const buy    = entrySignalsData.filter(s => s.signal_strength === 'Buy');
+            // "Multiple Signals" — stocks triggering 2+ patterns of any tier
+            const counts = {};
+            entrySignalsData.forEach(s => { counts[s.ticker] = (counts[s.ticker] || 0) + 1; });
+            const multipleTickers = Object.entries(counts).filter(([_, c]) => c > 1).map(([t]) => t);
+            // "Multi-Strong" — stocks with 2+ Strong signals
+            const sCounts = {};
+            strong.forEach(s => { sCounts[s.ticker] = (sCounts[s.ticker] || 0) + 1; });
+            const multiStrongTickers = Object.entries(sCounts).filter(([_, c]) => c > 1).map(([t]) => t);
 
-            // Pre-signal aggregation: tickers with 2+ rules ≥70 = 🔥 Multi
-            const tickerRules = {};
-            presignalScoresData.forEach(p => {
-                (tickerRules[p.ticker] = tickerRules[p.ticker] || new Set()).add(p.rule);
-            });
-            const multiPre = Object.entries(tickerRules).filter(([_, s]) => s.size >= 2);
-
-            const latestDate = entrySignalsData[0]?.alert_date || '—';
-            const portfolioAlertCount = portfolioAlertsData.length;
+            const filterCard = (val, num, emoji, label, color) => {
+                const active = summaryFilter === val;
+                return `
+                <div onclick="summaryFilter = summaryFilter === '${val}' ? 'all' : '${val}'; render()"
+                     class="p-4 rounded-lg text-center"
+                     style="background: var(--bg-secondary); border: ${active ? `2px solid ${color}` : '1px solid var(--border-color)'}; cursor: pointer; transition: all 0.2s;">
+                    <div class="text-3xl font-bold mb-1" style="color: ${color};">${num}</div>
+                    <div class="text-sm" style="color: var(--text-secondary);">${emoji} ${label}</div>
+                </div>`;
+            };
 
             return `
-            <!-- Summary cards (centered, India parity) -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <div class="metric-card" style="text-align: center;">
-                    <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Confirmed Signals</p>
-                    <h3 class="text-3xl font-bold mt-1">${entrySignalsData.length}</h3>
-                    <p class="text-xs mt-1" style="color: var(--text-secondary);">as of ${latestDate}</p>
-                </div>
-                <div class="metric-card" style="text-align: center;">
-                    <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">🟢🟢 Strong</p>
-                    <h3 class="text-3xl font-bold mt-1 text-green-600">${strong}</h3>
-                    <p class="text-xs mt-1" style="color: var(--text-secondary);">${buy} Buy tier</p>
-                </div>
-                <div class="metric-card" style="text-align: center;">
-                    <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">🔮 Pre-Signals</p>
-                    <h3 class="text-3xl font-bold mt-1">${presignalScoresData.length}</h3>
-                    <p class="text-xs mt-1" style="color: var(--text-secondary);">🔥 ${multiPre.length} multi-rule</p>
-                </div>
-                <div class="metric-card" style="text-align: center;">
-                    <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Portfolio Alerts</p>
-                    <h3 class="text-3xl font-bold mt-1">${portfolioAlertCount}</h3>
-                    <p class="text-xs mt-1" style="color: var(--text-secondary);">on your holdings</p>
-                </div>
-            </div>
-
-            <!-- Per-pattern breakdown -->
             <div class="card p-6 mb-6">
-                <h2 class="text-xl font-bold mb-3">Pattern Breakdown</h2>
-                <div class="overflow-x-auto">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Pattern</th>
-                                <th class="text-right">Strong</th>
-                                <th class="text-right">Buy</th>
-                                <th class="text-right">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${ALERT_PATTERNS.map(p => {
-                                const hits = alertsForPattern(p.slug);
-                                const s = hits.filter(h => h.signal_strength === 'Strong').length;
-                                const b = hits.filter(h => h.signal_strength === 'Buy').length;
-                                const total = hits.length;
-                                return `
-                                <tr ${total > 0 ? '' : 'style="opacity: 0.4;"'}>
-                                    <td><button onclick="alertsSubTab='${p.slug}'; render()" class="font-semibold" style="text-decoration: underline; cursor: pointer;">${p.label}</button></td>
-                                    <td class="text-right ${s ? 'font-bold text-green-600' : ''}">${s}</td>
-                                    <td class="text-right ${b ? 'font-bold text-green-600' : ''}">${b}</td>
-                                    <td class="text-right font-semibold">${total}</td>
-                                </tr>`;
-                            }).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+                <h2 class="text-2xl font-bold mb-6">📊 Entry Signals Summary</h2>
 
-            <!-- Recent confirmed signals (top 20, Strong first then by rs_rank) -->
-            <div class="card p-6">
-                <h2 class="text-xl font-bold mb-3">Top Confirmed Signals</h2>
-                ${renderAlertsTable(entrySignalsData
-                    .slice()
-                    .sort((a, b) => {
-                        if (a.signal_strength !== b.signal_strength) return a.signal_strength === 'Strong' ? -1 : 1;
-                        return (a.rs_rank ?? 9999) - (b.rs_rank ?? 9999);
-                    })
-                    .slice(0, 20), { showPattern: true })}
+                <!-- 5-card top row — clickable filters (India parity) -->
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+                    ${filterCard('multiple',     multipleTickers.length,   '🔥',   'Multiple Signals', '#667eea')}
+                    ${filterCard('strong_buy',   strong.length,            '🟢🟢', 'Strong Buy',       '#10b981')}
+                    ${filterCard('multi_strong', multiStrongTickers.length,'🔥🔥', 'Multi-Strong',     '#f59e0b')}
+                    ${filterCard('buy',          buy.length,               '🟢',   'Buy',              '#3b82f6')}
+                    ${filterCard('all',          entrySignalsData.length,  '',     'Total Signals',    '#667eea')}
+                </div>
+
+                ${summaryFilter !== 'all' ? `
+                <div class="mb-4 p-3 rounded-lg" style="background: var(--bg-secondary); border: 1px solid #667eea;">
+                    <span style="color: var(--text-secondary);">Showing: </span>
+                    <span style="color: #667eea; font-weight: bold;">
+                        ${summaryFilter === 'multiple'     ? '🔥 Stocks with Multiple Signals'
+                          : summaryFilter === 'multi_strong' ? '🔥🔥 Multi-Strong Buy Only'
+                          : summaryFilter === 'strong_buy' ? '🟢🟢 Strong Buy Only'
+                          : '🟢 Buy Only'}
+                    </span>
+                    <button onclick="summaryFilter='all'; render()"
+                            style="margin-left: 10px; padding: 4px 12px; border-radius: 4px; border: none; background: var(--border-color); color: var(--text-primary); cursor: pointer; font-size: 12px;">
+                        Clear Filter
+                    </button>
+                </div>` : ''}
+
+                <!-- Breakdown by Signal Type (3-col card grid, India parity) -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    ${ALERT_PATTERNS.map(p => {
+                        const hits = alertsForPattern(p.slug);
+                        if (hits.length === 0) return '';
+                        const s = hits.filter(h => h.signal_strength === 'Strong').length;
+                        const b = hits.filter(h => h.signal_strength === 'Buy').length;
+                        return `
+                        <div class="p-4 rounded-lg" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                            <div class="text-lg font-semibold mb-2">${p.emoji} ${p.label} (${hits.length})</div>
+                            <div class="text-sm mb-2" style="color: var(--text-secondary);">${p.desc}</div>
+                            ${s + b > 0 ? `<div class="text-xs mb-3" style="color: var(--text-secondary);">${s ? `<span style="color:#10b981; font-weight:600;">🟢🟢 ${s} Strong</span>` : ''}${s && b ? ' · ' : ''}${b ? `<span style="color:#3b82f6; font-weight:600;">🟢 ${b} Buy</span>` : ''}</div>` : ''}
+                            <button onclick="alertsSubTab='${p.slug}'; render()"
+                                    style="padding: 6px 12px; border-radius: 4px; cursor: pointer; border: none; background: #667eea; color: white; font-size: 12px;">
+                                View →
+                            </button>
+                        </div>`;
+                    }).join('')}
+                </div>
             </div>`;
         }
 
         function renderAlertsPattern(slug) {
             const meta = ALERT_PATTERNS.find(p => p.slug === slug);
             const all = alertsForPattern(slug);
-            const filtered = alertsStrengthFilter === 'all'
-                ? all
-                : all.filter(s => s.signal_strength === alertsStrengthFilter);
-            const strong = all.filter(s => s.signal_strength === 'Strong').length;
-            const buy = all.filter(s => s.signal_strength === 'Buy').length;
-
-            const sortedRows = filtered.slice().sort((a, b) => {
+            const sorted = all.slice().sort((a, b) => {
                 if (a.signal_strength !== b.signal_strength) return a.signal_strength === 'Strong' ? -1 : 1;
                 return (a.rs_rank ?? 9999) - (b.rs_rank ?? 9999);
             });
 
-            const built = ALERT_SUBTABS_BUILT.has(slug);
-            const placeholder = built ? '' : `
-                <div class="mt-4 p-3 rounded" style="background: var(--bg-secondary); color: var(--text-secondary); font-size: 13px;">
-                    Per-pattern view will be expanded in the next pass — currently showing the bare table.
+            if (sorted.length === 0) {
+                return `
+                <div class="card p-8 text-center">
+                    <div class="text-6xl mb-4">🔍</div>
+                    <h3 class="text-xl font-semibold mb-2">No ${meta?.label || slug} signals today</h3>
+                    <p style="color: var(--text-secondary);">${meta?.desc || ''}</p>
                 </div>`;
-
-            const pill = (val, label) => `
-                <button onclick="alertsStrengthFilter='${val}'; render()"
-                        class="tab-button ${alertsStrengthFilter === val ? 'active' : ''}"
-                        style="padding: 4px 12px; font-size: 12px;">${label}</button>`;
+            }
 
             return `
-            <div class="card p-6">
-                <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
-                    <div>
-                        <h2 class="text-xl font-bold">${meta?.label || slug}</h2>
-                        <p class="text-xs" style="color: var(--text-secondary);">${all.length} signals · ${strong} Strong · ${buy} Buy</p>
-                    </div>
-                    <div class="flex gap-1" style="background: var(--bg-card); border-radius: 8px; padding: 3px; border: 1px solid var(--border-color);">
-                        ${pill('all', `All (${all.length})`)}
-                        ${pill('Strong', `🟢🟢 Strong (${strong})`)}
-                        ${pill('Buy', `🟢 Buy (${buy})`)}
-                    </div>
-                </div>
-                ${sortedRows.length === 0
-                    ? `<p class="text-sm" style="color: var(--text-secondary);">No signals match the current filter.</p>`
-                    : renderAlertsTable(sortedRows, { showPattern: false })}
-                ${placeholder}
+            <div class="card p-6 mb-4">
+                <h2 class="text-2xl font-bold mb-2">${meta?.emoji || ''} ${meta?.label || slug}</h2>
+                <p class="text-sm" style="color: var(--text-secondary);">${meta?.desc || ''} · ${sorted.length} signals today</p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                ${sorted.map(renderSignalCard).join('')}
             </div>`;
         }
 
-        function renderAlertsTable(rows, { showPattern }) {
+        // Single signal card — India parity. Renders ticker / price / RS / sector
+        // / signal-specific details / Chart button. Skips dismiss + Deep Dive
+        // (no deep_dive.html yet) + conviction badge + VIX banner.
+        function renderSignalCard(signal) {
+            const ticker = signal.ticker;
+            const tvUrl = `https://www.tradingview.com/chart/?symbol=${ticker}`;
+            const isStrong = signal.signal_strength === 'Strong';
+            const tierBg = isStrong ? '#10b981' : '#3b82f6';
+            const tierLabel = isStrong ? '🟢🟢 STRONG BUY' : '🟢 BUY';
+            const rsRank = signal.rs_rank;
+            const rsColor = rsRank == null ? '#94a3b8' : rsRank <= 50 ? '#10b981' : rsRank <= 125 ? '#3b82f6' : '#94a3b8';
+            const rsBg    = rsRank == null ? '#94a3b820' : rsRank <= 50 ? '#10b98120' : rsRank <= 125 ? '#3b82f620' : '#94a3b820';
+            const rsBorder= rsRank == null ? '#94a3b840' : rsRank <= 50 ? '#10b98140' : rsRank <= 125 ? '#3b82f640' : '#94a3b840';
+
+            // Multi-Strong banner (when this stock has 2+ Strong signals)
+            const strongCount = entrySignalsData.filter(s => s.ticker === ticker && s.signal_strength === 'Strong').length;
+            const isMultiStrong = isStrong && strongCount > 1;
+            const multiStrongBanner = isMultiStrong ? `
+                <div class="mb-3 px-3 py-2 rounded" style="background: linear-gradient(135deg, #f59e0b 0%, #dc2626 100%); color: white; font-weight: bold; font-size: 13px; letter-spacing: 0.5px;">
+                    🔥🔥 MULTI-STRONG BUY 🔥🔥
+                </div>` : '';
+
+            // "Also has" chips when Multiple Signals / Multi-Strong filter is active
+            let otherChips = '';
+            if (summaryFilter === 'multiple' || summaryFilter === 'multi_strong') {
+                const others = entrySignalsData.filter(s => s.ticker === ticker && s.pattern !== signal.pattern);
+                if (others.length) {
+                    otherChips = `
+                    <div class="mt-3 pt-3" style="border-top: 1px solid var(--border-color);">
+                        <div class="text-xs mb-2" style="color: var(--text-secondary);">Also has:</div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 4px; justify-content: center;">
+                            ${others.map(o => {
+                                const op = ALERT_PATTERNS.find(p => p.slug === o.pattern);
+                                return `<span class="px-2 py-1 rounded text-xs" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">${op?.emoji || ''} ${op?.label || o.pattern}</span>`;
+                            }).join('')}
+                        </div>
+                    </div>`;
+                }
+            }
+
+            const cardGlow = isMultiStrong ? 'border: 2px solid #f59e0b; box-shadow: 0 0 24px #f59e0b50;' : '';
+
             return `
-            <div class="overflow-x-auto">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Ticker</th>
-                            ${showPattern ? '<th>Pattern</th>' : ''}
-                            <th>Strength</th>
-                            <th>Sector</th>
-                            <th class="text-right">RS Rank</th>
-                            <th class="text-right">Alkalyme RS</th>
-                            <th class="text-right">Sector Comp</th>
-                            <th class="text-right">Close</th>
-                            <th>Alert Date</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${rows.map(r => {
-                            const patternLabel = (ALERT_PATTERNS.find(p => p.slug === r.pattern) || {}).label || r.pattern;
-                            const strengthBadge = r.signal_strength === 'Strong'
-                                ? '<span class="badge badge-green">🟢🟢 Strong</span>'
-                                : '<span class="badge badge-green">🟢 Buy</span>';
-                            return `
-                            <tr>
-                                <td class="font-semibold">${tvLink(r.ticker, r.ticker)}</td>
-                                ${showPattern ? `<td>${patternLabel}</td>` : ''}
-                                <td>${strengthBadge}</td>
-                                <td>${r.sector || '—'}</td>
-                                <td class="text-right">${r.rs_rank ?? '—'}</td>
-                                <td class="text-right">${r.alkalyme_rs != null ? formatNumber(r.alkalyme_rs) : '—'}</td>
-                                <td class="text-right">${r.sector_composite_pct != null ? formatNumber(r.sector_composite_pct) : '—'}</td>
-                                <td class="text-right">$${formatNumber(r.close)}</td>
-                                <td>${r.alert_date}</td>
-                            </tr>`;
-                        }).join('')}
-                    </tbody>
-                </table>
+            <div class="card p-4" style="position: relative; text-align: center; ${cardGlow}">
+                ${multiStrongBanner}
+                <div class="mb-3">
+                    <div class="text-lg font-bold mb-1">${tvLink(ticker, ticker)}</div>
+                    <div class="text-2xl font-bold" style="color: #667eea;">$${formatNumber(signal.close)}</div>
+                    ${rsRank != null ? `
+                    <div class="mt-2">
+                        <span style="display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;
+                                     background: ${rsBg}; color: ${rsColor}; border: 1px solid ${rsBorder};"
+                              title="Alkalyme RS rank — top ${Math.round(rsRank / 5.18)}% of universe">
+                            RS #${rsRank}
+                        </span>
+                    </div>` : ''}
+                    ${signal.sector ? `<div style="margin-top: 6px; font-size: 11px; color: var(--text-secondary);">${signal.sector}${signal.sector_composite_pct != null ? ` · Sector ${Math.round(signal.sector_composite_pct)}` : ''}</div>` : ''}
+                </div>
+
+                <div class="mb-3" style="display: inline-block;">
+                    <div class="text-sm">
+                        <div class="px-2 py-1 rounded mb-3" style="background: ${tierBg}; color: white; font-weight: bold; text-align: center;">
+                            ${tierLabel}
+                        </div>
+                        ${renderSignalDetails(signal)}
+                    </div>
+                </div>
+
+                ${otherChips}
+
+                <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+                    <a href="${tvUrl}" target="_blank"
+                       style="display: inline-block; padding: 8px 16px; border-radius: 4px; background: #667eea; color: white; text-decoration: none; font-size: 14px;">
+                        📊 Chart
+                    </a>
+                </div>
             </div>`;
+        }
+
+        // Pattern-specific detail grid (India parity, US data fields).
+        function renderSignalDetails(signal) {
+            const m = signal.metadata || {};
+            const row = (label, val) => `
+                <span style="color: var(--text-secondary); text-align: right; padding-right: 4px;">${label}:</span>
+                <span class="font-semibold">${val}</span>`;
+            const wrap = inner => `
+                <div style="display: grid; grid-template-columns: auto auto; gap: 4px 2px; align-items: center;">${inner}</div>`;
+            switch (signal.pattern) {
+                case 'narrow_cpr':
+                    return wrap(
+                        row('CPR Width', (m.cpr_width_pct ?? '—') + '%') +
+                        row('TC',        '$' + formatNumber(m.tc ?? 0)) +
+                        row('Volume',    (m.vol_ratio ?? '—') + 'x')
+                    );
+                case 'blue_zone':
+                    return wrap(
+                        row('Daily RSI EMA', m.rsi_d != null ? formatNumber(m.rsi_d) : '—') +
+                        row('Weekly RSI EMA', m.rsi_w != null ? formatNumber(m.rsi_w) : '—') +
+                        row('From 52W High', (m.pct_from_52wh ?? '—') + '%') +
+                        row('Volume', (m.vol_ratio ?? '—') + 'x')
+                    );
+                case 'golden_cross':
+                    return wrap(
+                        row('Days Since Cross', m.days_since_cross ?? '—') +
+                        row('Volume', (m.vol_ratio ?? '—') + 'x') +
+                        row('RSI(14)', m.rsi_14 != null ? formatNumber(m.rsi_14) : '—') +
+                        row('ADX(14)', m.adx_14 != null ? formatNumber(m.adx_14) : '—')
+                    );
+                case 'macd':
+                    return wrap(
+                        row('Days Since Cross', m.days_since_cross ?? '—') +
+                        row('Histogram', m.macd_hist != null ? formatNumber(m.macd_hist) : '—') +
+                        row('ADX(14)', m.adx_14 != null ? formatNumber(m.adx_14) : '—')
+                    );
+                case 'darvas':
+                    return wrap(
+                        row('Box Top',    '$' + formatNumber(m.box_top ?? 0)) +
+                        row('Box Bottom', '$' + formatNumber(m.box_bottom ?? 0)) +
+                        row('Box Depth',  (m.depth_pct ?? '—') + '%') +
+                        row('Window',     (m.window ?? '—') + 'd') +
+                        row('Volume',     (m.vol_ratio ?? '—') + 'x')
+                    );
+                case 'pullback_bounce':
+                    return wrap(
+                        row('EMA20',     '$' + formatNumber(m.ema20 ?? 0)) +
+                        row('Day Low',   '$' + formatNumber(m.low ?? 0)) +
+                        row('Volume',    (m.vol_ratio ?? '—') + 'x')
+                    );
+                case 'bull_flag':
+                    return wrap(
+                        row('Pole',        (m.pole_len ?? '—') + 'd, +' + (m.pole_gain_pct ?? '—') + '%') +
+                        row('Flag',        (m.flag_len ?? '—') + 'd') +
+                        row('Retrace',     (m.retrace_pct ?? '—') + '%') +
+                        row('Pole Vol',    (m.pole_vol_mult ?? '—') + 'x avg')
+                    );
+                case 'vcp':
+                    return wrap(
+                        row('Contractions', m.n_contractions ?? '—') +
+                        row('Latest Depth', (m.latest_depth_pct ?? '—') + '%') +
+                        row('Vol Dry-up',   (m.vol_dryup_pct ?? '—') + '% of 50d')
+                    );
+                default:
+                    return '';
+            }
         }
 
         function renderAlertsBySectorPlaceholder() {
             return `<div class="card p-6">
-                <h2 class="text-xl font-bold mb-2">By Sector</h2>
-                <p style="color: var(--text-secondary);">Sector-grouped view with collapsible cards and tier coloring — building in the next UI pass.</p>
+                <h2 class="text-xl font-bold mb-2">🌐 By Sector</h2>
+                <p style="color: var(--text-secondary);">Sector-grouped view with collapsible cards — coming in the next UI pass.</p>
             </div>`;
         }
 
         function renderAlertsPresignalPlaceholder() {
             return `<div class="card p-6">
-                <h2 class="text-xl font-bold mb-2">Pre-Signals</h2>
-                <p style="color: var(--text-secondary);">${presignalScoresData.length} scored pre-signals loaded across 6 rules. Full UI (multi-rule chip, per-rule filter pills) coming in the next UI pass.</p>
+                <h2 class="text-xl font-bold mb-2">🔮 Pre-Signals</h2>
+                <p style="color: var(--text-secondary);">${presignalScoresData.length} scored entries across 6 rules. Full UI (multi-rule chip, per-rule filters) — coming in the next UI pass.</p>
             </div>`;
         }
 
