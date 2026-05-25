@@ -497,6 +497,11 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let customXIRREnd = 'current';     // Custom Period end (YYYY-MM or 'current')
         let stockEmaData = {};             // ticker -> {ema_20, ema_50, ema_200, close, date} from daily_stock_snapshots
         let qqqHistory = {};               // 'YYYY-MM-DD' -> close, loaded from benchmark_history (Nov 2021+)
+        let entrySignalsData = [];         // rows from entry_signals (latest scan day)
+        let presignalScoresData = [];      // rows from presignal_scores (latest scan day)
+        let portfolioAlertsData = [];      // rows from alerts (latest scan day)
+        let alertsSubTab = 'summary';      // summary | by_sector | narrow_cpr | blue_zone | golden_cross | macd | darvas | pullback_bounce | bull_flag | vcp | presignal
+        let alertsStrengthFilter = 'all';  // all | Strong | Buy — per-pattern tab filter
         let selectedWinLoseYear = new Date().getFullYear();
         let selectedStackType = 'BULLISH'; // BULLISH | BEARISH (Stacked EMAs card)
         let selectedEma = 200;             // 20 | 50 | 200 (Above Key EMAs card)
@@ -1470,6 +1475,61 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             return { xirr, gainPct };
         }
 
+        // ============ TECHNICAL ALERTS LOADERS (Phase 3) ============
+        async function loadEntrySignalsFromSupabase() {
+            try {
+                const { data, error } = await supabase
+                    .from('entry_signals')
+                    .select('*')
+                    .gte('expires_at', new Date().toISOString().split('T')[0])
+                    .order('alert_date', { ascending: false });
+                if (error) throw error;
+                console.log(`✅ Loaded ${data?.length || 0} entry_signals rows`);
+                return data || [];
+            } catch (e) {
+                console.error('❌ Error loading entry_signals:', e);
+                return [];
+            }
+        }
+
+        async function loadPresignalScoresFromSupabase() {
+            try {
+                // Latest scan day's scores only (the dashboard view is "current state")
+                const latest = await supabase
+                    .from('presignal_scores').select('snapshot_date')
+                    .order('snapshot_date', { ascending: false }).limit(1);
+                if (latest.error) throw latest.error;
+                const latestDate = latest.data?.[0]?.snapshot_date;
+                if (!latestDate) return [];
+                const { data, error } = await supabase
+                    .from('presignal_scores')
+                    .select('*')
+                    .eq('snapshot_date', latestDate)
+                    .order('score', { ascending: false });
+                if (error) throw error;
+                console.log(`✅ Loaded ${data?.length || 0} presignal_scores (date ${latestDate})`);
+                return data || [];
+            } catch (e) {
+                console.error('❌ Error loading presignal_scores:', e);
+                return [];
+            }
+        }
+
+        async function loadPortfolioAlertsFromSupabase() {
+            try {
+                const { data, error } = await supabase
+                    .from('alerts')
+                    .select('*')
+                    .order('alert_date', { ascending: false });
+                if (error) throw error;
+                console.log(`✅ Loaded ${data?.length || 0} portfolio alerts`);
+                return data || [];
+            } catch (e) {
+                console.error('❌ Error loading alerts:', e);
+                return [];
+            }
+        }
+
         // ============ EMA DATA (Stacked EMAs / Above Key EMAs cards) ============
         // Loads the latest daily_stock_snapshots row per held ticker (ema_20/50/200 + close).
         async function loadEmaDataFromSupabase() {
@@ -1676,6 +1736,252 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 buckets[b].gain += (val - cost);
             });
             return Object.fromEntries(Object.entries(buckets).filter(([_, v]) => v.value > 0));
+        }
+
+        // ============ TECHNICAL ALERTS UI (Phase 3d, incremental: Summary + 3 patterns) ============
+        // Pattern catalogue — keep the slugs in sync with entry_signals_scanner.py emits.
+        const ALERT_PATTERNS = [
+            { slug: 'narrow_cpr',      label: 'Narrow CPR' },
+            { slug: 'blue_zone',       label: 'Blue Zone' },
+            { slug: 'golden_cross',    label: 'Golden Cross' },
+            { slug: 'macd',            label: 'MACD' },
+            { slug: 'darvas',          label: 'Darvas Box' },
+            { slug: 'pullback_bounce', label: 'Pullback Bounce' },
+            { slug: 'bull_flag',       label: 'Bull Flag' },
+            { slug: 'vcp',             label: 'VCP' },
+        ];
+
+        // Sub-tabs we've built so far. Others render a "coming next" placeholder.
+        const ALERT_SUBTABS_BUILT = new Set(['summary', 'blue_zone', 'macd', 'bull_flag']);
+
+        function alertsForPattern(slug) {
+            return entrySignalsData.filter(s => s.pattern === slug);
+        }
+
+        function renderAlertsSubNav() {
+            const items = [
+                { id: 'summary',    label: '📊 Summary' },
+                { id: 'by_sector',  label: '🌐 By Sector' },
+                ...ALERT_PATTERNS.map(p => {
+                    const n = alertsForPattern(p.slug).length;
+                    return { id: p.slug, label: `${p.label}${n ? ` (${n})` : ''}` };
+                }),
+                { id: 'presignal',  label: `🔮 Pre-Signal${presignalScoresData.length ? ` (${presignalScoresData.length})` : ''}` },
+            ];
+            return `
+                <div class="flex gap-1 mb-4 flex-wrap" style="background: var(--bg-card); border-radius: 10px; padding: 5px; border: 1px solid var(--border-color);">
+                    ${items.map(it => `
+                        <button onclick="alertsSubTab='${it.id}'; alertsStrengthFilter='all'; render()"
+                                class="tab-button ${alertsSubTab === it.id ? 'active' : ''}"
+                                style="padding: 6px 12px; font-size: 12px; flex: 0 0 auto;">${it.label}</button>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function renderTechnicalAlerts() {
+            const total = entrySignalsData.length;
+            if (total === 0 && presignalScoresData.length === 0) {
+                return `
+                <div class="card p-6">
+                    <h2 class="text-xl font-bold mb-2">Technical Alerts</h2>
+                    <p style="color: var(--text-secondary);">No signals or pre-signals loaded. If the scanners haven't run yet, run <code>entry_signals_scanner.py</code> + <code>score_presignals.py</code>.</p>
+                </div>`;
+            }
+            let body = '';
+            if (alertsSubTab === 'summary')        body = renderAlertsSummary();
+            else if (alertsSubTab === 'presignal') body = renderAlertsPresignalPlaceholder();
+            else if (alertsSubTab === 'by_sector') body = renderAlertsBySectorPlaceholder();
+            else if (ALERT_PATTERNS.find(p => p.slug === alertsSubTab))
+                body = renderAlertsPattern(alertsSubTab);
+            else body = '';
+            return `${renderAlertsSubNav()}${body}`;
+        }
+
+        function renderAlertsSummary() {
+            const strong = entrySignalsData.filter(s => s.signal_strength === 'Strong').length;
+            const buy    = entrySignalsData.filter(s => s.signal_strength === 'Buy').length;
+            const patternCounts = {};
+            entrySignalsData.forEach(s => { patternCounts[s.pattern] = (patternCounts[s.pattern] || 0) + 1; });
+
+            // Pre-signal aggregation: tickers with 2+ rules ≥70 = 🔥 Multi
+            const tickerRules = {};
+            presignalScoresData.forEach(p => {
+                (tickerRules[p.ticker] = tickerRules[p.ticker] || new Set()).add(p.rule);
+            });
+            const multiPre = Object.entries(tickerRules).filter(([_, s]) => s.size >= 2);
+
+            const latestDate = entrySignalsData[0]?.alert_date || '—';
+            const portfolioAlertCount = portfolioAlertsData.length;
+
+            return `
+            <!-- Summary cards (centered, India parity) -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="metric-card" style="text-align: center;">
+                    <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Confirmed Signals</p>
+                    <h3 class="text-3xl font-bold mt-1">${entrySignalsData.length}</h3>
+                    <p class="text-xs mt-1" style="color: var(--text-secondary);">as of ${latestDate}</p>
+                </div>
+                <div class="metric-card" style="text-align: center;">
+                    <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">🟢🟢 Strong</p>
+                    <h3 class="text-3xl font-bold mt-1 text-green-600">${strong}</h3>
+                    <p class="text-xs mt-1" style="color: var(--text-secondary);">${buy} Buy tier</p>
+                </div>
+                <div class="metric-card" style="text-align: center;">
+                    <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">🔮 Pre-Signals</p>
+                    <h3 class="text-3xl font-bold mt-1">${presignalScoresData.length}</h3>
+                    <p class="text-xs mt-1" style="color: var(--text-secondary);">🔥 ${multiPre.length} multi-rule</p>
+                </div>
+                <div class="metric-card" style="text-align: center;">
+                    <p class="text-sm" style="color: var(--text-secondary); font-weight: 500;">Portfolio Alerts</p>
+                    <h3 class="text-3xl font-bold mt-1">${portfolioAlertCount}</h3>
+                    <p class="text-xs mt-1" style="color: var(--text-secondary);">on your holdings</p>
+                </div>
+            </div>
+
+            <!-- Per-pattern breakdown -->
+            <div class="card p-6 mb-6">
+                <h2 class="text-xl font-bold mb-3">Pattern Breakdown</h2>
+                <div class="overflow-x-auto">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Pattern</th>
+                                <th class="text-right">Strong</th>
+                                <th class="text-right">Buy</th>
+                                <th class="text-right">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${ALERT_PATTERNS.map(p => {
+                                const hits = alertsForPattern(p.slug);
+                                const s = hits.filter(h => h.signal_strength === 'Strong').length;
+                                const b = hits.filter(h => h.signal_strength === 'Buy').length;
+                                const total = hits.length;
+                                return `
+                                <tr ${total > 0 ? '' : 'style="opacity: 0.4;"'}>
+                                    <td><button onclick="alertsSubTab='${p.slug}'; render()" class="font-semibold" style="text-decoration: underline; cursor: pointer;">${p.label}</button></td>
+                                    <td class="text-right ${s ? 'font-bold text-green-600' : ''}">${s}</td>
+                                    <td class="text-right ${b ? 'font-bold text-green-600' : ''}">${b}</td>
+                                    <td class="text-right font-semibold">${total}</td>
+                                </tr>`;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Recent confirmed signals (top 20, Strong first then by rs_rank) -->
+            <div class="card p-6">
+                <h2 class="text-xl font-bold mb-3">Top Confirmed Signals</h2>
+                ${renderAlertsTable(entrySignalsData
+                    .slice()
+                    .sort((a, b) => {
+                        if (a.signal_strength !== b.signal_strength) return a.signal_strength === 'Strong' ? -1 : 1;
+                        return (a.rs_rank ?? 9999) - (b.rs_rank ?? 9999);
+                    })
+                    .slice(0, 20), { showPattern: true })}
+            </div>`;
+        }
+
+        function renderAlertsPattern(slug) {
+            const meta = ALERT_PATTERNS.find(p => p.slug === slug);
+            const all = alertsForPattern(slug);
+            const filtered = alertsStrengthFilter === 'all'
+                ? all
+                : all.filter(s => s.signal_strength === alertsStrengthFilter);
+            const strong = all.filter(s => s.signal_strength === 'Strong').length;
+            const buy = all.filter(s => s.signal_strength === 'Buy').length;
+
+            const sortedRows = filtered.slice().sort((a, b) => {
+                if (a.signal_strength !== b.signal_strength) return a.signal_strength === 'Strong' ? -1 : 1;
+                return (a.rs_rank ?? 9999) - (b.rs_rank ?? 9999);
+            });
+
+            const built = ALERT_SUBTABS_BUILT.has(slug);
+            const placeholder = built ? '' : `
+                <div class="mt-4 p-3 rounded" style="background: var(--bg-secondary); color: var(--text-secondary); font-size: 13px;">
+                    Per-pattern view will be expanded in the next pass — currently showing the bare table.
+                </div>`;
+
+            const pill = (val, label) => `
+                <button onclick="alertsStrengthFilter='${val}'; render()"
+                        class="tab-button ${alertsStrengthFilter === val ? 'active' : ''}"
+                        style="padding: 4px 12px; font-size: 12px;">${label}</button>`;
+
+            return `
+            <div class="card p-6">
+                <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
+                    <div>
+                        <h2 class="text-xl font-bold">${meta?.label || slug}</h2>
+                        <p class="text-xs" style="color: var(--text-secondary);">${all.length} signals · ${strong} Strong · ${buy} Buy</p>
+                    </div>
+                    <div class="flex gap-1" style="background: var(--bg-card); border-radius: 8px; padding: 3px; border: 1px solid var(--border-color);">
+                        ${pill('all', `All (${all.length})`)}
+                        ${pill('Strong', `🟢🟢 Strong (${strong})`)}
+                        ${pill('Buy', `🟢 Buy (${buy})`)}
+                    </div>
+                </div>
+                ${sortedRows.length === 0
+                    ? `<p class="text-sm" style="color: var(--text-secondary);">No signals match the current filter.</p>`
+                    : renderAlertsTable(sortedRows, { showPattern: false })}
+                ${placeholder}
+            </div>`;
+        }
+
+        function renderAlertsTable(rows, { showPattern }) {
+            return `
+            <div class="overflow-x-auto">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Ticker</th>
+                            ${showPattern ? '<th>Pattern</th>' : ''}
+                            <th>Strength</th>
+                            <th>Sector</th>
+                            <th class="text-right">RS Rank</th>
+                            <th class="text-right">Alkalyme RS</th>
+                            <th class="text-right">Sector Comp</th>
+                            <th class="text-right">Close</th>
+                            <th>Alert Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map(r => {
+                            const patternLabel = (ALERT_PATTERNS.find(p => p.slug === r.pattern) || {}).label || r.pattern;
+                            const strengthBadge = r.signal_strength === 'Strong'
+                                ? '<span class="badge badge-green">🟢🟢 Strong</span>'
+                                : '<span class="badge badge-green">🟢 Buy</span>';
+                            return `
+                            <tr>
+                                <td class="font-semibold">${tvLink(r.ticker, r.ticker)}</td>
+                                ${showPattern ? `<td>${patternLabel}</td>` : ''}
+                                <td>${strengthBadge}</td>
+                                <td>${r.sector || '—'}</td>
+                                <td class="text-right">${r.rs_rank ?? '—'}</td>
+                                <td class="text-right">${r.alkalyme_rs != null ? formatNumber(r.alkalyme_rs) : '—'}</td>
+                                <td class="text-right">${r.sector_composite_pct != null ? formatNumber(r.sector_composite_pct) : '—'}</td>
+                                <td class="text-right">$${formatNumber(r.close)}</td>
+                                <td>${r.alert_date}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+        }
+
+        function renderAlertsBySectorPlaceholder() {
+            return `<div class="card p-6">
+                <h2 class="text-xl font-bold mb-2">By Sector</h2>
+                <p style="color: var(--text-secondary);">Sector-grouped view with collapsible cards and tier coloring — building in the next UI pass.</p>
+            </div>`;
+        }
+
+        function renderAlertsPresignalPlaceholder() {
+            return `<div class="card p-6">
+                <h2 class="text-xl font-bold mb-2">Pre-Signals</h2>
+                <p style="color: var(--text-secondary);">${presignalScoresData.length} scored pre-signals loaded across 6 rules. Full UI (multi-rule chip, per-rule filter pills) coming in the next UI pass.</p>
+            </div>`;
         }
 
         function renderPerformanceCharts() {
@@ -2863,10 +3169,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 </div>
 
                 <div class="tab-content ${activeTab === 'alerts' ? 'active' : ''}">
-                    <div class="card p-6">
-                        <h2 class="text-xl font-bold mb-2">Technical Alerts</h2>
-                        <p style="color: var(--text-secondary);">Entry signals, pre-signals, and indicator scans — coming in Phase 3.</p>
-                    </div>
+                    ${renderTechnicalAlerts()}
                 </div>
 
                 <div class="tab-content ${activeTab === 'paper' ? 'active' : ''}">
@@ -3329,6 +3632,13 @@ if (supabaseTransactions && supabaseTransactions.length > 0) {
 
     // Load QQQ history for the Custom Period card's NASDAQ benchmark comparison
     qqqHistory = await loadQqqHistoryFromSupabase();
+
+    // Load Phase 3 alerts data (entry_signals + presignal_scores + portfolio alerts)
+    [entrySignalsData, presignalScoresData, portfolioAlertsData] = await Promise.all([
+        loadEntrySignalsFromSupabase(),
+        loadPresignalScoresFromSupabase(),
+        loadPortfolioAlertsFromSupabase(),
+    ]);
 
     // Load meta (sector + market cap) for sector/market-cap charts
     stockMeta = await loadMetaFromSupabase();
