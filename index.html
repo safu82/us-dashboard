@@ -1815,16 +1815,19 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
         }
 
         function renderAlertsSummary() {
-            const strong = entrySignalsData.filter(s => s.signal_strength === 'Strong');
-            const buy    = entrySignalsData.filter(s => s.signal_strength === 'Buy');
-            // "Multiple Signals" — stocks triggering 2+ patterns of any tier
-            const counts = {};
-            entrySignalsData.forEach(s => { counts[s.ticker] = (counts[s.ticker] || 0) + 1; });
-            const multipleTickers = Object.entries(counts).filter(([_, c]) => c > 1).map(([t]) => t);
-            // "Multi-Strong" — stocks with 2+ Strong signals
-            const sCounts = {};
-            strong.forEach(s => { sCounts[s.ticker] = (sCounts[s.ticker] || 0) + 1; });
-            const multiStrongTickers = Object.entries(sCounts).filter(([_, c]) => c > 1).map(([t]) => t);
+            // Apply the active filter — breakdown grid + listed signals all reflect this set.
+            // The 5-card top row stays on TOTAL counts so the user can always see every option.
+            const totalSignals  = entrySignalsData;
+            const totalStrong   = totalSignals.filter(s => s.signal_strength === 'Strong');
+            const totalBuy      = totalSignals.filter(s => s.signal_strength === 'Buy');
+            const totalCounts   = {};
+            totalSignals.forEach(s => { totalCounts[s.ticker] = (totalCounts[s.ticker] || 0) + 1; });
+            const totalMultipleTickers = Object.entries(totalCounts).filter(([_, c]) => c > 1).map(([t]) => t);
+            const totalStrongCounts = {};
+            totalStrong.forEach(s => { totalStrongCounts[s.ticker] = (totalStrongCounts[s.ticker] || 0) + 1; });
+            const totalMultiStrongTickers = Object.entries(totalStrongCounts).filter(([_, c]) => c > 1).map(([t]) => t);
+
+            const filtered = applySummaryFilter(totalSignals);
 
             const filterCard = (val, num, emoji, label, color) => {
                 const active = summaryFilter === val;
@@ -1837,17 +1840,21 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 </div>`;
             };
 
+            // Filtered tickers — when a filter is active, list each ticker once with its matching signals
+            const filteredByTicker = {};
+            filtered.forEach(s => { (filteredByTicker[s.ticker] = filteredByTicker[s.ticker] || []).push(s); });
+
             return `
             <div class="card p-6 mb-6">
                 <h2 class="text-2xl font-bold mb-6">📊 Entry Signals Summary</h2>
 
                 <!-- 5-card top row — clickable filters (India parity) -->
                 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-                    ${filterCard('multiple',     multipleTickers.length,   '🔥',   'Multiple Signals', '#667eea')}
-                    ${filterCard('strong_buy',   strong.length,            '🟢🟢', 'Strong Buy',       '#10b981')}
-                    ${filterCard('multi_strong', multiStrongTickers.length,'🔥🔥', 'Multi-Strong',     '#f59e0b')}
-                    ${filterCard('buy',          buy.length,               '🟢',   'Buy',              '#3b82f6')}
-                    ${filterCard('all',          entrySignalsData.length,  '',     'Total Signals',    '#667eea')}
+                    ${filterCard('multiple',     totalMultipleTickers.length,   '🔥',   'Multiple Signals', '#667eea')}
+                    ${filterCard('strong_buy',   totalStrong.length,            '🟢🟢', 'Strong Buy',       '#10b981')}
+                    ${filterCard('multi_strong', totalMultiStrongTickers.length,'🔥🔥', 'Multi-Strong',     '#f59e0b')}
+                    ${filterCard('buy',          totalBuy.length,               '🟢',   'Buy',              '#3b82f6')}
+                    ${filterCard('all',          totalSignals.length,           '',     'Total Signals',    '#667eea')}
                 </div>
 
                 ${summaryFilter !== 'all' ? `
@@ -1859,16 +1866,18 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                           : summaryFilter === 'strong_buy' ? '🟢🟢 Strong Buy Only'
                           : '🟢 Buy Only'}
                     </span>
+                    <span class="ml-2 text-sm" style="color: var(--text-secondary);">— ${Object.keys(filteredByTicker).length} stocks · ${filtered.length} signals</span>
                     <button onclick="summaryFilter='all'; render()"
                             style="margin-left: 10px; padding: 4px 12px; border-radius: 4px; border: none; background: var(--border-color); color: var(--text-primary); cursor: pointer; font-size: 12px;">
                         Clear Filter
                     </button>
                 </div>` : ''}
 
-                <!-- Breakdown by Signal Type (3-col card grid, India parity) -->
+                <!-- Breakdown by Signal Type (3-col card grid). When a filter is active,
+                     counts reflect the filtered set; patterns with zero hits are hidden. -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     ${ALERT_PATTERNS.map(p => {
-                        const hits = alertsForPattern(p.slug);
+                        const hits = filtered.filter(s => s.pattern === p.slug);
                         if (hits.length === 0) return '';
                         const s = hits.filter(h => h.signal_strength === 'Strong').length;
                         const b = hits.filter(h => h.signal_strength === 'Buy').length;
@@ -1884,7 +1893,16 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         </div>`;
                     }).join('')}
                 </div>
-            </div>`;
+            </div>
+
+            ${summaryFilter !== 'all' && filtered.length ? `
+            <!-- When filtered: show the matching signal cards inline so the user sees actual stocks, not just counts -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                ${filtered.slice().sort((a, b) => {
+                    if (a.signal_strength !== b.signal_strength) return a.signal_strength === 'Strong' ? -1 : 1;
+                    return (a.rs_rank ?? 9999) - (b.rs_rank ?? 9999);
+                }).map(renderSignalCard).join('')}
+            </div>` : ''}`;
         }
 
         function renderAlertsPattern(slug) {
