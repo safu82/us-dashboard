@@ -502,6 +502,8 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let portfolioAlertsData = [];      // rows from alerts (latest scan day)
         let alertsSubTab = 'summary';      // summary | by_sector | narrow_cpr | blue_zone | golden_cross | macd | darvas | pullback_bounce | bull_flag | vcp | presignal
         let summaryFilter = 'all';         // all | multiple | strong_buy | multi_strong | buy — Summary tab clickable filter
+        let preSignalFilter = 'all';       // all | multi | bz_buy | bz_strong | golden_cross | macd | pullback_bounce | rs_acceleration
+        let bySectorExpanded = {};         // sector -> bool (which sector cards are open in By Sector tab)
         let selectedWinLoseYear = new Date().getFullYear();
         let selectedStackType = 'BULLISH'; // BULLISH | BEARISH (Stacked EMAs card)
         let selectedEma = 200;             // 20 | 50 | 200 (Above Key EMAs card)
@@ -1807,8 +1809,8 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             }
             let body = '';
             if (alertsSubTab === 'summary')         body = renderAlertsSummary();
-            else if (alertsSubTab === 'by_sector')  body = renderAlertsBySectorPlaceholder();
-            else if (alertsSubTab === 'presignal')  body = renderAlertsPresignalPlaceholder();
+            else if (alertsSubTab === 'by_sector')  body = renderAlertsBySector();
+            else if (alertsSubTab === 'presignal')  body = renderAlertsPresignal();
             else if (ALERT_PATTERNS.find(p => p.slug === alertsSubTab))
                 body = renderAlertsPattern(alertsSubTab);
             return `${renderAlertsSubNav()}${body}`;
@@ -2080,18 +2082,306 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             }
         }
 
-        function renderAlertsBySectorPlaceholder() {
-            return `<div class="card p-6">
-                <h2 class="text-xl font-bold mb-2">🌐 By Sector</h2>
-                <p style="color: var(--text-secondary);">Sector-grouped view with collapsible cards — coming in the next UI pass.</p>
+        // ── Pre-Signal config: tier colors per rule (India parity) ─────────
+        const PRE_SIGNAL_CONFIG = {
+            bz_buy:          { label: '🔵 BZ Buy',         color: '#3b82f6', bg: '#3b82f620', border: '#3b82f640' },
+            bz_strong:       { label: '🔵 BZ Strong',      color: '#10b981', bg: '#10b98120', border: '#10b98140' },
+            golden_cross:    { label: '⚡ Golden Cross',   color: '#f59e0b', bg: '#f59e0b20', border: '#f59e0b40' },
+            macd:            { label: '📊 MACD',           color: '#8b5cf6', bg: '#8b5cf620', border: '#8b5cf640' },
+            pullback_bounce: { label: '🔄 Pullback',       color: '#ec4899', bg: '#ec489920', border: '#ec489940' },
+            rs_acceleration: { label: '🚀 RS Accel',       color: '#06b6d4', bg: '#06b6d420', border: '#06b6d440' },
+        };
+        const PRE_SIGNAL_RULES = Object.keys(PRE_SIGNAL_CONFIG);
+
+        window.setPreSignalFilter = function(val) { preSignalFilter = val; render(); };
+        window.toggleBySectorExpand = function(sector) {
+            bySectorExpanded[sector] = !bySectorExpanded[sector]; render();
+        };
+        window.setAllBySectorExpanded = function(open) {
+            const sectors = new Set();
+            entrySignalsData.forEach(s => s.sector && sectors.add(s.sector));
+            presignalScoresData.forEach(s => s.sector && sectors.add(s.sector));
+            sectors.forEach(s => { bySectorExpanded[s] = open; });
+            render();
+        };
+
+        // Single pre-signal card. Tier color comes from the rule; score gauge
+        // shows the 0-100 proximity score. Skips Deep Dive (no page) + Conviction.
+        function renderPreSignalCard(p) {
+            const cfg = PRE_SIGNAL_CONFIG[p.rule] || { label: p.rule, color: '#94a3b8', bg: '#94a3b820', border: '#94a3b840' };
+            const tvUrl = `https://www.tradingview.com/chart/?symbol=${p.ticker}`;
+            const score = Number(p.score) || 0;
+            const gaugeColor = score >= 90 ? '#10b981' : score >= 75 ? '#f59e0b' : '#3b82f6';
+            const rsRank = p.rs_rank;
+            const rsColor  = rsRank == null ? '#94a3b8' : rsRank <= 50 ? '#10b981' : rsRank <= 125 ? '#3b82f6' : '#94a3b8';
+            const rsBg     = rsRank == null ? '#94a3b820' : rsRank <= 50 ? '#10b98120' : rsRank <= 125 ? '#3b82f620' : '#94a3b820';
+
+            // Per-rule condition chips, sourced from metadata.
+            const m = p.metadata || {};
+            const chip = (passing, label) => `<span style="font-size:11px;padding:3px 8px;border-radius:8px;background:${passing ? '#10b98118' : '#ef444418'};color:${passing ? '#10b981' : '#ef4444'};border:1px solid ${passing ? '#10b98140' : '#ef444440'};font-weight:500;">${passing ? '✓' : '✗'} ${label}</span>`;
+            let chips = '';
+            if (p.rule === 'bz_buy' || p.rule === 'bz_strong') {
+                const tD = p.rule === 'bz_strong' ? 72 : 65;
+                const tW = p.rule === 'bz_strong' ? 65 : 55;
+                const c = [];
+                c.push(chip((m.rsi_d || 0) >= tD, `D-RSI ${m.rsi_d != null ? Number(m.rsi_d).toFixed(1) : '—'}`));
+                c.push(chip((m.rsi_w || 0) >= tW, `W-RSI ${m.rsi_w != null ? Number(m.rsi_w).toFixed(1) : '—'}`));
+                if (p.rule === 'bz_strong') c.push(chip(!!m.gt_ema50, 'EMA50'));
+                else                        c.push(chip(!!m.gt_ema20, 'EMA20'));
+                c.push(chip((m.pct_from_52wh ?? -100) >= -10, `52W ${m.pct_from_52wh != null ? m.pct_from_52wh.toFixed(1) + '%' : '—'}`));
+                if (p.rule === 'bz_strong' && m.vol_ratio != null)
+                    c.push(chip(m.vol_ratio >= 1.5, `Vol ${Number(m.vol_ratio).toFixed(1)}x`));
+                chips = c.join('');
+            } else if (p.rule === 'golden_cross') {
+                if (m.gap_pct != null) chips = `<span style="font-size:11px;padding:3px 8px;border-radius:8px;background:#f59e0b20;color:#d97706;">Gap ${m.gap_pct}% to GC</span>`;
+            } else if (p.rule === 'macd') {
+                if (m.hist_improving_days != null) chips = `<span style="font-size:11px;padding:3px 8px;border-radius:8px;background:#8b5cf620;color:#7c3aed;">↑ ${m.hist_improving_days}d hist</span>`;
+            } else if (p.rule === 'pullback_bounce') {
+                if (m.pct_above_ema20 != null) chips = `<span style="font-size:11px;padding:3px 8px;border-radius:8px;background:#ec489920;color:#ec4899;">${m.pct_above_ema20}% above EMA20</span>`;
+            } else if (p.rule === 'rs_acceleration') {
+                const c = [];
+                if (m.rank_slope != null) {
+                    const speed = Math.abs(Number(m.rank_slope));
+                    const col = speed >= 8 ? '#10b981' : speed >= 5 ? '#f59e0b' : '#3b82f6';
+                    c.push(`<span style="font-size:11px;padding:3px 8px;border-radius:8px;background:${col}18;color:${col};border:1px solid ${col}40;font-weight:600;" title="Rank improving ${speed.toFixed(1)} positions/day">↑ ${speed.toFixed(1)}/d</span>`);
+                }
+                if (m.alkalyme_rs != null) c.push(chip(Number(m.alkalyme_rs) >= 65, `RS ${Number(m.alkalyme_rs).toFixed(1)}`));
+                c.push(chip(!!m.gt_ema50, 'EMA50'));
+                chips = c.join('');
+            }
+
+            return `
+            <div class="card p-4" style="text-align: center; position: relative;">
+                <div style="margin: -16px -16px 12px -16px; padding: 6px 16px; border-radius: 12px 12px 0 0;
+                            background: ${cfg.bg}; color: ${cfg.color}; font-size: 12px; font-weight: 700;
+                            border-bottom: 1px solid ${cfg.border};
+                            display: flex; align-items: center; justify-content: center; gap: 6px;">
+                    ${cfg.label}
+                </div>
+                <div style="font-size: 17px; font-weight: 700; margin-bottom: 2px;">${tvLink(p.ticker, p.ticker)}</div>
+                ${rsRank != null ? `
+                <div style="margin: 4px 0;">
+                    <span style="padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; background: ${rsBg}; color: ${rsColor};">
+                        RS #${rsRank}
+                    </span>
+                </div>` : ''}
+                ${p.sector ? `<div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">${p.sector}</div>` : ''}
+                <div style="margin: 10px 0 4px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">
+                        <span>Proximity Score</span>
+                        <span style="font-weight: 700; color: ${gaugeColor};">${score.toFixed(1)}</span>
+                    </div>
+                    <div style="height: 6px; border-radius: 3px; background: var(--border-color);">
+                        <div style="height: 6px; border-radius: 3px; width: ${score}%; background: ${gaugeColor}; transition: width 0.3s;"></div>
+                    </div>
+                </div>
+                ${chips ? `<div style="display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; margin: 8px 0;">${chips}</div>` : ''}
+                ${p.close ? `<div style="font-size: 13px; color: var(--text-secondary); margin: 6px 0;">CMP $${formatNumber(p.close)}</div>` : ''}
+                <div style="display: flex; gap: 8px; justify-content: center; margin-top: 10px;">
+                    <a href="${tvUrl}" target="_blank" style="padding: 7px 14px; border-radius: 4px; background: #667eea; color: white; text-decoration: none; font-size: 13px;">📊 Chart</a>
+                </div>
             </div>`;
         }
 
-        function renderAlertsPresignalPlaceholder() {
-            return `<div class="card p-6">
-                <h2 class="text-xl font-bold mb-2">🔮 Pre-Signals</h2>
-                <p style="color: var(--text-secondary);">${presignalScoresData.length} scored entries across 6 rules. Full UI (multi-rule chip, per-rule filters) — coming in the next UI pass.</p>
+        function renderAlertsPresignal() {
+            const all = presignalScoresData;
+            if (all.length === 0) {
+                return `<div class="card p-6 text-center" style="color: var(--text-secondary);">
+                    <div style="font-size: 32px; margin-bottom: 12px;">🔮</div>
+                    <div style="font-weight: 600; margin-bottom: 6px;">No pre-signals scored today</div>
+                    <div style="font-size: 13px;">Runs nightly after the entry signals scanner</div>
+                </div>`;
+            }
+
+            // Multi-detection: tickers with 2+ distinct rules scoring ≥70
+            const rulesByTicker = {};
+            all.forEach(p => { (rulesByTicker[p.ticker] = rulesByTicker[p.ticker] || new Set()).add(p.rule); });
+            const multiTickers = new Set(Object.entries(rulesByTicker).filter(([_, s]) => s.size >= 2).map(([t]) => t));
+
+            // Per-rule counts
+            const countByRule = {};
+            PRE_SIGNAL_RULES.forEach(r => {
+                countByRule[r] = all.filter(p => p.rule === r).length;
+            });
+
+            // Apply filter
+            const filter = preSignalFilter;
+            const isMultiFilter = filter === 'multi';
+            const isFilterActive = filter !== 'all';
+            const displayed = isMultiFilter
+                ? all.filter(p => multiTickers.has(p.ticker))
+                : isFilterActive
+                    ? all.filter(p => p.rule === filter)
+                    : all;
+
+            // Sort by score desc
+            const sorted = displayed.slice().sort((a, b) => Number(b.score) - Number(a.score));
+
+            // Top strip: 🔥 Multi chip + per-rule pills
+            const multiChip = multiTickers.size > 0 ? `
+                <button onclick="setPreSignalFilter('${isMultiFilter ? 'all' : 'multi'}')"
+                        style="padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer;
+                               background: ${isMultiFilter ? '#ef4444' : '#ef444420'}; color: ${isMultiFilter ? 'white' : '#ef4444'};
+                               border: 1px solid #ef444440;"
+                        title="${isMultiFilter ? 'Click to clear filter' : 'Show only stocks with 2+ rules scoring 70+'}">
+                    🔥 Multi &nbsp;${multiTickers.size}
+                </button>` : '';
+
+            const rulePills = PRE_SIGNAL_RULES
+                .filter(r => countByRule[r] > 0)
+                .sort((a, b) => countByRule[b] - countByRule[a])
+                .map(r => {
+                    const cfg = PRE_SIGNAL_CONFIG[r];
+                    const active = filter === r;
+                    const next = active ? 'all' : r;
+                    return `<button onclick="setPreSignalFilter('${next}')"
+                                    style="padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer;
+                                           background: ${active ? cfg.color : cfg.bg};
+                                           color: ${active ? 'white' : cfg.color};
+                                           border: 1px solid ${cfg.border};">
+                        ${cfg.label} &nbsp;${countByRule[r]}
+                    </button>`;
+                }).join('');
+
+            const activeBar = isFilterActive ? (() => {
+                let label, color;
+                if (isMultiFilter) {
+                    label = '🔥 Stocks with Multiple Pre-Signals (2+ rules ≥70)';
+                    color = '#ef4444';
+                } else {
+                    const cfgF = PRE_SIGNAL_CONFIG[filter];
+                    label = cfgF ? `${cfgF.label} only` : `${filter} only`;
+                    color = cfgF ? cfgF.color : '#ef4444';
+                }
+                return `<div class="mb-4 p-3 rounded-lg" style="background: var(--bg-secondary); border: 1px solid ${color};">
+                    <span style="color: var(--text-secondary);">Showing: </span>
+                    <span style="color: ${color}; font-weight: bold;">${label}</span>
+                    <button onclick="setPreSignalFilter('all')" style="margin-left: 10px; padding: 4px 12px; border-radius: 4px; border: none; background: var(--border-color); color: var(--text-primary); cursor: pointer; font-size: 12px;">Clear Filter</button>
+                </div>`;
+            })() : '';
+
+            const emptyFiltered = (isFilterActive && sorted.length === 0) ? `
+                <div class="card p-6 text-center" style="color: var(--text-secondary);">
+                    <div style="font-size: 32px; margin-bottom: 12px;">${isMultiFilter ? '🔥' : '🔮'}</div>
+                    <div style="font-weight: 600; margin-bottom: 6px;">No stocks match the current filter</div>
+                    <div style="font-size: 13px;">Click "Clear Filter" to see all pre-signals</div>
+                </div>` : '';
+
+            return `
+            <div class="card p-4 mb-4">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                    <div>
+                        <div style="font-size: 16px; font-weight: 700;">🔮 Pre-Signal Watchlist</div>
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">
+                            ${sorted.length}${isFilterActive ? ` of ${all.length}` : ''} entries approaching a signal (score ≥ 70)
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">${multiChip}${rulePills}</div>
+                </div>
+            </div>
+            ${activeBar}
+            ${sorted.length > 0 ? `
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px;">
+                ${sorted.map(renderPreSignalCard).join('')}
+            </div>` : emptyFiltered}`;
+        }
+
+        function renderAlertsBySector() {
+            const portfolioSectors = new Set(portfolio.map(p => stockMeta[p.ticker]?.sector || p.sector).filter(Boolean));
+
+            // Combined entries + pre-signals, grouped by sector
+            const items = [];
+            entrySignalsData.forEach(s => items.push({ kind: 'entry', sector: s.sector || 'Other', data: s }));
+            presignalScoresData.forEach(p => items.push({ kind: 'pre', sector: p.sector || 'Other', data: p }));
+
+            if (items.length === 0) {
+                return `<div class="card p-8 text-center">
+                    <div class="text-6xl mb-4">🌐</div>
+                    <h3 class="text-xl font-semibold mb-2">No signals or pre-signals today</h3>
+                    <p style="color: var(--text-secondary);">Try the per-indicator tabs or wait for the next scan</p>
+                </div>`;
+            }
+
+            const bySector = {};
+            items.forEach(it => { (bySector[it.sector] = bySector[it.sector] || []).push(it); });
+
+            // Sort: portfolio sectors first, then by total count desc
+            const sectorEntries = Object.entries(bySector).sort((a, b) => {
+                const aP = portfolioSectors.has(a[0]), bP = portfolioSectors.has(b[0]);
+                if (aP && !bP) return -1;
+                if (!aP && bP) return 1;
+                return b[1].length - a[1].length;
+            });
+
+            const totalActive = items.filter(x => x.kind === 'entry').length;
+            const totalPre    = items.filter(x => x.kind === 'pre').length;
+
+            // Header strip
+            let html = `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; padding: 10px 14px; background: var(--bg-secondary); border-radius: 8px; font-size: 13px;">
+                <div style="color: var(--text-secondary);">
+                    <strong style="color: var(--text-primary);">${sectorEntries.length}</strong> sector${sectorEntries.length === 1 ? '' : 's'} ·
+                    <span style="color: #10b981; font-weight: 600;">${totalActive} active</span> ·
+                    <span style="color: #3b82f6; font-weight: 600;">${totalPre} approaching</span>
+                </div>
+                <div style="display: flex; gap: 6px;">
+                    <button onclick="setAllBySectorExpanded(true)"  style="padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; background: var(--bg-card); color: var(--text-secondary); border: 1px solid var(--border-color);">Expand all</button>
+                    <button onclick="setAllBySectorExpanded(false)" style="padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; background: var(--bg-card); color: var(--text-secondary); border: 1px solid var(--border-color);">Collapse all</button>
+                </div>
             </div>`;
+
+            html += '<div style="display: flex; flex-direction: column; gap: 10px;">';
+
+            sectorEntries.forEach(([sector, sigs]) => {
+                const isPort   = portfolioSectors.has(sector);
+                const expanded = !!bySectorExpanded[sector];
+                const activeN  = sigs.filter(x => x.kind === 'entry').length;
+                const preN     = sigs.filter(x => x.kind === 'pre').length;
+                const safe     = sector.replace(/'/g, "\\'");
+
+                html += `<div class="card" style="overflow: hidden;">
+                    <div onclick="toggleBySectorExpand('${safe}')"
+                         style="display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; cursor: pointer;">
+                        <div style="display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700;">
+                            <span style="font-size: 11px; color: var(--text-secondary); width: 14px; display: inline-block;">${expanded ? '▼' : '▶'}</span>
+                            ${isPort ? '<span style="color: #f59e0b;">★</span>' : ''}
+                            <span>${sector}</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--text-secondary);">
+                            ${activeN > 0 ? `<span style="color: #10b981; font-weight: 600;">${activeN} active</span>` : ''}
+                            ${activeN > 0 && preN > 0 ? '<span>·</span>' : ''}
+                            ${preN > 0 ? `<span style="color: #3b82f6; font-weight: 600;">${preN} approaching</span>` : ''}
+                        </div>
+                    </div>`;
+
+                if (expanded) {
+                    const strongs = sigs.filter(x => x.kind === 'entry' && x.data.signal_strength === 'Strong')
+                                        .sort((a, b) => (a.data.rs_rank ?? 9999) - (b.data.rs_rank ?? 9999));
+                    const buys    = sigs.filter(x => x.kind === 'entry' && x.data.signal_strength === 'Buy')
+                                        .sort((a, b) => (a.data.rs_rank ?? 9999) - (b.data.rs_rank ?? 9999));
+                    const pres    = sigs.filter(x => x.kind === 'pre')
+                                        .sort((a, b) => Number(b.data.score) - Number(a.data.score));
+
+                    const tier = (label, color, arr, isPre) => {
+                        if (arr.length === 0) return '';
+                        return `<div style="margin-top: 14px;">
+                            <div style="font-size: 11px; font-weight: 700; color: ${color}; letter-spacing: 0.5px; margin-bottom: 10px; padding-left: 2px;">${label} (${arr.length})</div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                ${arr.map(x => isPre ? renderPreSignalCard(x.data) : renderSignalCard(x.data)).join('')}
+                            </div>
+                        </div>`;
+                    };
+
+                    html += `<div style="padding: 0 16px 16px 16px; border-top: 1px solid var(--border-color);">
+                        ${tier('🟢🟢 STRONG BUY', '#10b981', strongs, false)}
+                        ${tier('🟢 BUY',          '#22c55e', buys,    false)}
+                        ${tier('🔮 PRE-SIGNAL',   '#94a3b8', pres,    true )}
+                    </div>`;
+                }
+
+                html += '</div>';
+            });
+            html += '</div>';
+            return html;
         }
 
         function renderPerformanceCharts() {
