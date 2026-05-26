@@ -2176,6 +2176,10 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     </div>
                 </div>
                 ${chips ? `<div style="display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; margin: 8px 0;">${chips}</div>` : ''}
+                ${p._otherRules && p._otherRules.length ? `
+                <div style="margin: 6px 0; font-size: 10px; color: var(--text-secondary);">
+                    ${p._otherRules.map(o => `${(PRE_SIGNAL_CONFIG[o.rule] || {}).label || o.rule}: ${Number(o.score).toFixed(0)}`).join(' · ')}
+                </div>` : ''}
                 ${p.close ? `<div style="font-size: 13px; color: var(--text-secondary); margin: 6px 0;">CMP $${formatNumber(p.close)}</div>` : ''}
                 <div style="display: flex; gap: 8px; justify-content: center; margin-top: 10px;">
                     <a href="${tvUrl}" target="_blank" style="padding: 7px 14px; border-radius: 4px; background: #667eea; color: white; text-decoration: none; font-size: 13px;">📊 Chart</a>
@@ -2208,14 +2212,27 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             const filter = preSignalFilter;
             const isMultiFilter = filter === 'multi';
             const isFilterActive = filter !== 'all';
-            const displayed = isMultiFilter
-                ? all.filter(p => multiTickers.has(p.ticker))
-                : isFilterActive
+
+            let sorted;
+            if (isMultiFilter) {
+                // Group by ticker → one card per stock, displaying the top-score rule
+                // and listing the other rules (with scores) inline at the bottom.
+                const byTicker = {};
+                all.filter(p => multiTickers.has(p.ticker)).forEach(p => {
+                    (byTicker[p.ticker] = byTicker[p.ticker] || []).push(p);
+                });
+                sorted = Object.values(byTicker).map(rows => {
+                    rows.sort((a, b) => Number(b.score) - Number(a.score));
+                    const top = rows[0];
+                    const others = rows.slice(1).map(r => ({ rule: r.rule, score: Number(r.score) }));
+                    return { ...top, _otherRules: others };
+                }).sort((a, b) => Number(b.score) - Number(a.score));
+            } else {
+                const displayed = isFilterActive
                     ? all.filter(p => p.rule === filter)
                     : all;
-
-            // Sort by score desc
-            const sorted = displayed.slice().sort((a, b) => Number(b.score) - Number(a.score));
+                sorted = displayed.slice().sort((a, b) => Number(b.score) - Number(a.score));
+            }
 
             // Top strip: 🔥 Multi chip + per-rule pills
             const multiChip = multiTickers.size > 0 ? `
