@@ -178,6 +178,7 @@ for _, r in agg.iterrows():
         'avg_alkalyme_rs':  _f(r['avg_alkalyme_rs']),
         'n_tickers':        _f(r['n_tickers']),
         'rrg_quadrant':     _f(r['rrg_quadrant']),
+        'rs_slope':         _f(round(r['rs_slope'], 4) if pd.notna(r['rs_slope']) else None),
         'peer_group_type':  peer_type.get(pg),
         'parent_sector':    parent_sec.get(pg),
     })
