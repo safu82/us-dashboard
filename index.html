@@ -504,6 +504,8 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let summaryFilter = 'all';         // all | multiple | strong_buy | multi_strong | buy — Summary tab clickable filter
         let preSignalFilter = 'all';       // all | multi | bz_buy | bz_strong | golden_cross | macd | pullback_bounce | rs_acceleration
         let bySectorExpanded = {};         // sector -> bool (which sector cards are open in By Sector tab)
+        let tickerClassifications = {};    // ticker -> {sector, industry, peer_group} for the whole scan universe
+        let peerGroupRankings = {};        // peer_group -> {composite_rank, composite, breadth, n_tickers, rrg_quadrant, parent_sector, peer_group_type}
         let selectedWinLoseYear = new Date().getFullYear();
         let selectedStackType = 'BULLISH'; // BULLISH | BEARISH (Stacked EMAs card)
         let selectedEma = 200;             // 20 | 50 | 200 (Above Key EMAs card)
@@ -1517,6 +1519,118 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             }
         }
 
+        // Loads industry classifications for the whole universe + peer_group rankings (RRG quadrant,
+        // composite rank, breadth) so the Technical Alerts cards can show industry context.
+        async function loadPeerGroupContextFromSupabase() {
+            try {
+                // 1. us_stock_sectors (sector + industry for the universe — paginate, ~518 rows)
+                const classMap = {};
+                let frm = 0, page = 1000;
+                while (true) {
+                    const { data, error } = await supabase
+                        .from('us_stock_sectors')
+                        .select('ticker, sector, industry')
+                        .range(frm, frm + page - 1);
+                    if (error) throw error;
+                    (data || []).forEach(r => {
+                        classMap[r.ticker] = { sector: r.sector, industry: r.industry || null };
+                    });
+                    if (!data || data.length < page) break;
+                    frm += page;
+                }
+
+                // 2. Latest peer_group assignment per ticker (from daily_stock_snapshots)
+                const latestSnap = await supabase
+                    .from('daily_stock_snapshots').select('snapshot_date')
+                    .order('snapshot_date', { ascending: false }).limit(1);
+                const latestSnapDate = latestSnap.data?.[0]?.snapshot_date;
+                if (latestSnapDate) {
+                    frm = 0;
+                    while (true) {
+                        const { data, error } = await supabase
+                            .from('daily_stock_snapshots')
+                            .select('ticker, peer_group')
+                            .eq('snapshot_date', latestSnapDate)
+                            .range(frm, frm + page - 1);
+                        if (error) throw error;
+                        (data || []).forEach(r => {
+                            if (classMap[r.ticker]) classMap[r.ticker].peer_group = r.peer_group;
+                        });
+                        if (!data || data.length < page) break;
+                        frm += page;
+                    }
+                }
+
+                // 3. Latest sector_rankings (one row per peer_group for the latest day)
+                const latestRank = await supabase
+                    .from('sector_rankings').select('snapshot_date')
+                    .order('snapshot_date', { ascending: false }).limit(1);
+                const latestRankDate = latestRank.data?.[0]?.snapshot_date;
+                const rankingMap = {};
+                if (latestRankDate) {
+                    const { data, error } = await supabase
+                        .from('sector_rankings')
+                        .select('*')
+                        .eq('snapshot_date', latestRankDate);
+                    if (error) throw error;
+                    (data || []).forEach(r => {
+                        rankingMap[r.peer_group] = {
+                            composite: Number(r.composite),
+                            composite_rank: r.composite_rank,
+                            breadth: Number(r.breadth),
+                            n_tickers: r.n_tickers,
+                            avg_alkalyme_rs: Number(r.avg_alkalyme_rs),
+                            rrg_quadrant: r.rrg_quadrant,
+                            peer_group_type: r.peer_group_type,
+                            parent_sector: r.parent_sector,
+                        };
+                    });
+                }
+
+                console.log(`✅ Loaded classifications for ${Object.keys(classMap).length} tickers, ${Object.keys(rankingMap).length} peer_group rankings`);
+                return { classifications: classMap, rankings: rankingMap };
+            } catch (e) {
+                console.error('❌ Error loading peer_group context:', e);
+                return { classifications: {}, rankings: {} };
+            }
+        }
+
+        // RRG quadrant -> chip styling. Used on each signal card.
+        const RRG_STYLE = {
+            'Leading':    { color: '#10b981', bg: '#10b98118', border: '#10b98140', emoji: '🟢' },
+            'Improving':  { color: '#3b82f6', bg: '#3b82f618', border: '#3b82f640', emoji: '🔵' },
+            'Weakening':  { color: '#f59e0b', bg: '#f59e0b18', border: '#f59e0b40', emoji: '🟡' },
+            'Lagging':    { color: '#ef4444', bg: '#ef444418', border: '#ef444440', emoji: '🔴' },
+        };
+
+        // Returns inline-HTML for the industry + RRG context line under a card's ticker.
+        // Used by both renderSignalCard and renderPreSignalCard.
+        function renderPeerContext(ticker, fallbackSector) {
+            const cls = tickerClassifications[ticker] || {};
+            const industry = cls.industry;
+            const peerGroup = cls.peer_group || cls.sector || fallbackSector;
+            const sector = cls.sector || fallbackSector;
+            const rank = peerGroupRankings[peerGroup];
+
+            const parts = [];
+            // First line: industry (granular) — falls back to sector when industry is the same as peer_group rollup
+            if (industry && industry !== peerGroup) {
+                parts.push(`<span style="font-size:11px;color:var(--text-secondary);">${industry}</span>`);
+            } else if (industry) {
+                parts.push(`<span style="font-size:11px;color:var(--text-secondary);font-weight:600;">${industry}</span>`);
+            } else if (sector) {
+                parts.push(`<span style="font-size:11px;color:var(--text-secondary);">${sector}</span>`);
+            }
+            // RRG chip (only when we have a peer_group ranking)
+            if (rank && rank.rrg_quadrant) {
+                const st = RRG_STYLE[rank.rrg_quadrant] || RRG_STYLE['Lagging'];
+                const rankN = rank.composite_rank;
+                parts.push(`<span title="Peer group: ${peerGroup} (${rank.n_tickers || '?'} tickers) — ${rank.rrg_quadrant}; composite rank #${rankN}" style="display:inline-flex;align-items:center;gap:3px;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:600;background:${st.bg};color:${st.color};border:1px solid ${st.border};">${st.emoji} ${rank.rrg_quadrant}${rankN ? ' #' + rankN : ''}</span>`);
+            }
+            if (!parts.length) return '';
+            return `<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;align-items:center;">${parts.join('')}</div>`;
+        }
+
         async function loadPortfolioAlertsFromSupabase() {
             try {
                 const { data, error } = await supabase
@@ -1992,7 +2106,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                             RS #${rsRank}
                         </span>
                     </div>` : ''}
-                    ${signal.sector ? `<div style="margin-top: 6px; font-size: 11px; color: var(--text-secondary);">${signal.sector}${signal.sector_composite_pct != null ? ` · Sector ${Math.round(signal.sector_composite_pct)}` : ''}</div>` : ''}
+                    ${renderPeerContext(ticker, signal.sector)}
                 </div>
 
                 <div class="mb-3" style="display: inline-block;">
@@ -2165,7 +2279,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         RS #${rsRank}
                     </span>
                 </div>` : ''}
-                ${p.sector ? `<div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">${p.sector}</div>` : ''}
+                ${renderPeerContext(p.ticker, p.sector)}
                 <div style="margin: 10px 0 4px;">
                     <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">
                         <span>Proximity Score</span>
@@ -2371,28 +2485,60 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     </div>`;
 
                 if (expanded) {
-                    const strongs = sigs.filter(x => x.kind === 'entry' && x.data.signal_strength === 'Strong')
-                                        .sort((a, b) => (a.data.rs_rank ?? 9999) - (b.data.rs_rank ?? 9999));
-                    const buys    = sigs.filter(x => x.kind === 'entry' && x.data.signal_strength === 'Buy')
-                                        .sort((a, b) => (a.data.rs_rank ?? 9999) - (b.data.rs_rank ?? 9999));
-                    const pres    = sigs.filter(x => x.kind === 'pre')
-                                        .sort((a, b) => Number(b.data.score) - Number(a.data.score));
+                    // Sub-group by peer_group (industry) within the sector — gives industry-level RRG context
+                    const byPeer = {};
+                    sigs.forEach(it => {
+                        const pg = tickerClassifications[it.data.ticker]?.peer_group || sector;
+                        (byPeer[pg] = byPeer[pg] || []).push(it);
+                    });
+                    const peerEntries = Object.entries(byPeer).sort((a, b) => {
+                        const ra = peerGroupRankings[a[0]]?.composite_rank ?? 9999;
+                        const rb = peerGroupRankings[b[0]]?.composite_rank ?? 9999;
+                        return ra - rb;  // strongest peer group first
+                    });
 
                     const tier = (label, color, arr, isPre) => {
                         if (arr.length === 0) return '';
-                        return `<div style="margin-top: 14px;">
-                            <div style="font-size: 11px; font-weight: 700; color: ${color}; letter-spacing: 0.5px; margin-bottom: 10px; padding-left: 2px;">${label} (${arr.length})</div>
+                        return `<div style="margin-top: 10px;">
+                            <div style="font-size: 11px; font-weight: 700; color: ${color}; letter-spacing: 0.5px; margin-bottom: 8px; padding-left: 2px;">${label} (${arr.length})</div>
                             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 ${arr.map(x => isPre ? renderPreSignalCard(x.data) : renderSignalCard(x.data)).join('')}
                             </div>
                         </div>`;
                     };
 
-                    html += `<div style="padding: 0 16px 16px 16px; border-top: 1px solid var(--border-color);">
-                        ${tier('🟢🟢 STRONG BUY', '#10b981', strongs, false)}
-                        ${tier('🟢 BUY',          '#22c55e', buys,    false)}
-                        ${tier('🔮 PRE-SIGNAL',   '#94a3b8', pres,    true )}
-                    </div>`;
+                    let peerHtml = '';
+                    peerEntries.forEach(([peerGroup, peerSigs]) => {
+                        const rank = peerGroupRankings[peerGroup];
+                        const st = rank && RRG_STYLE[rank.rrg_quadrant] || null;
+                        const rankN = rank?.composite_rank;
+                        const isRollup = !rank || rank.peer_group_type === 'sector';
+                        // Subtle header for sector-rollup buckets, RRG header for true industry peer groups.
+                        const headerChip = rank && st && rank.peer_group_type === 'industry' ? `
+                            <span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:${st.bg};color:${st.color};border:1px solid ${st.border};">
+                                ${st.emoji} ${rank.rrg_quadrant}${rankN ? ' · #' + rankN : ''}
+                            </span>
+                            <span style="font-size:11px;color:var(--text-secondary);">${rank.n_tickers || '?'} peers · breadth ${rank.breadth?.toFixed?.(0) ?? '?'}%</span>
+                        ` : '';
+                        const strongs = peerSigs.filter(x => x.kind === 'entry' && x.data.signal_strength === 'Strong')
+                                                .sort((a, b) => (a.data.rs_rank ?? 9999) - (b.data.rs_rank ?? 9999));
+                        const buys    = peerSigs.filter(x => x.kind === 'entry' && x.data.signal_strength === 'Buy')
+                                                .sort((a, b) => (a.data.rs_rank ?? 9999) - (b.data.rs_rank ?? 9999));
+                        const pres    = peerSigs.filter(x => x.kind === 'pre')
+                                                .sort((a, b) => Number(b.data.score) - Number(a.data.score));
+
+                        peerHtml += `<div style="margin-top: 18px;">
+                            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding: 6px 0 8px; border-bottom: 1px dashed var(--border-color); margin-bottom: 4px;">
+                                <span style="font-size: 13px; font-weight: 700; color: var(--text-primary);">${isRollup ? '• Other ' + sector : '› ' + peerGroup}</span>
+                                ${headerChip}
+                            </div>
+                            ${tier('🟢🟢 STRONG BUY', '#10b981', strongs, false)}
+                            ${tier('🟢 BUY',          '#22c55e', buys,    false)}
+                            ${tier('🔮 PRE-SIGNAL',   '#94a3b8', pres,    true )}
+                        </div>`;
+                    });
+
+                    html += `<div style="padding: 0 16px 16px 16px; border-top: 1px solid var(--border-color);">${peerHtml}</div>`;
                 }
 
                 html += '</div>';
@@ -4050,12 +4196,18 @@ if (supabaseTransactions && supabaseTransactions.length > 0) {
     // Load QQQ history for the Custom Period card's NASDAQ benchmark comparison
     qqqHistory = await loadQqqHistoryFromSupabase();
 
-    // Load Phase 3 alerts data (entry_signals + presignal_scores + portfolio alerts)
-    [entrySignalsData, presignalScoresData, portfolioAlertsData] = await Promise.all([
+    // Load Phase 3 alerts data (entry_signals + presignal_scores + portfolio alerts + peer-group context)
+    const [_es, _ps, _pa, _pgc] = await Promise.all([
         loadEntrySignalsFromSupabase(),
         loadPresignalScoresFromSupabase(),
         loadPortfolioAlertsFromSupabase(),
+        loadPeerGroupContextFromSupabase(),
     ]);
+    entrySignalsData = _es;
+    presignalScoresData = _ps;
+    portfolioAlertsData = _pa;
+    tickerClassifications = _pgc.classifications;
+    peerGroupRankings = _pgc.rankings;
 
     // Load meta (sector + market cap) for sector/market-cap charts
     stockMeta = await loadMetaFromSupabase();
