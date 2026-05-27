@@ -1,0 +1,113 @@
+name: Nightly scan (US)
+
+# 22:07 UTC Mon-Fri. US regular session closes 16:00 ET, which is 21:00 UTC
+# (EDT, summer) / 22:00 UTC (EST, winter). 22:07 UTC lands after the close
+# year-round, and the off-the-hour minute avoids GitHub Actions' worst
+# top-of-hour scheduler delays.
+#
+# Runs the full nightly chain sequentially. The chain shares state via
+# daily_stock_snapshots so steps must run in this order:
+#   fetch_ohlc -> compute_cross_sectional -> compute_sector_rankings
+#                                         -> entry_signals_scanner
+#                                         -> score_presignals
+#   fetch_ohlc -> portfolio_alerts_scanner
+on:
+  schedule:
+    - cron: '7 22 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  scan:
+    name: OHLC + cross-sectional + sector rankings + alerts
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yfinance pandas numpy supabase python-dotenv requests lxml
+
+      # 1. Pull EOD OHLC + indicators for the S&P500 + NASDAQ100 + holdings universe
+      - name: 1/7 fetch_ohlc.py
+        run: python fetch_ohlc.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # 2. Append latest QQQ close to benchmark_history (long-lived; survives 90d prune)
+      - name: 2/7 sync_benchmark_history.py
+        run: python sync_benchmark_history.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # 3. Cross-sectional metrics: rs_rank, sector_percentile, peer_*, rank_slope
+      - name: 3/7 compute_cross_sectional.py
+        run: python compute_cross_sectional.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # 4. Aggregate per-peer-group: composite, breadth, RRG quadrant, rs_slope
+      - name: 4/7 compute_sector_rankings.py
+        run: python compute_sector_rankings.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # 5. Entry-signal patterns (8 detectors -> entry_signals table)
+      - name: 5/7 entry_signals_scanner.py
+        run: python entry_signals_scanner.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # 6. Pre-signal scoring (6 rules, score >= 70 -> presignal_scores table)
+      - name: 6/7 score_presignals.py
+        run: python score_presignals.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # 7. Holdings-only alerts (ema_crossover, vol_breakout, blue_zone -> alerts table)
+      - name: 7/7 portfolio_alerts_scanner.py
+        run: python portfolio_alerts_scanner.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+  notify:
+    name: Telegram notification
+    runs-on: ubuntu-latest
+    needs: scan
+    if: always()
+    steps:
+      - name: Send Telegram message
+        continue-on-error: true   # don't fail the workflow if Telegram secrets aren't set
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT:  ${{ secrets.TELEGRAM_CHAT_ID }}
+          SCAN_STATUS: ${{ needs.scan.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then
+            echo "Telegram secrets not set; skipping notification."
+            exit 0
+          fi
+          if [ "$SCAN_STATUS" = "success" ]; then
+            EMOJI="✅"; TITLE="US nightly scan OK"
+          else
+            EMOJI="❌"; TITLE="US nightly scan FAILED"
+          fi
+          printf -v MSG '%s <b>%s</b>\nscan: %s\n\n<a href="%s">view run</a>' "$EMOJI" "$TITLE" "$SCAN_STATUS" "$RUN_URL"
+          curl -sS -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "text=${MSG}" \
+            --data-urlencode "disable_web_page_preview=true"
