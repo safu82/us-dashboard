@@ -2303,30 +2303,34 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             renderSectorDrawerContent();
         }
 
-        // Resolve tickers belonging to a peer_group + pull the latest snapshot row for each.
+        // Resolve tickers belonging to a peer_group + pull the latest 2 snapshot rows for each
+        // so we can compute "today's" % change as (close - prev_close) / prev_close.
         async function fetchPeerGroupDrillData(peerGroup) {
             try {
-                // Find tickers — a peer_group can be either an industry (industry == peer_group)
-                // or a sector rollup (sector == peer_group with industry below MIN_PEER_SIZE).
-                // Use tickerClassifications which already encodes the rollup decision.
                 const tickers = Object.entries(tickerClassifications)
                     .filter(([, c]) => c.peer_group === peerGroup)
                     .map(([t]) => t);
                 if (!tickers.length) { sectorDrillCache[peerGroup] = { rows: [], latestDate: null }; return; }
 
-                // Latest snapshot date
-                const latestRes = await supabase.from('daily_stock_snapshots')
+                // Get the 2 most recent distinct snapshot_dates that actually exist
+                const distinctDates = await supabase.from('daily_stock_snapshots')
                     .select('snapshot_date').in('ticker', tickers.slice(0, 3))
-                    .order('snapshot_date', { ascending: false }).limit(1);
-                const latestDate = latestRes.data?.[0]?.snapshot_date;
+                    .order('snapshot_date', { ascending: false }).limit(10);
+                const dates = [...new Set((distinctDates.data || []).map(r => r.snapshot_date))].slice(0, 2);
+                const latestDate = dates[0];
+                const prevDate   = dates[1];
                 if (!latestDate) { sectorDrillCache[peerGroup] = { rows: [], latestDate: null }; return; }
 
-                // Pull all latest-day snapshots for this peer group
+                // Pull latest + prev day snapshots in one call
                 const { data: snaps } = await supabase.from('daily_stock_snapshots')
-                    .select('ticker, close, open, ema_20, ema_50, ema_200, alkalyme_rs, rs_rank, high_52w, sector_percentile, peer_percentile')
-                    .in('ticker', tickers).eq('snapshot_date', latestDate);
-                const snapMap = {};
-                (snaps || []).forEach(s => { snapMap[s.ticker] = s; });
+                    .select('ticker, snapshot_date, close, open, ema_20, ema_50, ema_200, alkalyme_rs, rs_rank, high_52w, sector_percentile, peer_percentile')
+                    .in('ticker', tickers)
+                    .in('snapshot_date', dates);
+                const latestMap = {}, prevMap = {};
+                (snaps || []).forEach(s => {
+                    if (s.snapshot_date === latestDate) latestMap[s.ticker] = s;
+                    else if (s.snapshot_date === prevDate) prevMap[s.ticker] = s;
+                });
 
                 // Get company names from us_stock_sectors
                 const { data: names } = await supabase.from('us_stock_sectors')
@@ -2335,10 +2339,20 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 (names || []).forEach(n => { nameMap[n.ticker] = n.company_name; });
 
                 const rows = tickers
-                    .map(t => ({ ticker: t, name: nameMap[t], ...snapMap[t] }))
-                    .filter(r => r.alkalyme_rs != null)
+                    .map(t => {
+                        const cur = latestMap[t];
+                        if (!cur) return null;
+                        const prev = prevMap[t];
+                        return {
+                            ticker: t,
+                            name: nameMap[t],
+                            ...cur,
+                            prev_close: prev?.close ?? null,
+                        };
+                    })
+                    .filter(r => r && r.alkalyme_rs != null)
                     .sort((a, b) => (a.rs_rank || 9999) - (b.rs_rank || 9999));
-                sectorDrillCache[peerGroup] = { rows, latestDate };
+                sectorDrillCache[peerGroup] = { rows, latestDate, prevDate };
             } catch (e) {
                 console.error('fetchPeerGroupDrillData error', e);
                 sectorDrillCache[peerGroup] = { rows: [], latestDate: null };
@@ -2446,12 +2460,12 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 <div style="position:relative;height:160px"><canvas id="drawerRsChart"></canvas></div>
             </div>`;
 
-            // ── 3. Today's top movers (open → close) ───────────────────────
+            // ── 3. Top movers — day-over-day % change (close vs prev close) ─
             if (drill && drill.rows && drill.rows.length > 0) {
                 const movers = drill.rows.map(r => {
-                    if (r.close == null || r.open == null || r.open === 0) return null;
-                    const ret = (r.close - r.open) / r.open * 100;
-                    return { ticker: r.ticker, name: r.name, close: r.close, open: r.open, ret };
+                    if (r.close == null || r.prev_close == null || r.prev_close === 0) return null;
+                    const ret = (r.close - r.prev_close) / r.prev_close * 100;
+                    return { ticker: r.ticker, name: r.name, close: r.close, prev_close: r.prev_close, ret };
                 }).filter(x => x);
                 movers.sort((a, b) => b.ret - a.ret);
                 const gainers = movers.slice(0, 3);
@@ -2459,11 +2473,14 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 const moverChip = (m, color) => `
                     <a href="https://www.tradingview.com/chart/?symbol=${m.ticker}" target="_blank"
                         style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--bg-card);border:1px solid ${color}40;border-radius:6px;text-decoration:none;color:var(--text-primary);font-size:12px"
-                        title="${m.name || ''} · ${m.open.toFixed(2)} → ${m.close.toFixed(2)}">
+                        title="${m.name || ''} · prev close ${m.prev_close.toFixed(2)} → close ${m.close.toFixed(2)}">
                         <span style="font-weight:600">${m.ticker}</span>
                         <span style="color:${color};font-weight:600">${m.ret >= 0 ? '+' : ''}${m.ret.toFixed(2)}%</span>
                     </a>`;
-                html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--text-secondary)">TODAY'S TOP MOVERS &nbsp;<span style="font-weight:400;font-size:11px">(intraday: open → close)</span></div>`;
+                const sessionLabel = drill.latestDate
+                    ? new Date(drill.latestDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                    : 'latest session';
+                html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--text-secondary)">SESSION MOVERS · ${sessionLabel} &nbsp;<span style="font-weight:400;font-size:11px">(close vs prev close)</span></div>`;
                 html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px">
                     <div>
                         <div style="font-size:10px;color:#10b981;font-weight:700;margin-bottom:6px;letter-spacing:0.5px">↑ GAINERS</div>
@@ -2507,7 +2524,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     const pnl   = value - cost;
                     const pnlPct = cost > 0 ? (pnl / cost * 100) : 0;
                     html += `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px">
-                        <span><span style="font-weight:600">${h.ticker}</span> <span style="color:var(--text-secondary)">${h.quantity} qty @ $${formatNumber(h.avgCost)}</span></span>
+                        <span><span style="font-weight:600">${h.ticker}</span> <span style="color:var(--text-secondary)">${h.quantity} qty · CMP $${formatNumber(cmp)}</span></span>
                         <span style="color:${pnl >= 0 ? '#10b981' : '#ef4444'};font-weight:600">${pnl >= 0 ? '+' : ''}$${formatNumber(pnl)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)</span>
                     </div>`;
                 });
