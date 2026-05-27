@@ -515,6 +515,11 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let perfCharts = {};               // Chart.js instances by canvas id (Performance sub-tab)
         let analyticsCharts = {};          // Chart.js instances on Analytics tab
         let analyticsQuadrantFilter = 'all'; // all | Leading | Improving | Weakening | Lagging — leaderboard filter
+        let sectorDrawerOpen = false;      // is the sector-detail drawer open?
+        let sectorDrawerPeerGroup = null;  // which peer_group's drawer is showing
+        let sectorDrawerShowAll = {};      // peer_group -> bool (show full stock list inside the drawer)
+        let sectorDrillCache = {};         // peer_group -> { rows, latestDate } — fetched on first open
+        let peerGroupRsHistory = {};       // peer_group -> [{ date, value }, ...] — sector_rankings history
         let isNewStock = false;
         let isLiveData = false;
         let sortColumn = null;
@@ -2044,7 +2049,8 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                 const isRollup = g.peer_group_type === 'sector';
                                 const slope = g.rs_slope;
                                 const slopeColor = slope == null ? 'var(--text-secondary)' : slope >= 0 ? '#10b981' : '#ef4444';
-                                return `<tr style="border-bottom:1px solid var(--border-color);">
+                                const safe = g.peer_group.replace(/'/g, "\\'");
+                                return `<tr style="border-bottom:1px solid var(--border-color);cursor:pointer;" onclick="openSectorDrawer('${safe}')" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='transparent'">
                                     <td style="padding:7px 6px;color:var(--text-secondary);">${g.composite_rank ?? '—'}</td>
                                     <td style="padding:7px 6px;font-weight:${isRollup ? 400 : 600};">${g.peer_group}${isRollup ? ' <span style="font-size:10px;color:var(--text-secondary);">(rollup)</span>' : ''}</td>
                                     <td style="padding:7px 6px;color:var(--text-secondary);">${g.parent_sector || '—'}</td>
@@ -2079,7 +2085,8 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     const tiles = sortedInds.map(g => {
                         const cc = compositeColor(g.composite);
                         const st = RRG_STYLE[g.rrg_quadrant] || { emoji: '—', color: '#94a3b8' };
-                        return `<div style="padding:8px 10px;border-radius:6px;background:${cc.bg};border:1px solid ${cc.border};display:flex;justify-content:space-between;align-items:center;gap:6px;">
+                        const safe = g.peer_group.replace(/'/g, "\\'");
+                        return `<div onclick="openSectorDrawer('${safe}')" style="padding:8px 10px;border-radius:6px;background:${cc.bg};border:1px solid ${cc.border};display:flex;justify-content:space-between;align-items:center;gap:6px;cursor:pointer;transition:transform 0.1s ease;" onmouseover="this.style.transform='translateX(2px)'" onmouseout="this.style.transform='translateX(0)'">
                             <span style="font-size:12px;font-weight:600;">${g.peer_group}</span>
                             <span style="font-size:11px;color:${cc.text};font-weight:700;">${st.emoji} ${g.composite?.toFixed?.(0) ?? '—'}</span>
                         </div>`;
@@ -2195,6 +2202,13 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    onHover: (e, elements) => { e.native.target.style.cursor = elements.length ? 'pointer' : 'default'; },
+                    onClick: (e, elements) => {
+                        if (!elements.length) return;
+                        const el = elements[0];
+                        const pt = analyticsCharts.rrg.data.datasets[el.datasetIndex].data[el.index];
+                        if (pt && pt.label) openSectorDrawer(pt.label);
+                    },
                     plugins: {
                         legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
                         tooltip: {
@@ -2213,6 +2227,357 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 },
                 plugins: [quadrantBg],
             });
+        }
+
+        // ============ SECTOR DETAIL DRAWER ============
+        // Slides in from the right when a leaderboard row / heatmap tile / RRG chart point is clicked.
+        // Shows snapshot stats, 60d RS trend, today's movers, active signals, holdings, and the
+        // peer-group's stock list ranked by alkalyme_rs. India-parity feature.
+
+        function ensureSectorDrawer() {
+            if (document.getElementById('sectorDrawer')) return;
+
+            const backdrop = document.createElement('div');
+            backdrop.id = 'sectorDrawerBackdrop';
+            backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9998;display:none;opacity:0;transition:opacity 0.2s';
+            backdrop.onclick = closeSectorDrawer;
+
+            const drawer = document.createElement('div');
+            drawer.id = 'sectorDrawer';
+            drawer.style.cssText = `
+                position:fixed;top:0;right:0;height:100vh;width:min(760px,92vw);
+                background:var(--bg-card);border-left:1px solid var(--border-color);
+                z-index:9999;overflow-y:auto;
+                transform:translateX(100%);transition:transform 0.25s ease-out;
+                box-shadow:-8px 0 32px rgba(0,0,0,0.4);
+            `;
+            drawer.innerHTML = '<div id="sectorDrawerContent"></div>';
+
+            document.body.appendChild(backdrop);
+            document.body.appendChild(drawer);
+
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && sectorDrawerOpen) closeSectorDrawer();
+            });
+        }
+
+        async function openSectorDrawer(peerGroup) {
+            if (!peerGroup) return;
+            ensureSectorDrawer();
+            sectorDrawerOpen = true;
+            sectorDrawerPeerGroup = peerGroup;
+
+            const backdrop = document.getElementById('sectorDrawerBackdrop');
+            const drawer   = document.getElementById('sectorDrawer');
+            backdrop.style.display = 'block';
+            requestAnimationFrame(() => {
+                backdrop.style.opacity = '1';
+                drawer.style.transform = 'translateX(0)';
+            });
+
+            // Render skeleton with whatever data we have, then lazy-fetch and re-render
+            renderSectorDrawerContent();
+            const tasks = [];
+            if (!sectorDrillCache[peerGroup])     tasks.push(fetchPeerGroupDrillData(peerGroup));
+            if (!peerGroupRsHistory[peerGroup])   tasks.push(fetchPeerGroupRsHistory(peerGroup));
+            if (tasks.length) {
+                await Promise.all(tasks);
+                renderSectorDrawerContent();
+            }
+        }
+
+        function closeSectorDrawer() {
+            sectorDrawerOpen = false;
+            const backdrop = document.getElementById('sectorDrawerBackdrop');
+            const drawer   = document.getElementById('sectorDrawer');
+            if (drawer)   drawer.style.transform = 'translateX(100%)';
+            if (backdrop) {
+                backdrop.style.opacity = '0';
+                setTimeout(() => { if (backdrop) backdrop.style.display = 'none'; }, 220);
+            }
+        }
+
+        function toggleSectorDrawerShowAll() {
+            if (!sectorDrawerPeerGroup) return;
+            sectorDrawerShowAll[sectorDrawerPeerGroup] = !sectorDrawerShowAll[sectorDrawerPeerGroup];
+            renderSectorDrawerContent();
+        }
+
+        // Resolve tickers belonging to a peer_group + pull the latest snapshot row for each.
+        async function fetchPeerGroupDrillData(peerGroup) {
+            try {
+                // Find tickers — a peer_group can be either an industry (industry == peer_group)
+                // or a sector rollup (sector == peer_group with industry below MIN_PEER_SIZE).
+                // Use tickerClassifications which already encodes the rollup decision.
+                const tickers = Object.entries(tickerClassifications)
+                    .filter(([, c]) => c.peer_group === peerGroup)
+                    .map(([t]) => t);
+                if (!tickers.length) { sectorDrillCache[peerGroup] = { rows: [], latestDate: null }; return; }
+
+                // Latest snapshot date
+                const latestRes = await supabase.from('daily_stock_snapshots')
+                    .select('snapshot_date').in('ticker', tickers.slice(0, 3))
+                    .order('snapshot_date', { ascending: false }).limit(1);
+                const latestDate = latestRes.data?.[0]?.snapshot_date;
+                if (!latestDate) { sectorDrillCache[peerGroup] = { rows: [], latestDate: null }; return; }
+
+                // Pull all latest-day snapshots for this peer group
+                const { data: snaps } = await supabase.from('daily_stock_snapshots')
+                    .select('ticker, close, open, ema_20, ema_50, ema_200, alkalyme_rs, rs_rank, high_52w, sector_percentile, peer_percentile')
+                    .in('ticker', tickers).eq('snapshot_date', latestDate);
+                const snapMap = {};
+                (snaps || []).forEach(s => { snapMap[s.ticker] = s; });
+
+                // Get company names from us_stock_sectors
+                const { data: names } = await supabase.from('us_stock_sectors')
+                    .select('ticker, company_name').in('ticker', tickers);
+                const nameMap = {};
+                (names || []).forEach(n => { nameMap[n.ticker] = n.company_name; });
+
+                const rows = tickers
+                    .map(t => ({ ticker: t, name: nameMap[t], ...snapMap[t] }))
+                    .filter(r => r.alkalyme_rs != null)
+                    .sort((a, b) => (a.rs_rank || 9999) - (b.rs_rank || 9999));
+                sectorDrillCache[peerGroup] = { rows, latestDate };
+            } catch (e) {
+                console.error('fetchPeerGroupDrillData error', e);
+                sectorDrillCache[peerGroup] = { rows: [], latestDate: null };
+            }
+        }
+
+        // Pull last 60 sector_rankings rows for this peer_group to drive the RS trend chart.
+        async function fetchPeerGroupRsHistory(peerGroup) {
+            try {
+                const { data } = await supabase.from('sector_rankings')
+                    .select('snapshot_date, avg_alkalyme_rs')
+                    .eq('peer_group', peerGroup)
+                    .order('snapshot_date', { ascending: false }).limit(60);
+                const hist = (data || []).map(r => ({ date: r.snapshot_date, value: Number(r.avg_alkalyme_rs) })).reverse();
+                peerGroupRsHistory[peerGroup] = hist;
+            } catch (e) {
+                console.error('fetchPeerGroupRsHistory error', e);
+                peerGroupRsHistory[peerGroup] = [];
+            }
+        }
+
+        function renderSectorDrawerContent() {
+            const peerGroup = sectorDrawerPeerGroup;
+            const el = document.getElementById('sectorDrawerContent');
+            if (!peerGroup || !el) return;
+
+            const rank      = peerGroupRankings[peerGroup] || {};
+            const drill     = sectorDrillCache[peerGroup];
+            const rsHist    = peerGroupRsHistory[peerGroup] || [];
+
+            // ── Snapshot row stats (advancing/declining, 52WH/L, RS rank, composite) ─
+            let adv = 0, dec = 0, nh = 0, nl = 0;
+            (drill?.rows || []).forEach(r => {
+                if (r.close != null && r.open != null) {
+                    if (r.close > r.open) adv++;
+                    else if (r.close < r.open) dec++;
+                }
+                if (r.close != null && r.high_52w != null) {
+                    // 52WH = within 1% of 52w high; 52WL = within 1% of (a derived low; we don't have low_52w so use close/high_52w distance)
+                    if (r.close >= r.high_52w * 0.99) nh++;
+                    else if (r.high_52w > 0 && r.close <= r.high_52w * 0.55) nl++; // deep drawdown
+                }
+            });
+
+            // Determine if the user holds any stock in this peer group
+            const portfolioSet = new Set(portfolio.map(p => tickerClassifications[p.ticker]?.peer_group).filter(Boolean));
+            const isPortfolio = portfolioSet.has(peerGroup);
+
+            const composite = rank.composite != null ? Math.round(rank.composite) : '—';
+            const compColor = composite >= 70 ? '#10b981' : composite >= 50 ? '#3b82f6' : composite >= 35 ? '#e3b341' : '#ef4444';
+            const rrg = rank.rrg_quadrant;
+            const rrgSt = RRG_STYLE[rrg] || null;
+            const isIndustry = rank.peer_group_type === 'industry';
+
+            // ── Header ───────────────────────────────────────────────────────
+            let html = `
+            <div style="position:sticky;top:0;background:var(--bg-card);border-bottom:1px solid var(--border-color);padding:18px 24px;display:flex;justify-content:space-between;align-items:center;z-index:1">
+                <div>
+                    <div style="font-size:22px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        ${peerGroup}
+                        ${isPortfolio ? '<span style="font-size:14px;color:#f59e0b">★ portfolio</span>' : ''}
+                        ${rrgSt ? `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${rrgSt.bg};color:${rrgSt.color};border:1px solid ${rrgSt.border};font-weight:600;">${rrgSt.emoji} ${rrg}</span>` : ''}
+                    </div>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">
+                        ${rank.composite_rank ? 'Rank #' + rank.composite_rank : ''}${rank.n_tickers ? ' · ' + rank.n_tickers + ' tickers' : ''}${isIndustry && rank.parent_sector ? ' · under ' + rank.parent_sector : ''}
+                    </div>
+                </div>
+                <button onclick="closeSectorDrawer()" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:24px;padding:4px 12px;border-radius:6px" title="Close (Esc)" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='none'">×</button>
+            </div>
+            <div style="padding:20px 24px">
+            `;
+
+            // ── 1. Snapshot row ────────────────────────────────────────────
+            html += `
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px">
+                <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;text-align:center">
+                    <div style="font-size:10px;color:var(--text-secondary);font-weight:600;letter-spacing:0.5px">TODAY</div>
+                    <div style="font-size:14px;font-weight:600;margin-top:4px">
+                        <span style="color:#10b981">↑${adv}</span> <span style="color:#ef4444">↓${dec}</span>
+                    </div>
+                </div>
+                <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;text-align:center">
+                    <div style="font-size:10px;color:var(--text-secondary);font-weight:600;letter-spacing:0.5px">52W H · DEEP DD</div>
+                    <div style="font-size:14px;font-weight:600;margin-top:4px">
+                        <span style="color:#10b981">🚀${nh}</span> <span style="color:#ef4444">🐻${nl}</span>
+                    </div>
+                </div>
+                <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;text-align:center">
+                    <div style="font-size:10px;color:var(--text-secondary);font-weight:600;letter-spacing:0.5px">COMPOSITE RANK</div>
+                    <div style="font-size:18px;font-weight:700;margin-top:2px;color:var(--text-primary)">#${rank.composite_rank || '—'}</div>
+                </div>
+                <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;text-align:center">
+                    <div style="font-size:10px;color:var(--text-secondary);font-weight:600;letter-spacing:0.5px">COMPOSITE</div>
+                    <div style="font-size:18px;font-weight:700;margin-top:2px;color:${compColor}">${composite}</div>
+                </div>
+                <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;text-align:center">
+                    <div style="font-size:10px;color:var(--text-secondary);font-weight:600;letter-spacing:0.5px">BREADTH</div>
+                    <div style="font-size:18px;font-weight:700;margin-top:2px;color:var(--text-primary)">${rank.breadth != null ? rank.breadth.toFixed(0) + '%' : '—'}</div>
+                </div>
+            </div>`;
+
+            // ── 2. RS trend chart ───────────────────────────────────────────
+            html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--text-secondary)">PEER-GROUP RS TREND (last ${rsHist.length} days)</div>`;
+            html += `<div style="background:var(--bg-secondary);padding:14px;border-radius:8px;margin-bottom:24px">
+                <div style="position:relative;height:160px"><canvas id="drawerRsChart"></canvas></div>
+            </div>`;
+
+            // ── 3. Today's top movers (open → close) ───────────────────────
+            if (drill && drill.rows && drill.rows.length > 0) {
+                const movers = drill.rows.map(r => {
+                    if (r.close == null || r.open == null || r.open === 0) return null;
+                    const ret = (r.close - r.open) / r.open * 100;
+                    return { ticker: r.ticker, name: r.name, close: r.close, open: r.open, ret };
+                }).filter(x => x);
+                movers.sort((a, b) => b.ret - a.ret);
+                const gainers = movers.slice(0, 3);
+                const losers  = movers.slice(-3).reverse();
+                const moverChip = (m, color) => `
+                    <a href="https://www.tradingview.com/chart/?symbol=${m.ticker}" target="_blank"
+                        style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--bg-card);border:1px solid ${color}40;border-radius:6px;text-decoration:none;color:var(--text-primary);font-size:12px"
+                        title="${m.name || ''} · ${m.open.toFixed(2)} → ${m.close.toFixed(2)}">
+                        <span style="font-weight:600">${m.ticker}</span>
+                        <span style="color:${color};font-weight:600">${m.ret >= 0 ? '+' : ''}${m.ret.toFixed(2)}%</span>
+                    </a>`;
+                html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--text-secondary)">TODAY'S TOP MOVERS &nbsp;<span style="font-weight:400;font-size:11px">(intraday: open → close)</span></div>`;
+                html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px">
+                    <div>
+                        <div style="font-size:10px;color:#10b981;font-weight:700;margin-bottom:6px;letter-spacing:0.5px">↑ GAINERS</div>
+                        <div style="display:flex;flex-direction:column;gap:6px">${gainers.map(g => moverChip(g, '#10b981')).join('') || '<div style="color:var(--text-secondary);font-size:12px">—</div>'}</div>
+                    </div>
+                    <div>
+                        <div style="font-size:10px;color:#ef4444;font-weight:700;margin-bottom:6px;letter-spacing:0.5px">↓ LOSERS</div>
+                        <div style="display:flex;flex-direction:column;gap:6px">${losers.map(l => moverChip(l, '#ef4444')).join('') || '<div style="color:var(--text-secondary);font-size:12px">—</div>'}</div>
+                    </div>
+                </div>`;
+            }
+
+            // ── 4. Active entry signals in this peer group ─────────────────
+            const peerSignals = (entrySignalsData || []).filter(s => tickerClassifications[s.ticker]?.peer_group === peerGroup);
+            html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--text-secondary)">ACTIVE SIGNALS (${peerSignals.length})</div>`;
+            if (peerSignals.length === 0) {
+                html += `<div style="background:var(--bg-secondary);padding:14px;border-radius:8px;color:var(--text-secondary);font-size:12px;margin-bottom:24px;text-align:center">No active entry signals in this peer group today</div>`;
+            } else {
+                html += `<div style="background:var(--bg-secondary);padding:12px;border-radius:8px;margin-bottom:24px;display:flex;flex-direction:column;gap:6px">`;
+                peerSignals.slice(0, 8).forEach(s => {
+                    const pat = ALERT_PATTERNS.find(p => p.slug === s.pattern);
+                    const tier = s.signal_strength === 'Strong' ? { bg: '#10b981', label: 'STRONG' } : { bg: '#3b82f6', label: 'BUY' };
+                    html += `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:4px 0">
+                        <span><span style="font-weight:600">${s.ticker}</span> <span style="color:var(--text-secondary)">· ${pat?.emoji || ''} ${pat?.label || s.pattern}</span></span>
+                        <span style="background:${tier.bg};color:white;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700">${tier.label}</span>
+                    </div>`;
+                });
+                if (peerSignals.length > 8) html += `<div style="font-size:11px;color:var(--text-secondary);text-align:center;margin-top:4px">+ ${peerSignals.length - 8} more</div>`;
+                html += `</div>`;
+            }
+
+            // ── 5. Your holdings in this peer group ─────────────────────────
+            const peerHoldings = portfolio.filter(p => tickerClassifications[p.ticker]?.peer_group === peerGroup);
+            if (peerHoldings.length > 0) {
+                html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:#f59e0b">★ YOUR HOLDINGS (${peerHoldings.length})</div>`;
+                html += `<div style="background:#f59e0b08;border:1px solid #f59e0b30;padding:12px;border-radius:8px;margin-bottom:24px;display:flex;flex-direction:column;gap:6px">`;
+                peerHoldings.forEach(h => {
+                    const cmp = prices[h.ticker]?.price || h.avgCost;
+                    const value = h.quantity * cmp;
+                    const cost  = h.quantity * h.avgCost;
+                    const pnl   = value - cost;
+                    const pnlPct = cost > 0 ? (pnl / cost * 100) : 0;
+                    html += `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px">
+                        <span><span style="font-weight:600">${h.ticker}</span> <span style="color:var(--text-secondary)">${h.quantity} qty @ $${formatNumber(h.avgCost)}</span></span>
+                        <span style="color:${pnl >= 0 ? '#10b981' : '#ef4444'};font-weight:600">${pnl >= 0 ? '+' : ''}$${formatNumber(pnl)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)</span>
+                    </div>`;
+                });
+                html += `</div>`;
+            }
+
+            // ── 6. Stocks in this peer group, ranked by RS ──────────────────
+            if (drill && drill.rows && drill.rows.length > 0) {
+                const showAll = !!sectorDrawerShowAll[peerGroup];
+                const visible = showAll ? drill.rows : drill.rows.slice(0, 5);
+                html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--text-secondary)">${showAll ? 'ALL STOCKS' : 'TOP 5 BY RS'} <span style="font-weight:400;color:var(--text-secondary)">· ${drill.rows.length} total</span></div>`;
+                html += `<div style="background:var(--bg-secondary);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px">`;
+                const myTickers = new Set(portfolio.map(p => p.ticker));
+                visible.forEach(r => {
+                    const held = myTickers.has(r.ticker);
+                    const heldBadge = held ? ' <span style="font-size:10px;color:#f59e0b">★</span>' : '';
+                    const rs = r.alkalyme_rs ? Number(r.alkalyme_rs).toFixed(1) : '—';
+                    const rsColor = (r.alkalyme_rs||0) >= 65 ? '#10b981' : (r.alkalyme_rs||0) >= 50 ? '#3b82f6' : '#ef4444';
+                    const d52 = r.high_52w && r.close ? ((r.close - r.high_52w) / r.high_52w * 100).toFixed(1) : null;
+                    html += `<div style="display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;padding:6px 0;border-bottom:1px solid var(--border-color);align-items:center">
+                        <a href="https://www.tradingview.com/chart/?symbol=${r.ticker}" target="_blank" style="font-weight:600;color:var(--text-primary);text-decoration:none">${r.ticker}${heldBadge}</a>
+                        <span style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.name || ''}</span>
+                        <span style="color:${rsColor};font-weight:600">RS ${rs}</span>
+                        <span style="color:var(--text-secondary)">${d52 != null ? d52 + '%' : '—'}</span>
+                    </div>`;
+                });
+                html += `</div>`;
+                if (drill.rows.length > 5) {
+                    html += `<div style="text-align:center;margin-bottom:24px">
+                        <button onclick="toggleSectorDrawerShowAll()" style="padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;background:var(--bg-card);color:var(--text-secondary);border:1px solid var(--border-color)">
+                            ${showAll ? 'Show top 5 ▲' : 'Show all ' + drill.rows.length + ' stocks ▼'}
+                        </button>
+                    </div>`;
+                }
+            } else if (drill === undefined) {
+                html += `<div style="background:var(--bg-secondary);padding:14px;border-radius:8px;color:var(--text-secondary);font-size:12px;margin-bottom:24px;text-align:center">Loading stocks…</div>`;
+            }
+
+            html += `</div>`;  // close padding wrapper
+            el.innerHTML = html;
+
+            // RS trend line chart
+            if (rsHist.length >= 2) {
+                const ctx = document.getElementById('drawerRsChart');
+                if (ctx) {
+                    const existing = Chart.getChart('drawerRsChart');
+                    if (existing) existing.destroy();
+                    const labels = rsHist.map(p => {
+                        const d = new Date(p.date);
+                        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    });
+                    const values = rsHist.map(p => p.value);
+                    new Chart(ctx, {
+                        type: 'line',
+                        data: { labels, datasets: [{
+                            label: 'Avg RS', data: values,
+                            borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.10)',
+                            borderWidth: 2, fill: true, tension: 0.25, pointRadius: 0, pointHoverRadius: 4
+                        }]},
+                        options: {
+                            responsive: true, maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: {
+                                x: { ticks: { color: '#94a3b8', maxTicksLimit: 8 }, grid: { color: 'rgba(148,163,184,0.06)' } },
+                                y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.06)' } }
+                            }
+                        }
+                    });
+                }
+            }
         }
 
         function renderTechnicalAlerts() {
