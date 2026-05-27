@@ -515,6 +515,11 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let perfCharts = {};               // Chart.js instances by canvas id (Performance sub-tab)
         let analyticsCharts = {};          // Chart.js instances on Analytics tab
         let analyticsQuadrantFilter = 'all'; // all | Leading | Improving | Weakening | Lagging — leaderboard filter
+        let paperTrades = [];              // all paper_trades rows
+        let paperEquity = [];              // paper_equity history (newest-first)
+        let paperRunLog = [];              // paper_run_log (newest-first)
+        let paperTierFilter = 'ALL';       // ALL | T1_MULTI_STRONG | T2_STRONG_REG | T3_MULTI_REG | T4_RS_ACCEL
+        let algoCharts = {};               // Chart.js instances on Algo tab
         let sectorDrawerOpen = false;      // is the sector-detail drawer open?
         let sectorDrawerPeerGroup = null;  // which peer_group's drawer is showing
         let sectorDrawerShowAll = {};      // peer_group -> bool (show full stock list inside the drawer)
@@ -2597,6 +2602,336 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             }
         }
 
+        // ============ PAPER ALGO TAB ============
+        const TIER_CONFIG = {
+            'T1_MULTI_STRONG': { label: 'T1 Multi-Strong', color: '#7c3aed', cap: 6000, risk: '1.5%' },
+            'T2_STRONG_REG':   { label: 'T2 Strong+Reg',   color: '#2563eb', cap: 5000, risk: '1.0%' },
+            'T3_MULTI_REG':    { label: 'T3 Multi-Reg',    color: '#0891b2', cap: 3000, risk: '0.66%' },
+            'T4_RS_ACCEL':     { label: 'T4 RS Accel',     color: '#0d9488', cap: 2000, risk: '0.5%' },
+        };
+        const SLEEVE_USD = 50000;
+
+        async function loadPaperDataFromSupabase() {
+            try {
+                const [tradesRes, equityRes, runRes] = await Promise.all([
+                    supabase.from('paper_trades').select('*').order('entry_date', { ascending: false }).limit(500),
+                    supabase.from('paper_equity').select('*').order('snapshot_date', { ascending: false }).limit(180),
+                    supabase.from('paper_run_log').select('*').order('run_at', { ascending: false }).limit(30),
+                ]);
+                if (tradesRes.error) throw tradesRes.error;
+                if (equityRes.error) throw equityRes.error;
+                if (runRes.error)    throw runRes.error;
+                console.log(`✅ Loaded ${tradesRes.data?.length || 0} paper_trades, ${equityRes.data?.length || 0} paper_equity, ${runRes.data?.length || 0} run_log`);
+                return {
+                    trades: tradesRes.data || [],
+                    equity: equityRes.data || [],
+                    runLog: runRes.data || [],
+                };
+            } catch (e) {
+                console.error('❌ Error loading paper trading data:', e);
+                return { trades: [], equity: [], runLog: [] };
+            }
+        }
+
+        function setPaperTierFilter(tier) {
+            paperTierFilter = tier;
+            render();
+            setTimeout(drawAlgoEquityChart, 80);
+        }
+
+        function tierBadge(tier) {
+            const cfg = TIER_CONFIG[tier];
+            if (!cfg) return tier || '—';
+            return `<span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:${cfg.color}18;color:${cfg.color};border:1px solid ${cfg.color}40;">${cfg.label}</span>`;
+        }
+
+        function statusBadge(s) {
+            const map = {
+                pending: { color: '#f59e0b', label: 'PENDING' },
+                open:    { color: '#3b82f6', label: 'OPEN' },
+                closed:  { color: '#94a3b8', label: 'CLOSED' },
+            };
+            const c = map[s] || { color: '#94a3b8', label: (s || '?').toUpperCase() };
+            return `<span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:${c.color}18;color:${c.color};">${c.label}</span>`;
+        }
+
+        function fmtUsd(v) {
+            if (v == null || isNaN(v)) return '—';
+            const n = Number(v);
+            const sign = n < 0 ? '-' : '';
+            const abs = Math.abs(n);
+            if (abs >= 1000) return sign + '$' + abs.toLocaleString('en-US', { maximumFractionDigits: 0 });
+            return sign + '$' + abs.toFixed(2);
+        }
+
+        function renderAlgoTab() {
+            if (paperEquity.length === 0 && paperTrades.length === 0) {
+                return `<div class="card p-8 text-center">
+                    <div class="text-6xl mb-4">🤖</div>
+                    <h3 class="text-xl font-semibold mb-2">Algo (Paper Trading)</h3>
+                    <p style="color: var(--text-secondary);max-width:540px;margin:0 auto 12px;">
+                        Multi-signal conviction strategy dry-run. Sleeve: $50,000. No real orders are placed — every trade simulates into <code>paper_trades</code>.
+                    </p>
+                    <p style="color: var(--text-secondary);font-size:13px;">Daily scan + fill runs are scheduled — once the first run lands, this tab will populate.</p>
+                </div>`;
+            }
+
+            // Latest equity snapshot
+            const latest = paperEquity[0] || {};
+            const prev = paperEquity[1] || {};
+            const totalValue = Number(latest.total_value) || SLEEVE_USD;
+            const cash = Number(latest.cash) || 0;
+            const positionsValue = Number(latest.positions_value) || 0;
+            const dd = Number(latest.drawdown_pct) || 0;
+            const realisedToday = Number(latest.realised_today) || 0;
+            const totalReturnPct = (totalValue / SLEEVE_USD - 1) * 100;
+            const dayPnl = totalValue - (Number(prev.total_value) || SLEEVE_USD);
+
+            // Tier filtering
+            const tradesFiltered = paperTierFilter === 'ALL'
+                ? paperTrades
+                : paperTrades.filter(t => t.strategy_tier === paperTierFilter);
+
+            const openTrades    = tradesFiltered.filter(t => t.status === 'open');
+            const pendingTrades = tradesFiltered.filter(t => t.status === 'pending');
+            const closedTrades  = tradesFiltered.filter(t => t.status === 'closed').slice(0, 50);
+
+            const tierPill = (key, label, color) => {
+                const active = paperTierFilter === key;
+                return `<button onclick="setPaperTierFilter('${key}')" style="padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;background:${active ? color : 'var(--bg-card)'};color:${active ? 'white' : 'var(--text-secondary)'};border:1px solid var(--border-color);">${label}</button>`;
+            };
+
+            // ── 1. Header card with sleeve stats + tier filter ─────────────
+            const header = `
+            <div class="card p-4 mb-4">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+                    <div>
+                        <h2 style="font-size:18px;font-weight:700;margin:0 0 4px 0;">🤖 Algo (Paper Trading)</h2>
+                        <p style="color:var(--text-secondary);font-size:12px;margin:0;">Multi-signal conviction strategy. Sleeve $50k, 5 entries/day cap. Simulation only — no real orders.</p>
+                    </div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                        ${tierPill('ALL',              'All',              '#667eea')}
+                        ${tierPill('T1_MULTI_STRONG',  'T1 Multi-Strong',  '#7c3aed')}
+                        ${tierPill('T2_STRONG_REG',    'T2 Strong+Reg',    '#2563eb')}
+                        ${tierPill('T3_MULTI_REG',     'T3 Multi-Reg',     '#0891b2')}
+                        ${tierPill('T4_RS_ACCEL',      'T4 RS Accel',      '#0d9488')}
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;text-align:center;">
+                        <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">Sleeve Value</div>
+                        <div style="font-size:22px;font-weight:700;margin-top:4px;">${fmtUsd(totalValue)}</div>
+                        <div style="font-size:11px;color:${totalReturnPct >= 0 ? '#10b981' : '#ef4444'};margin-top:2px;">${totalReturnPct >= 0 ? '+' : ''}${totalReturnPct.toFixed(2)}% total</div>
+                    </div>
+                    <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;text-align:center;">
+                        <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">Cash</div>
+                        <div style="font-size:22px;font-weight:700;margin-top:4px;">${fmtUsd(cash)}</div>
+                        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${((cash / SLEEVE_USD) * 100).toFixed(0)}% of sleeve</div>
+                    </div>
+                    <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;text-align:center;">
+                        <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">Positions Value</div>
+                        <div style="font-size:22px;font-weight:700;margin-top:4px;">${fmtUsd(positionsValue)}</div>
+                        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${openTrades.length} open</div>
+                    </div>
+                    <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;text-align:center;">
+                        <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">Drawdown</div>
+                        <div style="font-size:22px;font-weight:700;margin-top:4px;color:${dd <= -5 ? '#ef4444' : dd <= -2 ? '#f59e0b' : 'var(--text-primary)'};">${dd.toFixed(2)}%</div>
+                        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">from peak</div>
+                    </div>
+                    <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;text-align:center;">
+                        <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">Day P&L</div>
+                        <div style="font-size:22px;font-weight:700;margin-top:4px;color:${dayPnl >= 0 ? '#10b981' : '#ef4444'};">${dayPnl >= 0 ? '+' : ''}${fmtUsd(dayPnl)}</div>
+                        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">Realised today ${realisedToday >= 0 ? '+' : ''}${fmtUsd(realisedToday)}</div>
+                    </div>
+                </div>
+            </div>`;
+
+            // ── 2. Equity curve ────────────────────────────────────────────
+            const equityCard = paperEquity.length > 1 ? `
+            <div class="card p-4 mb-4">
+                <h3 style="font-size:15px;font-weight:700;margin:0 0 8px;">📈 Equity Curve — Sleeve vs Benchmarks</h3>
+                <div style="position:relative;height:320px;"><canvas id="algoEquityChart"></canvas></div>
+            </div>` : '';
+
+            // ── 3. Position tables ─────────────────────────────────────────
+            const tableHeader = `<thead><tr style="border-bottom:1px solid var(--border-color);color:var(--text-secondary);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">
+                <th style="text-align:left;padding:8px 6px;">Ticker</th>
+                <th style="text-align:left;padding:8px 6px;">Tier</th>
+                <th style="text-align:left;padding:8px 6px;">Peer Group</th>
+                <th style="text-align:left;padding:8px 6px;">Families</th>
+                <th style="text-align:right;padding:8px 6px;">Entry</th>
+                <th style="text-align:right;padding:8px 6px;">Qty</th>
+                <th style="text-align:right;padding:8px 6px;">Stop</th>
+                <th style="text-align:right;padding:8px 6px;">Notional</th>
+                <th style="text-align:right;padding:8px 6px;">Unrealised P&L</th>
+                <th style="text-align:center;padding:8px 6px;">Status</th>
+            </tr></thead>`;
+
+            const tickerCmp = (t) => Number(prices[t]?.price) || null;
+
+            const renderPositionRow = (tr) => {
+                const cmp = tickerCmp(tr.ticker);
+                const entry = Number(tr.entry_price) || 0;
+                const qty = Number(tr.current_quantity) || 0;
+                const unr = (cmp && entry) ? (cmp - entry) * qty : null;
+                const unrPct = (cmp && entry) ? (cmp / entry - 1) * 100 : null;
+                const unrColor = unr == null ? 'var(--text-secondary)' : unr >= 0 ? '#10b981' : '#ef4444';
+                const families = (tr.signal_families || []).join(' · ');
+                return `<tr style="border-bottom:1px solid var(--border-color);">
+                    <td style="padding:7px 6px;"><a href="https://www.tradingview.com/chart/?symbol=${tr.ticker}" target="_blank" style="font-weight:600;color:var(--text-primary);text-decoration:none;">${tr.ticker}</a></td>
+                    <td style="padding:7px 6px;">${tierBadge(tr.strategy_tier)}</td>
+                    <td style="padding:7px 6px;color:var(--text-secondary);font-size:12px;">${tr.sector || '—'}</td>
+                    <td style="padding:7px 6px;color:var(--text-secondary);font-size:11px;">${families}</td>
+                    <td style="padding:7px 6px;text-align:right;">${fmtUsd(tr.entry_price)}</td>
+                    <td style="padding:7px 6px;text-align:right;color:var(--text-secondary);">${qty}</td>
+                    <td style="padding:7px 6px;text-align:right;color:#ef4444;">${fmtUsd(tr.current_stop)}</td>
+                    <td style="padding:7px 6px;text-align:right;">${fmtUsd(tr.entry_value)}</td>
+                    <td style="padding:7px 6px;text-align:right;color:${unrColor};font-weight:600;">${unr == null ? '—' : (unr >= 0 ? '+' : '') + fmtUsd(unr) + (unrPct != null ? ` (${unrPct >= 0 ? '+' : ''}${unrPct.toFixed(1)}%)` : '')}</td>
+                    <td style="padding:7px 6px;text-align:center;">${statusBadge(tr.status)}</td>
+                </tr>`;
+            };
+
+            const openCard = `
+            <div class="card p-4 mb-4">
+                <h3 style="font-size:15px;font-weight:700;margin:0 0 12px;">🟢 Open Positions (${openTrades.length})</h3>
+                ${openTrades.length === 0 ? `<div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:20px;">No open positions${paperTierFilter !== 'ALL' ? ' in ' + (TIER_CONFIG[paperTierFilter]?.label || paperTierFilter) : ''}</div>` : `
+                <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    ${tableHeader}
+                    <tbody>${openTrades.map(renderPositionRow).join('')}</tbody>
+                </table></div>`}
+            </div>`;
+
+            const pendingCard = pendingTrades.length > 0 ? `
+            <div class="card p-4 mb-4">
+                <h3 style="font-size:15px;font-weight:700;margin:0 0 12px;">⏳ Pending Fills (${pendingTrades.length})</h3>
+                <div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;">Approved at D0 close; fill at D1 open + 15 bps slippage.</div>
+                <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    ${tableHeader}
+                    <tbody>${pendingTrades.map(renderPositionRow).join('')}</tbody>
+                </table></div>
+            </div>` : '';
+
+            // ── 4. Closed trades ───────────────────────────────────────────
+            const closedRow = (tr) => {
+                const pnl = Number(tr.total_pnl) || 0;
+                const pnlPct = Number(tr.total_pnl_pct);
+                const r = Number(tr.r_multiple);
+                const pnlColor = pnl >= 0 ? '#10b981' : '#ef4444';
+                const rColor = (isNaN(r) || r == null) ? 'var(--text-secondary)' : r >= 1 ? '#10b981' : r <= -1 ? '#ef4444' : '#f59e0b';
+                return `<tr style="border-bottom:1px solid var(--border-color);">
+                    <td style="padding:6px;font-weight:600;">${tr.ticker}</td>
+                    <td style="padding:6px;">${tierBadge(tr.strategy_tier)}</td>
+                    <td style="padding:6px;color:var(--text-secondary);font-size:11px;">${tr.entry_date || '—'} → ${tr.exit_date || '—'}</td>
+                    <td style="padding:6px;color:var(--text-secondary);font-size:11px;">${tr.exit_reason || '—'}</td>
+                    <td style="padding:6px;text-align:right;">${fmtUsd(tr.entry_price)}</td>
+                    <td style="padding:6px;text-align:right;">${fmtUsd(tr.exit_price)}</td>
+                    <td style="padding:6px;text-align:right;color:${pnlColor};font-weight:600;">${pnl >= 0 ? '+' : ''}${fmtUsd(pnl)}</td>
+                    <td style="padding:6px;text-align:right;color:${pnlColor};">${isNaN(pnlPct) ? '—' : (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%'}</td>
+                    <td style="padding:6px;text-align:right;color:${rColor};font-weight:600;">${isNaN(r) || r == null ? '—' : (r >= 0 ? '+' : '') + r.toFixed(2) + 'R'}</td>
+                    <td style="padding:6px;text-align:right;color:var(--text-secondary);">${tr.holding_days != null ? tr.holding_days + 'd' : '—'}</td>
+                </tr>`;
+            };
+            const closedCard = `
+            <div class="card p-4 mb-4">
+                <h3 style="font-size:15px;font-weight:700;margin:0 0 12px;">📕 Closed Trades (${closedTrades.length}${tradesFiltered.filter(t => t.status === 'closed').length > 50 ? ' of ' + tradesFiltered.filter(t => t.status === 'closed').length : ''})</h3>
+                ${closedTrades.length === 0 ? `<div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:20px;">No closed trades yet</div>` : `
+                <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead><tr style="border-bottom:1px solid var(--border-color);color:var(--text-secondary);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">
+                        <th style="text-align:left;padding:8px 6px;">Ticker</th>
+                        <th style="text-align:left;padding:8px 6px;">Tier</th>
+                        <th style="text-align:left;padding:8px 6px;">In → Out</th>
+                        <th style="text-align:left;padding:8px 6px;">Reason</th>
+                        <th style="text-align:right;padding:8px 6px;">Entry</th>
+                        <th style="text-align:right;padding:8px 6px;">Exit</th>
+                        <th style="text-align:right;padding:8px 6px;">P&L</th>
+                        <th style="text-align:right;padding:8px 6px;">%</th>
+                        <th style="text-align:right;padding:8px 6px;">R</th>
+                        <th style="text-align:right;padding:8px 6px;">Held</th>
+                    </tr></thead>
+                    <tbody>${closedTrades.map(closedRow).join('')}</tbody>
+                </table></div>`}
+            </div>`;
+
+            // ── 5. Run log ─────────────────────────────────────────────────
+            const runLogCard = paperRunLog.length > 0 ? `
+            <div class="card p-4 mb-4">
+                <h3 style="font-size:15px;font-weight:700;margin:0 0 12px;">📋 Recent Runs</h3>
+                <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
+                    <thead><tr style="border-bottom:1px solid var(--border-color);color:var(--text-secondary);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">
+                        <th style="text-align:left;padding:6px;">Run</th>
+                        <th style="text-align:left;padding:6px;">Phase</th>
+                        <th style="text-align:right;padding:6px;">Seen</th>
+                        <th style="text-align:right;padding:6px;">Passed</th>
+                        <th style="text-align:right;padding:6px;">Taken</th>
+                        <th style="text-align:right;padding:6px;">Exits</th>
+                        <th style="text-align:right;padding:6px;">Deployed</th>
+                        <th style="text-align:left;padding:6px;">Kill</th>
+                    </tr></thead>
+                    <tbody>
+                    ${paperRunLog.slice(0, 14).map(r => {
+                        const date = r.run_date || (r.run_at ? r.run_at.slice(0, 10) : '—');
+                        return `<tr style="border-bottom:1px solid var(--border-color);">
+                            <td style="padding:6px;color:var(--text-secondary);">${date}</td>
+                            <td style="padding:6px;color:var(--text-secondary);">${r.phase || '—'}</td>
+                            <td style="padding:6px;text-align:right;">${r.signals_seen ?? '—'}</td>
+                            <td style="padding:6px;text-align:right;">${r.signals_passed ?? '—'}</td>
+                            <td style="padding:6px;text-align:right;font-weight:600;">${r.signals_taken ?? '—'}</td>
+                            <td style="padding:6px;text-align:right;">${r.exits_processed ?? '—'}</td>
+                            <td style="padding:6px;text-align:right;">${r.deployed_pct != null ? r.deployed_pct.toFixed(1) + '%' : '—'}</td>
+                            <td style="padding:6px;color:${r.kill_switch_active ? '#ef4444' : 'var(--text-secondary)'};">${r.kill_switch_active ? '🛑 ' + (r.kill_switch_reason || 'active') : '—'}</td>
+                        </tr>`;
+                    }).join('')}
+                    </tbody>
+                </table></div>
+            </div>` : '';
+
+            return header + equityCard + openCard + pendingCard + closedCard + runLogCard;
+        }
+
+        function drawAlgoEquityChart() {
+            const canvas = document.getElementById('algoEquityChart');
+            if (!canvas || paperEquity.length < 2) return;
+            if (algoCharts.equity) { algoCharts.equity.destroy(); algoCharts.equity = null; }
+
+            const rows = [...paperEquity].reverse();  // oldest -> newest
+            const labels = rows.map(r => new Date(r.snapshot_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+            const sleeve = rows.map(r => Number(r.total_value));
+
+            // Normalize benchmarks to start at sleeve_USD (visual comparison)
+            const sp = rows.map(r => Number(r.bench_sp500)).filter(x => !isNaN(x));
+            const qqq = rows.map(r => Number(r.bench_qqq)).filter(x => !isNaN(x));
+            const spBase = sp[0] || null;
+            const qqqBase = qqq[0] || null;
+            const spLine = rows.map(r => spBase && r.bench_sp500 != null ? SLEEVE_USD * (r.bench_sp500 / spBase) : null);
+            const qqqLine = rows.map(r => qqqBase && r.bench_qqq != null ? SLEEVE_USD * (r.bench_qqq / qqqBase) : null);
+
+            algoCharts.equity = new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Sleeve', data: sleeve, borderColor: '#667eea', backgroundColor: '#667eea22', borderWidth: 2.5, fill: true, tension: 0.2, pointRadius: 0 },
+                        { label: 'S&P 500 (norm)', data: spLine, borderColor: '#10b981', borderWidth: 1.5, borderDash: [4, 4], fill: false, tension: 0.2, pointRadius: 0 },
+                        { label: 'QQQ (norm)', data: qqqLine, borderColor: '#f59e0b', borderWidth: 1.5, borderDash: [4, 4], fill: false, tension: 0.2, pointRadius: 0 },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
+                        tooltip: { callbacks: {
+                            label: ctx => `${ctx.dataset.label}: $${Number(ctx.parsed.y).toLocaleString('en-US', { maximumFractionDigits: 0 })}`,
+                        } },
+                    },
+                    scales: {
+                        x: { ticks: { maxTicksLimit: 8, color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.06)' } },
+                        y: { ticks: { callback: v => '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 }), color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.06)' } },
+                    },
+                },
+            });
+        }
+
         function renderTechnicalAlerts() {
             if (entrySignalsData.length === 0 && presignalScoresData.length === 0) {
                 return `
@@ -4417,10 +4752,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 </div>
 
                 <div class="tab-content ${activeTab === 'paper' ? 'active' : ''}">
-                    <div class="card p-6">
-                        <h2 class="text-xl font-bold mb-2">Algo (Paper Trading)</h2>
-                        <p style="color: var(--text-secondary);">Paper-trading sleeve — coming in Phase 4.</p>
-                    </div>
+                    ${activeTab === 'paper' ? renderAlgoTab() : ''}
                 </div>
             `;
 
@@ -4428,6 +4760,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             if (activeTab === 'overview') setTimeout(() => createChart(metrics), 100);
             if (activeTab === 'overview' && overviewSubTab === 'performance') setTimeout(renderPerformanceCharts, 100);
             if (activeTab === 'analytics') setTimeout(drawAnalyticsRrgChart, 100);
+            if (activeTab === 'paper') setTimeout(drawAlgoEquityChart, 100);
         }
 
         
@@ -4878,18 +5211,22 @@ if (supabaseTransactions && supabaseTransactions.length > 0) {
     // Load QQQ history for the Custom Period card's NASDAQ benchmark comparison
     qqqHistory = await loadQqqHistoryFromSupabase();
 
-    // Load Phase 3 alerts data (entry_signals + presignal_scores + portfolio alerts + peer-group context)
-    const [_es, _ps, _pa, _pgc] = await Promise.all([
+    // Load Phase 3 alerts data + peer-group context + paper trading data
+    const [_es, _ps, _pa, _pgc, _paper] = await Promise.all([
         loadEntrySignalsFromSupabase(),
         loadPresignalScoresFromSupabase(),
         loadPortfolioAlertsFromSupabase(),
         loadPeerGroupContextFromSupabase(),
+        loadPaperDataFromSupabase(),
     ]);
     entrySignalsData = _es;
     presignalScoresData = _ps;
     portfolioAlertsData = _pa;
     tickerClassifications = _pgc.classifications;
     peerGroupRankings = _pgc.rankings;
+    paperTrades = _paper.trades;
+    paperEquity = _paper.equity;
+    paperRunLog = _paper.runLog;
 
     // Load meta (sector + market cap) for sector/market-cap charts
     stockMeta = await loadMetaFromSupabase();

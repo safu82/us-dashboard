@@ -117,6 +117,63 @@ def fetch_price_metrics_batch(batch):
     return results
 
 
+def fetch_quarterly_batch(batch):
+    """Pull last ~8 quarters of revenue + net_income from yfinance.
+
+    Returns ticker -> [{quarter_end, revenue, net_income}, ...] newest-first,
+    matching the JSON shape the paper trader's earnings filter expects.
+    """
+    REVENUE_ALIASES = ['Total Revenue', 'TotalRevenue', 'Revenue', 'Operating Revenue']
+    NET_INCOME_ALIASES = ['Net Income', 'NetIncome', 'Net Income Common Stockholders',
+                          'Net Income From Continuing Operations']
+    results = {}
+    try:
+        tks = yf.Tickers(' '.join(batch))
+        for ticker in batch:
+            try:
+                df = tks.tickers[ticker].quarterly_income_stmt
+                if df is None or df.empty:
+                    continue
+
+                def _row(aliases):
+                    for a in aliases:
+                        if a in df.index:
+                            return df.loc[a]
+                    return None
+
+                rev = _row(REVENUE_ALIASES)
+                ni  = _row(NET_INCOME_ALIASES)
+                if rev is None or ni is None:
+                    continue
+
+                # Columns are Timestamps; iterate newest-first (DataFrame is already newest-first)
+                quarters = []
+                for col in df.columns:
+                    r = rev.get(col)
+                    n = ni.get(col)
+                    if r is None or n is None:
+                        continue
+                    try:
+                        r_f = float(r) if not (isinstance(r, float) and np.isnan(r)) else None
+                        n_f = float(n) if not (isinstance(n, float) and np.isnan(n)) else None
+                    except (TypeError, ValueError):
+                        r_f, n_f = None, None
+                    if r_f is None or n_f is None:
+                        continue
+                    quarter_end = col.strftime('%Y-%m-%d') if hasattr(col, 'strftime') else str(col)[:10]
+                    quarters.append({'quarter_end': quarter_end, 'revenue': r_f, 'net_income': n_f})
+
+                # Ensure newest-first sort even if yfinance order changes
+                quarters.sort(key=lambda q: q['quarter_end'], reverse=True)
+                if quarters:
+                    results[ticker] = quarters[:8]  # cap at 8 quarters
+            except Exception:
+                pass
+    except Exception as e:
+        print(f'    quarterly batch error: {e}')
+    return results
+
+
 def fetch_metadata_batch(batch):
     results = {}
     try:
@@ -164,7 +221,7 @@ def main():
         sys.exit('No tickers found')
 
     n_batches = (len(tickers) + BATCH_SIZE - 1) // BATCH_SIZE
-    price_metrics, metadata = {}, {}
+    price_metrics, metadata, quarterly = {}, {}, {}
 
     print(f'Fetching price history in {n_batches} batches ...')
     for i in range(0, len(tickers), BATCH_SIZE):
@@ -186,15 +243,28 @@ def main():
         if i + BATCH_SIZE < len(tickers):
             time.sleep(SLEEP_BATCH)
 
+    print(f'Fetching quarterly financials in {n_batches} batches ...')
+    for i in range(0, len(tickers), BATCH_SIZE):
+        batch = tickers[i:i + BATCH_SIZE]
+        print(f'  quarterly batch {i // BATCH_SIZE + 1}/{n_batches} ...', end=' ', flush=True)
+        m = fetch_quarterly_batch(batch)
+        quarterly.update(m)
+        print(f'{len(m)}/{len(batch)}')
+        if i + BATCH_SIZE < len(tickers):
+            time.sleep(SLEEP_BATCH)
+
     records = []
     now_iso = datetime.now(timezone.utc).isoformat()
     for ticker in tickers:
         pm, md = price_metrics.get(ticker, {}), metadata.get(ticker, {})
-        if not pm and not md:
+        qf = quarterly.get(ticker)
+        if not pm and not md and not qf:
             continue
         rec = {'ticker': ticker, 'last_updated': now_iso, 'source_yfinance': True}
         rec.update(pm)
         rec.update(md)
+        if qf:
+            rec['quarterly_financials'] = qf
         records.append(rec)
 
     success = 0
@@ -208,7 +278,7 @@ def main():
 
     print('=' * 70)
     print(f'Done. {success}/{len(records)} rows upserted into stock_fundamentals')
-    print(f'  price metrics: {len(price_metrics)} | metadata: {len(metadata)}')
+    print(f'  price metrics: {len(price_metrics)} | metadata: {len(metadata)} | quarterly: {len(quarterly)}')
 
 
 if __name__ == '__main__':
