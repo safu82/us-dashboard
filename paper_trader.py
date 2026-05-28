@@ -402,11 +402,16 @@ def classify_entry_bucket(entry_signal_rows):
         score = len(strong_patterns) * 100.0
         return 'T1_MULTI_STRONG', families, fam_strength, score
 
-    # B / C: dedupe to families
+    # B / C: dedupe to families. A pattern only counts as a "strong family" if
+    # it's both Strong AND in STRONG_BUCKET_A_PATTERNS — mirrors India where
+    # narrow_cpr is intentionally a lesser tier (one-day breakaway, not a
+    # confluence pattern). Without this guard, narrow_cpr Strong was being
+    # marked strong for family-dedupe and the resulting n_strong=2 fell through
+    # to the dead T3 branch.
     fam_strength = {}
     for (p, s) in types_seen_set:
         fam = ENTRY_FAMILY_MAP[p]
-        is_strong = (s == 'Strong')
+        is_strong = (s == 'Strong' and p in STRONG_BUCKET_A_PATTERNS)
         prev = fam_strength.get(fam)
         if prev == 'strong':
             continue

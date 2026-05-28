@@ -1494,14 +1494,24 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
         // ============ TECHNICAL ALERTS LOADERS (Phase 3) ============
         async function loadEntrySignalsFromSupabase() {
             try {
+                // India parity: show only the LATEST scan day's signals, not the
+                // 5-day rolling window. Otherwise the same pattern firing on
+                // consecutive days inflates Multi-Strong counts.
                 const { data, error } = await supabase
                     .from('entry_signals')
                     .select('*')
                     .gte('expires_at', new Date().toISOString().split('T')[0])
-                    .order('alert_date', { ascending: false });
+                    .order('alert_date', { ascending: false })
+                    .limit(1000);
                 if (error) throw error;
-                console.log(`✅ Loaded ${data?.length || 0} entry_signals rows`);
-                return data || [];
+                if (!data || data.length === 0) {
+                    console.log('✅ No entry_signals found');
+                    return [];
+                }
+                const latestDate = data[0].alert_date;
+                const todayRows = data.filter(s => s.alert_date === latestDate);
+                console.log(`✅ Loaded ${todayRows.length} entry_signals for ${latestDate} (of ${data.length} active)`);
+                return todayRows;
             } catch (e) {
                 console.error('❌ Error loading entry_signals:', e);
                 return [];
