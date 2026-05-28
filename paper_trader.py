@@ -139,6 +139,12 @@ SECTOR_GATE_MIN_BREADTH = 50  # peer group breadth >= 50% (% above EMA50)
 # 5 quarters (yfinance cap) is enough for the latest-YoY check.
 EARNINGS_MIN_QUARTERS = 5
 
+# Intraday distribution filter: reject candidates whose D0 close sits in the
+# bottom N% of the D0 range. A weak close on the signal-day suggests the move
+# already faded intraday and we'd be entering into distribution. See the
+# MRVL 2026-05-27 case (signal day closed at 0.11 of range, then gapped down -9%).
+MIN_INTRADAY_CLOSE_POSITION = 0.30
+
 BENCHMARK_TICKER = '^GSPC'    # market regime + bench column on paper_equity
 SECONDARY_BENCHMARK = 'QQQ'
 
@@ -528,6 +534,26 @@ def passes_earnings_filter(ticker, fundamentals_map):
         ni_yoy = (ni_now - ni_yr) / ni_yr
         if ni_yoy <= 0:
             return False, 'profit_yoy_not_positive'
+    return True, None
+
+
+def passes_intraday_filter(ticker, today_snap):
+    """Reject candidates whose D0 close sits in the bottom MIN_INTRADAY_CLOSE_POSITION
+    of the D0 range — a weak close that suggests intraday distribution."""
+    snap = today_snap.get(ticker)
+    if not snap:
+        return False, 'no_snapshot'
+    high = to_float(snap.get('high'))
+    low = to_float(snap.get('low'))
+    close = to_float(snap.get('close'))
+    if high is None or low is None or close is None:
+        return False, 'price_data_missing'
+    rng = high - low
+    if rng <= 0:
+        return True, None  # no intraday range to assess; let it through
+    pos = (close - low) / rng
+    if pos < MIN_INTRADAY_CLOSE_POSITION:
+        return False, f'close_in_bottom_{int(pos * 100)}pct'
     return True, None
 
 
@@ -1010,13 +1036,13 @@ def main():
     funnel = {
         'signal_rows': 0, 'unique_tickers': 0,
         'no_bucket': 0,
-        'sector_rejected': 0, 'earnings_rejected': 0,
+        'sector_rejected': 0, 'earnings_rejected': 0, 'intraday_rejected': 0,
         'in_holdings': 0, 'in_cooldown': 0, 'already_open': 0,
         'qualified': 0, 'inserted': 0,
         'qty_zero_rejected': 0, 'cash_rejected': 0, 'sector_conc_rejected': 0,
         'deployed_pct': 0, 'deployed_usd': 0,
         'bucket_counts': {},
-        'sector_reasons': {}, 'earnings_reasons': {},
+        'sector_reasons': {}, 'earnings_reasons': {}, 'intraday_reasons': {},
     }
     errors = []
 
@@ -1144,6 +1170,13 @@ def main():
                     funnel['earnings_rejected'] += 1
                     funnel['earnings_reasons'][e_reason] = (
                         funnel['earnings_reasons'].get(e_reason, 0) + 1
+                    )
+                    continue
+                i_ok, i_reason = passes_intraday_filter(ticker, today_snap)
+                if not i_ok:
+                    funnel['intraday_rejected'] += 1
+                    funnel['intraday_reasons'][i_reason] = (
+                        funnel['intraday_reasons'].get(i_reason, 0) + 1
                     )
                     continue
                 funnel['bucket_counts'][c['tier']] = (
