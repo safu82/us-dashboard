@@ -701,7 +701,7 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
             try {
                 const { data, error } = await supabase
                     .from('live_prices')
-                    .select('ticker, price, day_change, day_change_pct');
+                    .select('ticker, price, day_change, day_change_pct, pre_market_price, pre_market_change_pct, post_market_price, post_market_change_pct, market_state, updated_at');
                 if (error) throw error;
                 // live_prices.day_change is the PER-SHARE change; the dashboard
                 // expects dayChangeAmounts to be the whole-position dollar change.
@@ -710,7 +710,13 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
                 data.forEach(row => {
                     prices[row.ticker] = {
                         price: row.price || 0,
-                        change: row.day_change_pct || 0
+                        change: row.day_change_pct || 0,
+                        pre:      row.pre_market_price       != null ? Number(row.pre_market_price)       : null,
+                        pre_pct:  row.pre_market_change_pct  != null ? Number(row.pre_market_change_pct)  : null,
+                        post:     row.post_market_price      != null ? Number(row.post_market_price)      : null,
+                        post_pct: row.post_market_change_pct != null ? Number(row.post_market_change_pct) : null,
+                        state:    row.market_state || null,
+                        updated_at: row.updated_at || null,
                     };
                     if (row.day_change !== null && row.day_change !== undefined) {
                         dayChangeAmounts[row.ticker] = row.day_change * (qtyByTicker[row.ticker] || 0);
@@ -726,6 +732,59 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
             loading = false;
             render();
         }
+
+        // ============ MARKET STATE HELPERS (AH/PM display) ============
+        // Returns one of REGULAR / PRE / POST / CLOSED based on (1) Yahoo's
+        // marketState on ^GSPC if present, (2) local time -> ET conversion.
+        function getMarketSession() {
+            const yahoo = prices['^GSPC']?.state || prices['QQQ']?.state;
+            if (yahoo) {
+                const s = String(yahoo).toUpperCase();
+                if (s === 'REGULAR') return 'REGULAR';
+                if (s.startsWith('PRE')) return 'PRE';
+                if (s.startsWith('POST')) return 'POST';
+                if (s === 'CLOSED') return 'CLOSED';
+            }
+            // Fallback: ET-time-of-day classification
+            const now = new Date();
+            // Convert to ET. America/New_York is EDT (UTC-4) Mar–Nov, EST (UTC-5) Nov–Mar.
+            // Use Intl to get the correct ET wall clock.
+            const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', minute: 'numeric', hour12: false });
+            const parts = Object.fromEntries(fmt.formatToParts(now).map(p => [p.type, p.value]));
+            const wd = parts.weekday;
+            if (wd === 'Sat' || wd === 'Sun') return 'CLOSED';
+            const h = parseInt(parts.hour, 10);
+            const m = parseInt(parts.minute, 10);
+            const mins = h * 60 + m;
+            if (mins >= 9 * 60 + 30 && mins < 16 * 60) return 'REGULAR';
+            if (mins >= 4 * 60      && mins < 9 * 60 + 30) return 'PRE';
+            if (mins >= 16 * 60     && mins < 20 * 60) return 'POST';
+            return 'CLOSED';
+        }
+
+        const SESSION_STYLE = {
+            REGULAR: { label: 'REGULAR',     color: '#10b981', dot: '#10b981', tag: 'REG' },
+            PRE:     { label: 'PRE-MARKET',  color: '#3b82f6', dot: '#3b82f6', tag: 'PM'  },
+            POST:    { label: 'AFTER-HRS',   color: '#f59e0b', dot: '#f59e0b', tag: 'AH'  },
+            CLOSED:  { label: 'CLOSED',      color: '#94a3b8', dot: '#94a3b8', tag: 'CLOSED' },
+        };
+
+        // Returns the effective price + change% + a "tag" string (REG/PM/AH/EOD)
+        // based on the current session phase. Falls back to regular price + EOD.
+        function effectivePrice(ticker) {
+            const p = prices[ticker];
+            if (!p) return null;
+            const session = getMarketSession();
+            if (session === 'PRE' && p.pre != null) {
+                return { value: p.pre, change_pct: p.pre_pct, tag: 'PM', regular: p.price, regular_pct: p.change };
+            }
+            if (session === 'POST' && p.post != null) {
+                return { value: p.post, change_pct: p.post_pct, tag: 'AH', regular: p.price, regular_pct: p.change };
+            }
+            // REGULAR or CLOSED — show last regular price
+            return { value: p.price, change_pct: p.change, tag: session === 'REGULAR' ? null : 'REG', regular: p.price, regular_pct: p.change };
+        }
+
 
         async function fetchMTMPrices() {
             try {
@@ -2821,11 +2880,11 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 <th style="text-align:center;padding:8px 6px;">Status</th>
             </tr></thead>`;
 
-            // CMP source: live_prices first (intraday), latest EOD close as fallback
-            // when market is closed or live_prices doesn't have the ticker yet.
+            // CMP source: effectivePrice() picks PM/AH/regular based on session,
+            // falls back to EOD close when nothing live exists yet.
             const tickerCmp = (t) => {
-                const live = Number(prices[t]?.price);
-                if (live) return { value: live, source: 'live' };
+                const ep = effectivePrice(t);
+                if (ep && ep.value) return { value: ep.value, source: ep.tag === 'PM' ? 'pm' : ep.tag === 'AH' ? 'ah' : 'live' };
                 const eod = Number(paperTickerCloses[t]);
                 if (eod) return { value: eod, source: 'eod' };
                 return null;
@@ -2846,7 +2905,13 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 const unr = (cmp && entry) ? (cmp - entry) * qty : null;
                 const unrPct = (cmp && entry) ? (cmp / entry - 1) * 100 : null;
                 const unrColor = unr == null ? 'var(--text-secondary)' : unr >= 0 ? '#10b981' : '#ef4444';
-                const sourceTag = cmpObj?.source === 'eod' ? ' <span style="font-size:9px;color:var(--text-secondary);font-weight:400;">EOD</span>' : '';
+                const sourceTag = (() => {
+                    const s = cmpObj?.source;
+                    if (s === 'eod') return ' <span style="font-size:9px;color:var(--text-secondary);font-weight:400;">EOD</span>';
+                    if (s === 'pm')  return ' <span style="font-size:9px;color:#3b82f6;font-weight:500;">PM</span>';
+                    if (s === 'ah')  return ' <span style="font-size:9px;color:#f59e0b;font-weight:500;">AH</span>';
+                    return '';
+                })();
                 const families = (tr.signal_families || []).join(' · ');
                 return `<tr style="border-bottom:1px solid var(--border-color);">
                     <td style="padding:7px 6px;"><a href="https://www.tradingview.com/chart/?symbol=${tr.ticker}" target="_blank" style="font-weight:600;color:var(--text-primary);text-decoration:none;">${tr.ticker}</a></td>
@@ -3930,12 +3995,27 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     <div class="flex justify-between items-center mb-4">
                         <div class="flex items-center gap-4">
                             <h1 class="text-3xl font-bold" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">US Portfolio Tracker</h1>
-                            <div class="flex items-center gap-2">
-                                <div class="w-3 h-3 rounded-full ${isLiveData ? 'bg-green-500 animate-pulse' : 'bg-red-500'}"></div>
-                                <span class="text-sm font-medium ${isLiveData ? 'text-green-600' : 'text-red-600'}">
-                                    ${isLiveData ? 'LIVE' : 'FALLBACK'}
-                                </span>
-                            </div>
+                            ${(() => {
+                                const session = getMarketSession();
+                                const st = SESSION_STYLE[session];
+                                const pulse = session === 'REGULAR' ? 'animate-pulse' : '';
+                                // Show SP500/QQQ subline during PRE/POST as an early-mood read
+                                let sub = '';
+                                if (session === 'PRE' || session === 'POST') {
+                                    const spP  = effectivePrice('^GSPC');
+                                    const qqqP = effectivePrice('QQQ');
+                                    const fmtChg = (e) => e == null || e.change_pct == null ? '—' : (e.change_pct >= 0 ? '+' : '') + Number(e.change_pct).toFixed(2) + '%';
+                                    const spColor  = spP?.change_pct >= 0 ? '#10b981' : '#ef4444';
+                                    const qqqColor = qqqP?.change_pct >= 0 ? '#10b981' : '#ef4444';
+                                    sub = `<span style="font-size:11px;color:var(--text-secondary);margin-left:8px;">S&amp;P <span style="color:${spColor};font-weight:600;">${fmtChg(spP)}</span> · QQQ <span style="color:${qqqColor};font-weight:600;">${fmtChg(qqqP)}</span></span>`;
+                                }
+                                return `
+                                <div class="flex items-center gap-2">
+                                    <div class="w-3 h-3 rounded-full ${pulse}" style="background:${st.dot};"></div>
+                                    <span class="text-sm font-medium" style="color:${st.color};" title="US session phase (Yahoo marketState)">${st.label}</span>
+                                    ${sub}
+                                </div>`;
+                            })()}
                         </div>
                         <div class="flex items-center gap-3">
                             <div class="theme-toggle ${darkMode ? 'active' : ''}" onclick="toggleDarkMode()">
@@ -4471,8 +4551,10 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                             </thead>
                             <tbody>
                                 ${sortedPortfolio.filter(s => holdingsSectorFilter === 'All' || ((stockMeta[s.ticker] && stockMeta[s.ticker].sector) || s.sector || 'Unknown') === holdingsSectorFilter).map(stock => {
-                                    const currentPrice = prices[stock.ticker]?.price || 0;
-                                    const priceChange = prices[stock.ticker]?.change || 0;
+                                    const ep = effectivePrice(stock.ticker) || { value: 0, change_pct: 0, tag: null };
+                                    const currentPrice = ep.value || 0;
+                                    const priceChange = ep.change_pct || 0;
+                                    const sessionTag = ep.tag && ep.tag !== 'REG' ? ` <span style="font-size:9px;color:var(--text-secondary);font-weight:500;">${ep.tag}</span>` : '';
                                     const lots = FIFO.lotsByTicker[stock.ticker] || [];
                                     const hasLots = lots.length > 0;
                                     const costValue = fifoCostOf(stock);
@@ -4498,11 +4580,11 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                         <td class="text-right">${formatNumber(stock.quantity)}</td>
                                         <td class="text-right">$${formatNumber(fifoAvg)}</td>
                                         <td class="text-right font-semibold">$${formatNumber(costValue)}</td>
-                                        <td class="text-right">$${formatNumber(currentPrice)}</td>
+                                        <td class="text-right">$${formatNumber(currentPrice)}${sessionTag}</td>
                                         <td class="text-right">
                                             <span class="badge ${priceChange >= 0 ? 'badge-green' : 'badge-red'}">
                                                 ${priceChange >= 0 ? '+' : ''}${formatNumber(priceChange)}%
-                                            </span>
+                                            </span>${sessionTag}
                                         </td>
                                         <td class="text-right ${dayChange >= 0 ? 'text-green-600' : 'text-red-600'} font-semibold">
                                             $${formatNumber(dayChange)}
