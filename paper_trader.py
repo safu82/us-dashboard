@@ -27,12 +27,15 @@ Universal gates:
     committed notional <= 95% of sleeve, <= MAX_NEW_PER_DAY new entries/day.
   - Kill switches: pause entries if daily P&L < -2% or DD < -8% from ATH.
 
-Execution model:
-  D0 22:35 UTC — write candidates as PENDING (status='pending') with D0 ATR captured.
-  D1 13:35 UTC — paper_fill_pending.py reads pending rows, looks up live_prices
-                 first tick of session, fills at open + 15 bps slippage, flips
-                 status='open'. Auto-closes pending rows older than 2 trading
-                 days (exit_reason='fill_expired').
+Execution model (India parity):
+  D0 22:35 UTC — this script writes candidates as PENDING (status='pending')
+                 with D0 ATR captured.
+  D1 market open onward — yahoo_live_updater.py (Railway worker, every 15s
+                 during market hours) reads each pending row, fills at the
+                 first live LTP + 15 bps slippage. Same worker also runs
+                 intraday stop checks (exit at LTP if LTP <= current_stop) and
+                 MFE/MAE updates. paper_fill_pending.py remains as a manual
+                 rerun tool only.
 
 Exits:
   - Initial stop: 2 x ATR_14 below entry.

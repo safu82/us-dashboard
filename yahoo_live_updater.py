@@ -20,12 +20,21 @@ on Railway set them as service variables):
 
 import os
 import time
-from datetime import datetime, timezone
+import traceback
+from datetime import date, datetime, timezone
 
 import requests
 import pytz
 from supabase import create_client
 from dotenv import load_dotenv
+
+# Paper-trader constants + helpers, imported so the inline fill / stop / MFE
+# checks below stay 1:1 with the EOD scanner. Any tier-sizing change in
+# paper_trader.py flows here automatically.
+from paper_trader import (
+    SLIPPAGE_BPS, STOP_ATR_MULT,
+    size_position, trading_days_between, to_float, to_int,
+)
 
 load_dotenv()
 
@@ -38,7 +47,8 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 et = pytz.timezone('America/New_York')
 
 POLL_INTERVAL = 15      # seconds between price cycles
-TICKER_REFRESH = 300    # re-check holdings/transactions every 5 min
+TICKER_REFRESH = 300    # re-check holdings/transactions/paper-trades every 5 min
+PENDING_MAX_TRADING_DAYS = 2   # pending paper trades that can't fill within 2td expire
 
 # Index / benchmark symbols streamed alongside holdings (Yahoo symbols).
 INDEX_TICKERS = ['^GSPC', '^IXIC', '^DJI', '^VIX']
@@ -133,6 +143,236 @@ def fetch_and_update_prices(session, tickers):
     return len(updates)
 
 
+# ─── Paper-trade fill + intraday stop monitor + MFE/MAE tracker ──────────
+# Mirrors India's zerodha_rest_updater_railway.py architecture. On each price
+# tick cycle (every POLL_INTERVAL seconds during market hours):
+#   1) fill any pending paper_trades at the latest LTP
+#   2) close any open paper_trade whose LTP <= current_stop
+#   3) update per-trade MFE/MAE high-water marks
+# Keeps paper-trade state always-fresh; the nightly paper_trader.py only has
+# to handle EOD partials, trails, time stops, equity snapshot, and the daily
+# entry scan.
+
+def _expire_pending(tr, today_, reason):
+    supabase.table('paper_trades').update({
+        'status': 'closed',
+        'exit_date': today_.isoformat(),
+        'exit_reason': reason,
+        'exit_price': None,
+        'total_pnl': 0,
+        'total_pnl_pct': 0,
+        'current_quantity': 0,
+        'updated_at': datetime.utcnow().isoformat(),
+    }).eq('id', tr['id']).execute()
+
+
+def _close_paper_at_ltp(tr, ltp):
+    """Close an open paper trade at LTP — used when LTP <= current_stop intraday."""
+    entry_price = float(tr['entry_price'])
+    initial_qty = int(tr['initial_quantity'])
+    initial_stop = float(tr['initial_stop'])
+    current_qty = int(tr['current_quantity'])
+    if current_qty <= 0:
+        return
+    realised_pnl_before = float(tr.get('realised_pnl') or 0)
+    realised_qty_before = int(tr.get('realised_qty') or 0)
+    trail_armed = bool(tr.get('trail_armed'))
+    breakeven_armed = bool(tr.get('breakeven_armed'))
+    partials_taken = int(tr.get('partials_taken') or 0)
+    partials = tr.get('partials') or []
+
+    exit_chunk_pnl = (ltp - entry_price) * current_qty
+    realised_pnl = realised_pnl_before + exit_chunk_pnl
+    realised_qty = realised_qty_before + current_qty
+
+    entry_value = entry_price * initial_qty
+    total_pnl_pct = (realised_pnl / entry_value * 100) if entry_value else 0
+    risk_per_share = entry_price - initial_stop
+    r_mult = ((realised_pnl / initial_qty) / risk_per_share
+              if (initial_qty and risk_per_share > 0) else None)
+
+    today_et = datetime.now(et).date()
+    try:
+        entry_date_ = date.fromisoformat(tr['entry_date'])
+        holding_days = trading_days_between(entry_date_, today_et)
+    except Exception:
+        holding_days = 0
+
+    supabase.table('paper_trades').update({
+        'exit_date': today_et.isoformat(),
+        'exit_price': round(ltp, 4),
+        'exit_reason': 'trail_stop' if trail_armed else 'stop',
+        'total_pnl': round(realised_pnl, 2),
+        'total_pnl_pct': round(total_pnl_pct, 3),
+        'r_multiple': round(r_mult, 3) if r_mult is not None else None,
+        'holding_days': holding_days,
+        'current_quantity': 0,
+        'realised_pnl': round(realised_pnl, 2),
+        'realised_qty': realised_qty,
+        'partials': partials,
+        'partials_taken': partials_taken,
+        'breakeven_armed': breakeven_armed,
+        'trail_armed': trail_armed,
+        'status': 'closed',
+        'updated_at': datetime.utcnow().isoformat(),
+    }).eq('id', tr['id']).execute()
+
+
+def fill_pending_paper_trades():
+    """Fill any PENDING paper_trades using the latest live_prices tick as the
+    D1 entry. Expires rows older than PENDING_MAX_TRADING_DAYS. Idempotent."""
+    try:
+        resp = (supabase.table('paper_trades').select('*')
+                  .eq('status', 'pending').eq('mode', 'paper').execute())
+        pending = resp.data or []
+        if not pending:
+            return 0
+
+        tickers = [r['ticker'] for r in pending]
+        prices_resp = (supabase.table('live_prices').select('ticker, price')
+                         .in_('ticker', tickers).execute())
+        price_map = {r['ticker']: to_float(r.get('price'))
+                     for r in (prices_resp.data or [])}
+
+        today_et = datetime.now(et).date()
+        filled = 0
+        for tr in pending:
+            ticker = tr['ticker']
+            try:
+                scan_date = date.fromisoformat(tr['entry_date'])
+                age_td = trading_days_between(scan_date, today_et)
+
+                live_price = price_map.get(ticker)
+                if not live_price or live_price <= 0:
+                    if age_td > PENDING_MAX_TRADING_DAYS:
+                        _expire_pending(tr, today_et, 'fill_expired')
+                        print(f"  ⏳ PAPER EXPIRED: {ticker} (age={age_td}td, no live price)")
+                    continue
+
+                tier = tr['strategy_tier']
+                entry_atr = to_float(tr.get('entry_atr'))
+                if not entry_atr or entry_atr <= 0:
+                    _expire_pending(tr, today_et, 'fill_rejected_missing_atr')
+                    continue
+
+                entry_price = live_price * (1 + SLIPPAGE_BPS / 10_000)
+                qty, _, _ = size_position(tier, entry_price, entry_atr)
+                if qty == 0:
+                    _expire_pending(tr, today_et, 'fill_rejected_position_floor')
+                    print(f"  ❌ PAPER FILL REJECT: {ticker} qty=0 @ {entry_price:.2f}")
+                    continue
+
+                initial_stop = entry_price - STOP_ATR_MULT * entry_atr
+                initial_risk = qty * (entry_price - initial_stop)
+
+                supabase.table('paper_trades').update({
+                    'entry_date': today_et.isoformat(),
+                    'entry_price': round(entry_price, 4),
+                    'initial_quantity': qty,
+                    'current_quantity': qty,
+                    'entry_value': round(qty * entry_price, 2),
+                    'initial_risk': round(initial_risk, 2),
+                    'initial_stop': round(initial_stop, 4),
+                    'current_stop': round(initial_stop, 4),
+                    'status': 'open',
+                    'updated_at': datetime.utcnow().isoformat(),
+                }).eq('id', tr['id']).execute()
+                filled += 1
+                print(f"  ✅ PAPER FILL: {ticker} @ {entry_price:.2f} qty={qty} stop={initial_stop:.2f} ({tier})")
+            except Exception as e:
+                print(f"  ⚠️  Fill failed for {ticker}: {e}")
+        return filled
+    except Exception as e:
+        print(f"⚠️  fill_pending_paper_trades error: {e}")
+        return 0
+
+
+def check_paper_stops():
+    """Walk open paper trades, exit at LTP if LTP <= current_stop."""
+    try:
+        trades_resp = (supabase.table('paper_trades').select('*')
+                         .eq('status', 'open').eq('mode', 'paper').execute())
+        open_trades = trades_resp.data or []
+        if not open_trades:
+            return 0
+
+        tickers = [t['ticker'] for t in open_trades]
+        prices_resp = (supabase.table('live_prices').select('ticker, price')
+                         .in_('ticker', tickers).execute())
+        price_map = {r['ticker']: float(r.get('price') or 0)
+                     for r in (prices_resp.data or [])}
+
+        closed = 0
+        for tr in open_trades:
+            ltp = price_map.get(tr['ticker'], 0)
+            current_stop = float(tr.get('current_stop') or 0)
+            if ltp <= 0 or current_stop <= 0:
+                continue
+            if ltp > current_stop:
+                continue
+            try:
+                _close_paper_at_ltp(tr, ltp)
+                closed += 1
+                print(f"  🛑 PAPER STOP: {tr['ticker']} @ {ltp:.2f} (stop={current_stop:.2f}, tier={tr.get('strategy_tier')})")
+            except Exception as e:
+                print(f"  ⚠️  Failed to close paper trade {tr['ticker']}: {e}")
+        return closed
+    except Exception as e:
+        print(f"⚠️  check_paper_stops error: {e}")
+        return 0
+
+
+def update_paper_excursions():
+    """Update max_unrealized_pct / min_unrealized_pct on open paper trades
+    whenever the live LTP prints a new extreme. EOD batch (paper_trader.py)
+    will fold today's bar_high/bar_low into the same columns."""
+    try:
+        trades_resp = (supabase.table('paper_trades')
+                         .select('id, ticker, entry_price, max_unrealized_pct, min_unrealized_pct')
+                         .eq('status', 'open').eq('mode', 'paper').execute())
+        open_trades = trades_resp.data or []
+        if not open_trades:
+            return 0
+
+        tickers = [t['ticker'] for t in open_trades]
+        prices_resp = (supabase.table('live_prices').select('ticker, price')
+                         .in_('ticker', tickers).execute())
+        price_map = {r['ticker']: float(r.get('price') or 0)
+                     for r in (prices_resp.data or [])}
+
+        updates = 0
+        now_iso = datetime.utcnow().isoformat()
+        for tr in open_trades:
+            ltp = price_map.get(tr['ticker'], 0)
+            entry = float(tr.get('entry_price') or 0)
+            if ltp <= 0 or entry <= 0:
+                continue
+            unr_pct = (ltp - entry) / entry * 100
+
+            stored_max = tr.get('max_unrealized_pct')
+            stored_min = tr.get('min_unrealized_pct')
+            stored_max = float(stored_max) if stored_max is not None else None
+            stored_min = float(stored_min) if stored_min is not None else None
+
+            patch = {}
+            if stored_max is None or unr_pct > stored_max:
+                patch['max_unrealized_pct'] = round(unr_pct, 3)
+            if stored_min is None or unr_pct < stored_min:
+                patch['min_unrealized_pct'] = round(unr_pct, 3)
+            if not patch:
+                continue
+            patch['updated_at'] = now_iso
+            try:
+                supabase.table('paper_trades').update(patch).eq('id', tr['id']).execute()
+                updates += 1
+            except Exception as e:
+                print(f"  ⚠️  Excursion update failed for {tr['ticker']}: {e}")
+        return updates
+    except Exception as e:
+        print(f"⚠️  update_paper_excursions error: {e}")
+        return 0
+
+
 def main():
     print('=' * 60)
     print('YAHOO LIVE PRICE UPDATER - Railway worker')
@@ -175,7 +415,21 @@ def main():
                 last_ticker_refresh = time.time()
 
             n = fetch_and_update_prices(session, tickers)
-            print(f'{now:%H:%M:%S} ET - updated {n}/{len(tickers)} prices')
+            # Paper-trade state: fill pending -> open, then intraday stop checks,
+            # then MFE/MAE updates. Order matters: a fresh fill needs the LTP
+            # before its stop can be evaluated in the same cycle (it can't,
+            # since the fill closes the cycle for that ticker, but next tick
+            # will re-evaluate). Mirrors India ordering.
+            filled = fill_pending_paper_trades() if n > 0 else 0
+            stopped = check_paper_stops() if n > 0 else 0
+            excursions = update_paper_excursions() if n > 0 else 0
+
+            suffix_parts = []
+            if filled:     suffix_parts.append(f'filled_paper={filled}')
+            if stopped:    suffix_parts.append(f'stopped_paper={stopped}')
+            if excursions: suffix_parts.append(f'excursions={excursions}')
+            suffix = (', ' + ', '.join(suffix_parts)) if suffix_parts else ''
+            print(f'{now:%H:%M:%S} ET - updated {n}/{len(tickers)} prices{suffix}')
             time.sleep(POLL_INTERVAL)
 
         except KeyboardInterrupt:

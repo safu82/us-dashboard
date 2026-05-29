@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """
-Paper Trade Fill Job (US)
-=========================
-Runs at D1 ~13:35 UTC (~5 min after US open, after the D0 22:07 UTC scanner has
-produced pending rows). For each pending paper_trades row:
+Paper Trade Fill Job (US) — manual rerun / backup utility.
 
+NOTE: Production fills now happen inline in yahoo_live_updater.py
+(Railway worker), every POLL_INTERVAL seconds during market hours.
+This script remains as a manual rerun tool for ops scenarios:
+  - Railway worker down / not deployed
+  - Backfilling pending rows after fixing an upstream issue
+  - One-off debugging
+
+For each pending paper_trades row:
   1. Look up live_prices.price for the ticker.
   2. If found: recompute entry_price, qty, initial_stop using D1 open + D0 ATR,
      update the row to status='open' with entry_date=today.
   3. If not found: leave pending; next fill run will retry.
   4. If pending is older than 2 trading days: close with exit_reason='fill_expired'.
 
-If D1's open is high enough that qty drops to 0 (position floor), the row is
-closed with exit_reason='fill_rejected_position_floor'.
-
-Schedule: weekdays at 13:35 UTC (~9:35 AM ET, 5 min after open).
 Idempotent.
 """
 
