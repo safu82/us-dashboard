@@ -1,11 +1,14 @@
 name: Paper Trader — D0 scan (US)
 
-# 22:35 UTC Mon-Fri — 28 min after nightly-scan.yml starts (~13 min budget after
-# its 7-step chain). Reads today's entry_signals + presignal_scores and writes
-# PENDING paper_trades rows. paper-fill-pending.yml fills them at D1 open.
+# Triggered when nightly-scan.yml finishes successfully. This guarantees the
+# trader reads today's freshly-written entry_signals + presignal_scores, not
+# yesterday's stale data — independent of GitHub Actions cron drift.
+# Fills are NOT done here: yahoo_live_updater.py on Railway fills any PENDING
+# rows at the first live tick of the next market session.
 on:
-  schedule:
-    - cron: '35 22 * * 1-5'
+  workflow_run:
+    workflows: ["Nightly scan (US)"]
+    types: [completed]
   workflow_dispatch:
 
 jobs:
@@ -13,6 +16,9 @@ jobs:
     name: Paper trader scan + exits
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Only run when nightly-scan succeeded; skip on its failure / cancellation.
+    # workflow_dispatch (manual run) has no workflow_run context, so allow it through.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
