@@ -2816,6 +2816,8 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 <th style="text-align:right;padding:8px 6px;">Stop</th>
                 <th style="text-align:right;padding:8px 6px;">Notional</th>
                 <th style="text-align:right;padding:8px 6px;">Unrealised P&L</th>
+                <th style="text-align:right;padding:8px 6px;" title="Max Favorable Excursion — best unrealised move since entry">MFE</th>
+                <th style="text-align:right;padding:8px 6px;" title="Max Adverse Excursion — worst unrealised drawdown since entry">MAE</th>
                 <th style="text-align:center;padding:8px 6px;">Status</th>
             </tr></thead>`;
 
@@ -2827,6 +2829,13 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 const eod = Number(paperTickerCloses[t]);
                 if (eod) return { value: eod, source: 'eod' };
                 return null;
+            };
+
+            const fmtPct = (v, posColor, negColor) => {
+                if (v == null || isNaN(v)) return '<span style="color:var(--text-secondary);">—</span>';
+                const n = Number(v);
+                const color = n >= 0 ? (posColor || '#10b981') : (negColor || '#ef4444');
+                return `<span style="color:${color};font-weight:600;">${n >= 0 ? '+' : ''}${n.toFixed(2)}%</span>`;
             };
 
             const renderPositionRow = (tr) => {
@@ -2849,6 +2858,8 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     <td style="padding:7px 6px;text-align:right;color:#ef4444;">${fmtUsd(tr.current_stop)}</td>
                     <td style="padding:7px 6px;text-align:right;">${fmtUsd(tr.entry_value)}</td>
                     <td style="padding:7px 6px;text-align:right;color:${unrColor};font-weight:600;">${unr == null ? '—' : (unr >= 0 ? '+' : '') + fmtUsd(unr) + (unrPct != null ? ` (${unrPct >= 0 ? '+' : ''}${unrPct.toFixed(1)}%)` : '') + sourceTag}</td>
+                    <td style="padding:7px 6px;text-align:right;">${fmtPct(tr.max_unrealized_pct, '#10b981')}</td>
+                    <td style="padding:7px 6px;text-align:right;">${fmtPct(tr.min_unrealized_pct, '#10b981', '#ef4444')}</td>
                     <td style="padding:7px 6px;text-align:center;">${statusBadge(tr.status)}</td>
                 </tr>`;
             };
@@ -2890,6 +2901,8 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     <td style="padding:6px;text-align:right;color:${pnlColor};font-weight:600;">${pnl >= 0 ? '+' : ''}${fmtUsd(pnl)}</td>
                     <td style="padding:6px;text-align:right;color:${pnlColor};">${isNaN(pnlPct) ? '—' : (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%'}</td>
                     <td style="padding:6px;text-align:right;color:${rColor};font-weight:600;">${isNaN(r) || r == null ? '—' : (r >= 0 ? '+' : '') + r.toFixed(2) + 'R'}</td>
+                    <td style="padding:6px;text-align:right;">${fmtPct(tr.max_unrealized_pct, '#10b981')}</td>
+                    <td style="padding:6px;text-align:right;">${fmtPct(tr.min_unrealized_pct, '#10b981', '#ef4444')}</td>
                     <td style="padding:6px;text-align:right;color:var(--text-secondary);">${tr.holding_days != null ? tr.holding_days + 'd' : '—'}</td>
                 </tr>`;
             };
@@ -2908,6 +2921,8 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         <th style="text-align:right;padding:8px 6px;">P&L</th>
                         <th style="text-align:right;padding:8px 6px;">%</th>
                         <th style="text-align:right;padding:8px 6px;">R</th>
+                        <th style="text-align:right;padding:8px 6px;" title="Max Favorable Excursion — best move during the trade's life">MFE</th>
+                        <th style="text-align:right;padding:8px 6px;" title="Max Adverse Excursion — worst drawdown during the trade's life">MAE</th>
                         <th style="text-align:right;padding:8px 6px;">Held</th>
                     </tr></thead>
                     <tbody>${closedTrades.map(closedRow).join('')}</tbody>
