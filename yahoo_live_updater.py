@@ -54,7 +54,9 @@ AH_PM_ALERT_THRESHOLD = 2.0    # % move in PM/AH on a held ticker => alert
 AH_PM_ALERT_DEDUPE_HOURS = 12  # don't re-log the same ticker within this window
 
 # Index / benchmark symbols streamed alongside holdings (Yahoo symbols).
-INDEX_TICKERS = ['^GSPC', '^IXIC', '^DJI', '^VIX']
+# SPY is included so we have an S&P 500 read during pre/post-market — the
+# raw ^GSPC index doesn't trade extended hours (computed from constituents).
+INDEX_TICKERS = ['^GSPC', '^IXIC', '^DJI', '^VIX', 'SPY']
 
 YAHOO_HOSTS = ['https://query1.finance.yahoo.com',
                'https://query2.finance.yahoo.com']
@@ -115,40 +117,83 @@ def get_streaming_tickers():
 
 
 def fetch_quote(session, symbol):
-    """Fetch one quote from the Yahoo v8 chart endpoint.
+    """Fetch one quote from the Yahoo v8 chart endpoint, with extended-hours.
     Returns dict(price, prev_close, volume, pre, post, state) or None on failure.
-    `pre`/`post` are populated only during their respective windows."""
+
+    Uses interval=1m + range=1d + includePrePost=true. Yahoo's v8 meta does NOT
+    expose preMarketPrice / postMarketPrice (only regularMarketPrice), so we
+    walk the 1-minute bars (which span 4 AM -> 8 PM ET when includePrePost is
+    set) and pick the latest close in each session window.
+    """
     for host in YAHOO_HOSTS:
         try:
-            url = f'{host}/v8/finance/chart/{symbol}?interval=1d&range=1d'
+            url = f'{host}/v8/finance/chart/{symbol}?interval=1m&range=1d&includePrePost=true'
             r = session.get(url, timeout=10)
             if r.status_code != 200:
                 continue
-            meta = r.json()['chart']['result'][0]['meta']
-            price = meta.get('regularMarketPrice')
+            j = r.json()
+            result = j['chart']['result'][0]
+            meta = result['meta']
+            timestamps = result.get('timestamp') or []
+            closes = (result.get('indicators', {}).get('quote', [{}])[0].get('close') or [])
             prev = meta.get('chartPreviousClose') or meta.get('previousClose')
-            if price is None or prev is None:
+            regular = meta.get('regularMarketPrice')
+            volume = meta.get('regularMarketVolume') or 0
+            if prev is None or regular is None:
                 continue
+
+            # Walk bars from newest -> oldest, classify by ET wall-clock window,
+            # capture latest close in each (regular / pre / post)
+            latest_regular = None
+            latest_pre = None
+            latest_post = None
+            for ts, c in zip(reversed(timestamps), reversed(closes)):
+                if c is None:
+                    continue
+                dt_et = datetime.fromtimestamp(ts, tz=et)
+                if dt_et.weekday() >= 5:
+                    continue
+                mins = dt_et.hour * 60 + dt_et.minute
+                if 9 * 60 + 30 <= mins < 16 * 60:
+                    if latest_regular is None:
+                        latest_regular = float(c)
+                elif 4 * 60 <= mins < 9 * 60 + 30:
+                    if latest_pre is None:
+                        latest_pre = float(c)
+                elif 16 * 60 <= mins < 20 * 60:
+                    if latest_post is None:
+                        latest_post = float(c)
+                if latest_regular is not None and latest_pre is not None and latest_post is not None:
+                    break
+
+            # Use the bar-derived regular price if we have one (more current than
+            # meta.regularMarketPrice which may be stale by the session)
+            if latest_regular is not None:
+                regular_now = latest_regular
+            else:
+                regular_now = float(regular)
+
+            # Determine LTP based on the current phase
+            phase_now = current_session_phase()
+            if phase_now == 'PRE' and latest_pre is not None:
+                ltp = latest_pre
+            elif phase_now == 'POST' and latest_post is not None:
+                ltp = latest_post
+            else:
+                ltp = regular_now
+
             return {
-                'price': float(price),
+                'price': float(ltp),
                 'prev_close': float(prev),
-                'volume': int(meta.get('regularMarketVolume') or 0),
-                'pre':   _safe_float(meta.get('preMarketPrice')),
-                'post':  _safe_float(meta.get('postMarketPrice')),
-                'state': meta.get('marketState'),   # PRE / REGULAR / POST / CLOSED (Yahoo's own classification)
+                'volume': int(volume),
+                'pre':   latest_pre,
+                'post':  latest_post,
+                'state': meta.get('marketState') or phase_now,
+                'regular': regular_now,
             }
         except Exception:
             continue
     return None
-
-
-def _safe_float(v):
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
 
 
 def fetch_and_update_prices(session, tickers, phase):

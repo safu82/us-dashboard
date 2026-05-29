@@ -4002,7 +4002,9 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                 // Show SP500/QQQ subline during PRE/POST as an early-mood read
                                 let sub = '';
                                 if (session === 'PRE' || session === 'POST') {
-                                    const spP  = effectivePrice('^GSPC');
+                                    // Prefer SPY for S&P during PM/AH — the raw ^GSPC index
+                                    // doesn't trade extended hours (computed from constituents)
+                                    const spP  = effectivePrice('SPY') || effectivePrice('^GSPC');
                                     const qqqP = effectivePrice('QQQ');
                                     const fmtChg = (e) => e == null || e.change_pct == null ? '—' : (e.change_pct >= 0 ? '+' : '') + Number(e.change_pct).toFixed(2) + '%';
                                     const spColor  = spP?.change_pct >= 0 ? '#10b981' : '#ef4444';
