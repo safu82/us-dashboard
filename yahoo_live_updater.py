@@ -118,16 +118,25 @@ def get_streaming_tickers():
 
 def fetch_quote(session, symbol):
     """Fetch one quote from the Yahoo v8 chart endpoint, with extended-hours.
-    Returns dict(price, prev_close, volume, pre, post, state) or None on failure.
+    Returns dict(price, prev_close, volume, pre, post, today_regular_close,
+    state) or None on failure.
 
-    Uses interval=1m + range=1d + includePrePost=true. Yahoo's v8 meta does NOT
-    expose preMarketPrice / postMarketPrice (only regularMarketPrice), so we
-    walk the 1-minute bars (which span 4 AM -> 8 PM ET when includePrePost is
-    set) and pick the latest close in each session window.
+    Uses interval=1m + range=2d + includePrePost=true. Yahoo's v8 meta does NOT
+    expose preMarketPrice / postMarketPrice (only regularMarketPrice), AND
+    meta.chartPreviousClose with interval=1m returns the wrong baseline (the
+    close right before the chart data starts ~ 2 days back). So we walk the
+    1-minute bars over 2 days, classify each by ET day + session window, and
+    pick out:
+      - prev_regular_close: yesterday's last regular-session bar close
+                            (the standard "previous close" used for day-change %)
+      - today_regular_close: today's last regular-session bar close
+                             (baseline for after-hours % change)
+      - latest_pre:  today's latest pre-market bar close
+      - latest_post: today's latest post-market bar close
     """
     for host in YAHOO_HOSTS:
         try:
-            url = f'{host}/v8/finance/chart/{symbol}?interval=1m&range=1d&includePrePost=true'
+            url = f'{host}/v8/finance/chart/{symbol}?interval=1m&range=2d&includePrePost=true'
             r = session.get(url, timeout=10)
             if r.status_code != 200:
                 continue
@@ -136,17 +145,16 @@ def fetch_quote(session, symbol):
             meta = result['meta']
             timestamps = result.get('timestamp') or []
             closes = (result.get('indicators', {}).get('quote', [{}])[0].get('close') or [])
-            prev = meta.get('chartPreviousClose') or meta.get('previousClose')
-            regular = meta.get('regularMarketPrice')
             volume = meta.get('regularMarketVolume') or 0
-            if prev is None or regular is None:
+            if not timestamps or not closes:
                 continue
 
-            # Walk bars from newest -> oldest, classify by ET wall-clock window,
-            # capture latest close in each (regular / pre / post)
-            latest_regular = None
-            latest_pre = None
-            latest_post = None
+            today_et = datetime.now(et).date()
+            today_pre = None
+            today_post = None
+            today_regular_last = None
+            prior_regular_last = None  # last regular bar from any earlier day in the window
+
             for ts, c in zip(reversed(timestamps), reversed(closes)):
                 if c is None:
                     continue
@@ -154,42 +162,64 @@ def fetch_quote(session, symbol):
                 if dt_et.weekday() >= 5:
                     continue
                 mins = dt_et.hour * 60 + dt_et.minute
-                if 9 * 60 + 30 <= mins < 16 * 60:
-                    if latest_regular is None:
-                        latest_regular = float(c)
-                elif 4 * 60 <= mins < 9 * 60 + 30:
-                    if latest_pre is None:
-                        latest_pre = float(c)
-                elif 16 * 60 <= mins < 20 * 60:
-                    if latest_post is None:
-                        latest_post = float(c)
-                if latest_regular is not None and latest_pre is not None and latest_post is not None:
+                is_today    = (dt_et.date() == today_et)
+                is_regular  = (9 * 60 + 30 <= mins < 16 * 60)
+                is_pre      = (4 * 60      <= mins < 9 * 60 + 30)
+                is_post     = (16 * 60     <= mins < 20 * 60)
+                if is_today:
+                    if is_regular and today_regular_last is None:
+                        today_regular_last = float(c)
+                    elif is_pre and today_pre is None:
+                        today_pre = float(c)
+                    elif is_post and today_post is None:
+                        today_post = float(c)
+                else:
+                    if is_regular and prior_regular_last is None:
+                        prior_regular_last = float(c)
+                if today_pre is not None and today_post is not None \
+                        and today_regular_last is not None and prior_regular_last is not None:
                     break
 
-            # Use the bar-derived regular price if we have one (more current than
-            # meta.regularMarketPrice which may be stale by the session)
-            if latest_regular is not None:
-                regular_now = latest_regular
-            else:
-                regular_now = float(regular)
+            # Fall back to meta.regularMarketPrice for the prev close baseline
+            # if our 2d window didn't capture a prior regular bar (Monday after
+            # a long weekend, holiday boundary, etc.). During PRE/POST,
+            # regularMarketPrice IS the last regular session close.
+            meta_reg = meta.get('regularMarketPrice')
+            if prior_regular_last is None:
+                if meta_reg is not None and today_regular_last is None:
+                    # No regular bar today and no prior bar — assume meta is
+                    # the most recent regular close
+                    prior_regular_last = float(meta_reg)
+                elif meta_reg is not None and today_regular_last is not None:
+                    # We have today's regular bar but no prior — this is unusual
+                    # (would need 2 days of regular bars in range); use meta as
+                    # best guess of prev close
+                    prior_regular_last = float(meta_reg)
 
-            # Determine LTP based on the current phase
             phase_now = current_session_phase()
-            if phase_now == 'PRE' and latest_pre is not None:
-                ltp = latest_pre
-            elif phase_now == 'POST' and latest_post is not None:
-                ltp = latest_post
+
+            # Live LTP based on phase
+            if phase_now == 'PRE' and today_pre is not None:
+                ltp = today_pre
+            elif phase_now == 'POST' and today_post is not None:
+                ltp = today_post
+            elif phase_now == 'REGULAR' and today_regular_last is not None:
+                ltp = today_regular_last
             else:
-                ltp = regular_now
+                ltp = today_regular_last or prior_regular_last or float(meta_reg or 0)
+
+            if not ltp or prior_regular_last is None:
+                continue
 
             return {
                 'price': float(ltp),
-                'prev_close': float(prev),
+                'prev_close': float(prior_regular_last),  # yesterday's regular close = day-change baseline
                 'volume': int(volume),
-                'pre':   latest_pre,
-                'post':  latest_post,
+                'pre':   today_pre,
+                'post':  today_post,
+                'today_regular_close': today_regular_last,  # baseline for post-market % change
                 'state': meta.get('marketState') or phase_now,
-                'regular': regular_now,
+                'regular': today_regular_last or prior_regular_last,
             }
         except Exception:
             continue
@@ -208,11 +238,14 @@ def fetch_and_update_prices(session, tickers, phase):
             continue
         day_change = q['price'] - q['prev_close']
         day_change_pct = (day_change / q['prev_close'] * 100) if q['prev_close'] else 0
-        # Pre/post change % relative to the regular previous close
+        # Pre-market change is vs yesterday's regular close (= prev_close)
+        # Post-market change is vs today's regular close (= today_regular_close)
+        # — both match standard brokerage convention.
         pre  = q.get('pre')
         post = q.get('post')
+        post_base = q.get('today_regular_close') or q['prev_close']
         pre_chg_pct  = ((pre  - q['prev_close']) / q['prev_close'] * 100) if (pre  and q['prev_close']) else None
-        post_chg_pct = ((post - q['prev_close']) / q['prev_close'] * 100) if (post and q['prev_close']) else None
+        post_chg_pct = ((post - post_base)        / post_base        * 100) if (post and post_base)        else None
         # market_state: prefer Yahoo's classification, fall back to our local phase
         state = q.get('state') or phase
 
