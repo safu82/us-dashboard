@@ -2797,7 +2797,9 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             </div>`;
 
             // ── 2. Equity curve ────────────────────────────────────────────
-            const equityCard = paperEquity.length > 1 ? `
+            // Render the canvas whenever any trade activity exists — the chart
+            // function appends a live "today" point so a single equity row is enough.
+            const equityCard = (paperEquity.length > 0 || paperTrades.length > 0) ? `
             <div class="card p-4 mb-4">
                 <h3 style="font-size:15px;font-weight:700;margin:0 0 8px;">📈 Equity Curve — Sleeve vs Benchmarks</h3>
                 <div style="position:relative;height:320px;"><canvas id="algoEquityChart"></canvas></div>
@@ -2950,14 +2952,66 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
 
         function drawAlgoEquityChart() {
             const canvas = document.getElementById('algoEquityChart');
-            if (!canvas || paperEquity.length < 2) return;
+            if (!canvas) return;
             if (algoCharts.equity) { algoCharts.equity.destroy(); algoCharts.equity = null; }
 
-            const rows = [...paperEquity].reverse();  // oldest -> newest
-            const labels = rows.map(r => new Date(r.snapshot_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+            // Compute today's live sleeve value (same formula as headline cards)
+            const allOpen = paperTrades.filter(t => t.status === 'open');
+            const allClosed = paperTrades.filter(t => t.status === 'closed');
+            const cmpFor = (t) => Number(prices[t]?.price) || Number(paperTickerCloses[t]) || 0;
+            const tiedUp = allOpen.reduce((s, t) =>
+                s + (Number(t.current_quantity) || 0) * (Number(t.entry_price) || 0), 0);
+            const cumRealised = allClosed.reduce((s, t) => s + (Number(t.total_pnl) || 0), 0);
+            const positionsValue = allOpen.reduce((s, t) =>
+                s + cmpFor(t.ticker) * (Number(t.current_quantity) || 0), 0);
+            const liveTotal = SLEEVE_USD - tiedUp + cumRealised + positionsValue;
+            const liveSp = Number(prices['^GSPC']?.price) || null;
+            const liveQqq = Number(prices['QQQ']?.price) || null;
+
+            // Build rows oldest -> newest, then update/append today
+            let rows = [...paperEquity].reverse();
+            const todayStr = new Date().toISOString().slice(0, 10);
+            const lastDate = rows.length ? rows[rows.length - 1].snapshot_date : null;
+
+            if (lastDate === todayStr) {
+                // Today's snapshot already exists — overlay live values on it
+                rows[rows.length - 1] = {
+                    ...rows[rows.length - 1],
+                    total_value: liveTotal,
+                    bench_sp500: liveSp ?? rows[rows.length - 1].bench_sp500,
+                    bench_qqq:   liveQqq ?? rows[rows.length - 1].bench_qqq,
+                };
+            } else {
+                // No row for today yet — append a synthetic live point
+                // (also carry forward last known bench prices if live is missing)
+                const lastSp  = rows.length ? Number(rows[rows.length - 1].bench_sp500) : null;
+                const lastQqq = rows.length ? Number(rows[rows.length - 1].bench_qqq) : null;
+                rows.push({
+                    snapshot_date: todayStr,
+                    total_value: liveTotal,
+                    bench_sp500: liveSp ?? lastSp,
+                    bench_qqq:   liveQqq ?? lastQqq,
+                });
+            }
+
+            // Need at least 2 points to draw a meaningful line — prepend a
+            // synthetic "start of sleeve" point at $50k if we only have one row.
+            if (rows.length < 2) {
+                const firstSp  = Number(rows[0].bench_sp500) || null;
+                const firstQqq = Number(rows[0].bench_qqq) || null;
+                rows.unshift({
+                    snapshot_date: 'Start',
+                    total_value: SLEEVE_USD,
+                    bench_sp500: firstSp,
+                    bench_qqq:   firstQqq,
+                });
+            }
+
+            const labels = rows.map(r => r.snapshot_date === 'Start' ? 'Start'
+                : new Date(r.snapshot_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
             const sleeve = rows.map(r => Number(r.total_value));
 
-            // Normalize benchmarks to start at sleeve_USD (visual comparison)
+            // Normalize benchmarks to start at SLEEVE_USD (visual comparison)
             const sp = rows.map(r => Number(r.bench_sp500)).filter(x => !isNaN(x));
             const qqq = rows.map(r => Number(r.bench_qqq)).filter(x => !isNaN(x));
             const spBase = sp[0] || null;
