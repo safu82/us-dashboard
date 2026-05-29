@@ -62,7 +62,12 @@ def is_market_open():
 
 
 def get_streaming_tickers():
-    """Holdings + transaction-ledger tickers + index symbols."""
+    """Holdings + transaction-ledger tickers + paper-trade tickers + index symbols.
+
+    paper_trades pending rows need a live tick so paper_fill_pending.py can fill
+    them at the D1 open. Open paper rows need a live tick so the Algo tab can
+    show live unrealised P&L (and so the future intraday stop watcher works).
+    Closed paper rows are excluded — no further pricing needed."""
     tickers = set(INDEX_TICKERS)
     try:
         for h in (supabase.table('holdings').select('ticker').execute().data or []):
@@ -71,6 +76,10 @@ def get_streaming_tickers():
         for t in (supabase.table('transactions').select('ticker').execute().data or []):
             if t.get('ticker'):
                 tickers.add(t['ticker'])
+        for p in (supabase.table('paper_trades').select('ticker')
+                          .in_('status', ['pending', 'open']).execute().data or []):
+            if p.get('ticker'):
+                tickers.add(p['ticker'])
     except Exception as e:
         print(f'WARN: could not load tickers from Supabase: {e}')
     return tickers
