@@ -518,6 +518,7 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let paperTrades = [];              // all paper_trades rows
         let paperEquity = [];              // paper_equity history (newest-first)
         let paperRunLog = [];              // paper_run_log (newest-first)
+        let paperTickerCloses = {};        // ticker -> latest EOD close (fallback when live_prices is empty)
         let paperTierFilter = 'ALL';       // ALL | T1_MULTI_STRONG | T2_STRONG_REG | T3_MULTI_REG | T4_RS_ACCEL
         let algoCharts = {};               // Chart.js instances on Algo tab
         let sectorDrawerOpen = false;      // is the sector-detail drawer open?
@@ -2631,15 +2632,35 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 if (tradesRes.error) throw tradesRes.error;
                 if (equityRes.error) throw equityRes.error;
                 if (runRes.error)    throw runRes.error;
-                console.log(`✅ Loaded ${tradesRes.data?.length || 0} paper_trades, ${equityRes.data?.length || 0} paper_equity, ${runRes.data?.length || 0} run_log`);
+
+                // Latest EOD close per open/pending paper-trade ticker. Used as a
+                // fallback for unrealised P&L when live_prices is empty
+                // (market closed or ticker not yet streaming).
+                const tickers = [...new Set(
+                    (tradesRes.data || []).filter(t => t.status === 'open' || t.status === 'pending').map(t => t.ticker)
+                )];
+                const closes = {};
+                if (tickers.length) {
+                    const latestSnap = await supabase.from('daily_stock_snapshots')
+                        .select('snapshot_date').order('snapshot_date', { ascending: false }).limit(1);
+                    const d = latestSnap.data?.[0]?.snapshot_date;
+                    if (d) {
+                        const { data } = await supabase.from('daily_stock_snapshots')
+                            .select('ticker, close').in('ticker', tickers).eq('snapshot_date', d);
+                        (data || []).forEach(r => { closes[r.ticker] = Number(r.close); });
+                    }
+                }
+
+                console.log(`✅ Loaded ${tradesRes.data?.length || 0} paper_trades, ${equityRes.data?.length || 0} paper_equity, ${runRes.data?.length || 0} run_log, ${Object.keys(closes).length} ticker closes`);
                 return {
                     trades: tradesRes.data || [],
                     equity: equityRes.data || [],
                     runLog: runRes.data || [],
+                    closes,
                 };
             } catch (e) {
                 console.error('❌ Error loading paper trading data:', e);
-                return { trades: [], equity: [], runLog: [] };
+                return { trades: [], equity: [], runLog: [], closes: {} };
             }
         }
 
@@ -2777,15 +2798,25 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 <th style="text-align:center;padding:8px 6px;">Status</th>
             </tr></thead>`;
 
-            const tickerCmp = (t) => Number(prices[t]?.price) || null;
+            // CMP source: live_prices first (intraday), latest EOD close as fallback
+            // when market is closed or live_prices doesn't have the ticker yet.
+            const tickerCmp = (t) => {
+                const live = Number(prices[t]?.price);
+                if (live) return { value: live, source: 'live' };
+                const eod = Number(paperTickerCloses[t]);
+                if (eod) return { value: eod, source: 'eod' };
+                return null;
+            };
 
             const renderPositionRow = (tr) => {
-                const cmp = tickerCmp(tr.ticker);
+                const cmpObj = tickerCmp(tr.ticker);
+                const cmp = cmpObj?.value || null;
                 const entry = Number(tr.entry_price) || 0;
                 const qty = Number(tr.current_quantity) || 0;
                 const unr = (cmp && entry) ? (cmp - entry) * qty : null;
                 const unrPct = (cmp && entry) ? (cmp / entry - 1) * 100 : null;
                 const unrColor = unr == null ? 'var(--text-secondary)' : unr >= 0 ? '#10b981' : '#ef4444';
+                const sourceTag = cmpObj?.source === 'eod' ? ' <span style="font-size:9px;color:var(--text-secondary);font-weight:400;">EOD</span>' : '';
                 const families = (tr.signal_families || []).join(' · ');
                 return `<tr style="border-bottom:1px solid var(--border-color);">
                     <td style="padding:7px 6px;"><a href="https://www.tradingview.com/chart/?symbol=${tr.ticker}" target="_blank" style="font-weight:600;color:var(--text-primary);text-decoration:none;">${tr.ticker}</a></td>
@@ -2796,7 +2827,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     <td style="padding:7px 6px;text-align:right;color:var(--text-secondary);">${qty}</td>
                     <td style="padding:7px 6px;text-align:right;color:#ef4444;">${fmtUsd(tr.current_stop)}</td>
                     <td style="padding:7px 6px;text-align:right;">${fmtUsd(tr.entry_value)}</td>
-                    <td style="padding:7px 6px;text-align:right;color:${unrColor};font-weight:600;">${unr == null ? '—' : (unr >= 0 ? '+' : '') + fmtUsd(unr) + (unrPct != null ? ` (${unrPct >= 0 ? '+' : ''}${unrPct.toFixed(1)}%)` : '')}</td>
+                    <td style="padding:7px 6px;text-align:right;color:${unrColor};font-weight:600;">${unr == null ? '—' : (unr >= 0 ? '+' : '') + fmtUsd(unr) + (unrPct != null ? ` (${unrPct >= 0 ? '+' : ''}${unrPct.toFixed(1)}%)` : '') + sourceTag}</td>
                     <td style="padding:7px 6px;text-align:center;">${statusBadge(tr.status)}</td>
                 </tr>`;
             };
@@ -5237,6 +5268,7 @@ if (supabaseTransactions && supabaseTransactions.length > 0) {
     paperTrades = _paper.trades;
     paperEquity = _paper.equity;
     paperRunLog = _paper.runLog;
+    paperTickerCloses = _paper.closes || {};
 
     // Load meta (sector + market cap) for sector/market-cap charts
     stockMeta = await loadMetaFromSupabase();
