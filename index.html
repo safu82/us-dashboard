@@ -2707,18 +2707,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 </div>`;
             }
 
-            // Latest equity snapshot
-            const latest = paperEquity[0] || {};
-            const prev = paperEquity[1] || {};
-            const totalValue = Number(latest.total_value) || SLEEVE_USD;
-            const cash = Number(latest.cash) || 0;
-            const positionsValue = Number(latest.positions_value) || 0;
-            const dd = Number(latest.drawdown_pct) || 0;
-            const realisedToday = Number(latest.realised_today) || 0;
-            const totalReturnPct = (totalValue / SLEEVE_USD - 1) * 100;
-            const dayPnl = totalValue - (Number(prev.total_value) || SLEEVE_USD);
-
-            // Tier filtering
+            // Tier filtering (used for the tables below)
             const tradesFiltered = paperTierFilter === 'ALL'
                 ? paperTrades
                 : paperTrades.filter(t => t.strategy_tier === paperTierFilter);
@@ -2726,6 +2715,36 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             const openTrades    = tradesFiltered.filter(t => t.status === 'open');
             const pendingTrades = tradesFiltered.filter(t => t.status === 'pending');
             const closedTrades  = tradesFiltered.filter(t => t.status === 'closed').slice(0, 50);
+
+            // Headline cards: compute live from ALL trades (not filtered) + CMP fallback.
+            // Don't read paperEquity[0] for live numbers — that's a daily snapshot, stale
+            // between scheduled runs. Use it only as the "yesterday's close" reference
+            // for Day P&L.
+            const allOpen   = paperTrades.filter(t => t.status === 'open');
+            const allClosed = paperTrades.filter(t => t.status === 'closed');
+            const cmpFor = (t) => Number(prices[t]?.price) || Number(paperTickerCloses[t]) || 0;
+
+            const tiedUp = allOpen.reduce((s, t) =>
+                s + (Number(t.current_quantity) || 0) * (Number(t.entry_price) || 0), 0);
+            const cumRealised = allClosed.reduce((s, t) => s + (Number(t.total_pnl) || 0), 0);
+            const positionsValue = allOpen.reduce((s, t) =>
+                s + cmpFor(t.ticker) * (Number(t.current_quantity) || 0), 0);
+            const cash = SLEEVE_USD - tiedUp + cumRealised;
+            const totalValue = cash + positionsValue;
+            const totalReturnPct = (totalValue / SLEEVE_USD - 1) * 100;
+
+            // Drawdown: live total vs all-time-high (sleeve, prior equity snapshots, current)
+            const ath = Math.max(
+                SLEEVE_USD,
+                ...paperEquity.map(e => Number(e.total_value) || SLEEVE_USD),
+                totalValue,
+            );
+            const dd = ath > 0 ? (totalValue - ath) / ath * 100 : 0;
+
+            // Day P&L: live total vs yesterday's settled equity row (or sleeve if first day)
+            const yesterdayTotal = Number(paperEquity[0]?.total_value) || SLEEVE_USD;
+            const dayPnl = totalValue - yesterdayTotal;
+            const realisedToday = Number(paperEquity[0]?.realised_today) || 0;
 
             const tierPill = (key, label, color) => {
                 const active = paperTierFilter === key;
