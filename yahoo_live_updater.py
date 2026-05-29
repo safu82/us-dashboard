@@ -50,6 +50,8 @@ POLL_REGULAR  = 15      # seconds between price cycles during regular session
 POLL_EXTENDED = 60      # slower polling during pre/post-market (thin liquidity)
 TICKER_REFRESH = 300    # re-check holdings/transactions/paper-trades every 5 min
 PENDING_MAX_TRADING_DAYS = 2   # pending paper trades that can't fill within 2td expire
+AH_PM_ALERT_THRESHOLD = 2.0    # % move in PM/AH on a held ticker => alert
+AH_PM_ALERT_DEDUPE_HOURS = 12  # don't re-log the same ticker within this window
 
 # Index / benchmark symbols streamed alongside holdings (Yahoo symbols).
 INDEX_TICKERS = ['^GSPC', '^IXIC', '^DJI', '^VIX']
@@ -418,6 +420,78 @@ def update_paper_excursions():
         return 0
 
 
+def check_ah_pm_earnings_alerts(phase):
+    """During PRE/POST phase, if any held ticker has moved >= AH_PM_ALERT_THRESHOLD
+    in extended hours vs prev regular close, INSERT into `alerts` table with
+    alert_type='earnings_reaction'. Idempotent within AH_PM_ALERT_DEDUPE_HOURS
+    via an existence check on the same (ticker, alert_type, alert_date).
+    """
+    if phase not in ('PRE', 'POST'):
+        return 0
+    try:
+        # Universe = real holdings only (not paper). Earnings hits matter for
+        # capital at risk; paper picks are informational.
+        held = (supabase.table('holdings').select('ticker').execute().data or [])
+        held_tickers = {h['ticker'] for h in held if h.get('ticker')}
+        if not held_tickers:
+            return 0
+
+        # Pull current live_prices for held tickers
+        prices_resp = (supabase.table('live_prices')
+                         .select('ticker, pre_market_price, pre_market_change_pct, '
+                                 'post_market_price, post_market_change_pct, prev_close')
+                         .in_('ticker', list(held_tickers)).execute())
+
+        today_iso = datetime.now(et).date().isoformat()
+        logged = 0
+        for r in (prices_resp.data or []):
+            ticker = r['ticker']
+            if phase == 'PRE':
+                px = r.get('pre_market_price'); chg = r.get('pre_market_change_pct')
+            else:
+                px = r.get('post_market_price'); chg = r.get('post_market_change_pct')
+            if px is None or chg is None:
+                continue
+            if abs(float(chg)) < AH_PM_ALERT_THRESHOLD:
+                continue
+
+            # Dedupe: skip if we already logged an earnings_reaction for this
+            # ticker today (or within DEDUPE_HOURS).
+            existing = (supabase.table('alerts')
+                          .select('id')
+                          .eq('ticker', ticker)
+                          .eq('alert_type', 'earnings_reaction')
+                          .eq('alert_date', today_iso)
+                          .limit(1).execute())
+            if existing.data:
+                continue
+
+            direction = 'up' if float(chg) > 0 else 'down'
+            try:
+                supabase.table('alerts').insert({
+                    'ticker': ticker,
+                    'alert_type': 'earnings_reaction',
+                    'alert_date': today_iso,
+                    'direction': direction,
+                    'close': round(float(px), 4),
+                    'metadata': {
+                        'move_pct': round(float(chg), 3),
+                        'market_state': phase,
+                        'prev_regular_close': float(r.get('prev_close') or 0),
+                        'detected_at': datetime.utcnow().isoformat(),
+                    },
+                }).execute()
+                logged += 1
+                arrow = '↑' if direction == 'up' else '↓'
+                print(f"  📣 EARNINGS REACTION: {ticker} {arrow}{abs(float(chg)):.2f}% ({phase}) @ {float(px):.2f}")
+            except Exception as e:
+                print(f"  ⚠️  Failed to log alert for {ticker}: {e}")
+        return logged
+    except Exception as e:
+        print(f"⚠️  check_ah_pm_earnings_alerts error: {e}")
+        return 0
+
+
 def main():
     print('=' * 60)
     print('YAHOO LIVE PRICE UPDATER - Railway worker')
@@ -475,10 +549,16 @@ def main():
                 stopped = check_paper_stops()
                 excursions = update_paper_excursions()
 
+            # Earnings-reaction alerts on real holdings during PRE/POST hours
+            ah_alerts = 0
+            if phase in ('PRE', 'POST') and n > 0:
+                ah_alerts = check_ah_pm_earnings_alerts(phase)
+
             suffix_parts = []
             if filled:     suffix_parts.append(f'filled_paper={filled}')
             if stopped:    suffix_parts.append(f'stopped_paper={stopped}')
             if excursions: suffix_parts.append(f'excursions={excursions}')
+            if ah_alerts:  suffix_parts.append(f'ah_alerts={ah_alerts}')
             suffix = (', ' + ', '.join(suffix_parts)) if suffix_parts else ''
             print(f'{now:%H:%M:%S} ET [{phase}] - updated {n}/{len(tickers)} prices{suffix}')
 
