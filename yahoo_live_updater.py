@@ -46,7 +46,8 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 et = pytz.timezone('America/New_York')
 
-POLL_INTERVAL = 15      # seconds between price cycles
+POLL_REGULAR  = 15      # seconds between price cycles during regular session
+POLL_EXTENDED = 60      # slower polling during pre/post-market (thin liquidity)
 TICKER_REFRESH = 300    # re-check holdings/transactions/paper-trades every 5 min
 PENDING_MAX_TRADING_DAYS = 2   # pending paper trades that can't fill within 2td expire
 
@@ -60,15 +61,31 @@ UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
 
 
 def is_market_open():
-    """US equity regular session: 09:30-16:00 ET, Mon-Fri.
-    Market holidays are not special-cased — on a holiday prices simply
-    don't move, which is harmless."""
+    """US regular session: 09:30-16:00 ET, Mon-Fri.
+    Used to gate paper-trader fills + intraday stops (regular session only)."""
     now = datetime.now(et)
     if now.weekday() >= 5:
         return False
     start = now.replace(hour=9, minute=30, second=0, microsecond=0)
     end = now.replace(hour=16, minute=0, second=0, microsecond=0)
     return start <= now <= end
+
+
+def current_session_phase():
+    """Returns 'REGULAR' / 'PRE' / 'POST' / 'CLOSED'. Extended hours = 4-9:30 ET
+    and 16-20 ET. Weekends + overnight = CLOSED."""
+    now = datetime.now(et)
+    if now.weekday() >= 5:
+        return 'CLOSED'
+    h, m = now.hour, now.minute
+    minutes = h * 60 + m
+    if 9 * 60 + 30 <= minutes < 16 * 60:
+        return 'REGULAR'
+    if 4 * 60 <= minutes < 9 * 60 + 30:
+        return 'PRE'
+    if 16 * 60 <= minutes < 20 * 60:
+        return 'POST'
+    return 'CLOSED'
 
 
 def get_streaming_tickers():
@@ -97,7 +114,8 @@ def get_streaming_tickers():
 
 def fetch_quote(session, symbol):
     """Fetch one quote from the Yahoo v8 chart endpoint.
-    Returns dict(price, prev_close, volume) or None on failure."""
+    Returns dict(price, prev_close, volume, pre, post, state) or None on failure.
+    `pre`/`post` are populated only during their respective windows."""
     for host in YAHOO_HOSTS:
         try:
             url = f'{host}/v8/finance/chart/{symbol}?interval=1d&range=1d'
@@ -113,14 +131,28 @@ def fetch_quote(session, symbol):
                 'price': float(price),
                 'prev_close': float(prev),
                 'volume': int(meta.get('regularMarketVolume') or 0),
+                'pre':   _safe_float(meta.get('preMarketPrice')),
+                'post':  _safe_float(meta.get('postMarketPrice')),
+                'state': meta.get('marketState'),   # PRE / REGULAR / POST / CLOSED (Yahoo's own classification)
             }
         except Exception:
             continue
     return None
 
 
-def fetch_and_update_prices(session, tickers):
-    """Fetch every ticker, upsert the batch into live_prices."""
+def _safe_float(v):
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_and_update_prices(session, tickers, phase):
+    """Fetch every ticker, upsert the batch into live_prices.
+    `phase` is the local session phase (REGULAR/PRE/POST/CLOSED) used to label
+    the row; pre/post prices come from Yahoo's meta when available."""
     updates = []
     now_iso = datetime.now(timezone.utc).isoformat()
     for symbol in tickers:
@@ -129,6 +161,14 @@ def fetch_and_update_prices(session, tickers):
             continue
         day_change = q['price'] - q['prev_close']
         day_change_pct = (day_change / q['prev_close'] * 100) if q['prev_close'] else 0
+        # Pre/post change % relative to the regular previous close
+        pre  = q.get('pre')
+        post = q.get('post')
+        pre_chg_pct  = ((pre  - q['prev_close']) / q['prev_close'] * 100) if (pre  and q['prev_close']) else None
+        post_chg_pct = ((post - q['prev_close']) / q['prev_close'] * 100) if (post and q['prev_close']) else None
+        # market_state: prefer Yahoo's classification, fall back to our local phase
+        state = q.get('state') or phase
+
         updates.append({
             'ticker': symbol,
             'price': round(q['price'], 4),
@@ -136,6 +176,11 @@ def fetch_and_update_prices(session, tickers):
             'day_change_pct': round(day_change_pct, 4),
             'prev_close': round(q['prev_close'], 4),
             'volume': q['volume'],
+            'pre_market_price':       round(pre,  4) if pre  is not None else None,
+            'pre_market_change_pct':  round(pre_chg_pct,  4) if pre_chg_pct  is not None else None,
+            'post_market_price':      round(post, 4) if post is not None else None,
+            'post_market_change_pct': round(post_chg_pct, 4) if post_chg_pct is not None else None,
+            'market_state': state,
             'updated_at': now_iso,
         })
     if updates:
@@ -387,21 +432,27 @@ def main():
     while True:
         try:
             now = datetime.now(et)
+            phase = current_session_phase()
 
-            if not is_market_open():
-                print(f'Market closed - {now:%Y-%m-%d %H:%M %Z} - waiting...')
+            # Stream during regular session AND pre/post-market. Sleep only when
+            # both windows are closed (overnight + weekends). Paper-trader hooks
+            # are still gated on REGULAR phase below.
+            if phase == 'CLOSED':
+                print(f'{phase} - {now:%Y-%m-%d %H:%M %Z} - waiting...')
                 time.sleep(60)
                 continue
 
-            # New session — (re)load the ticker set.
+            # New session — (re)load the ticker set. Use the date when we first
+            # see PRE (start of trading day) rather than REGULAR so we have the
+            # universe ready for 4 AM ticks.
             if last_session_date != now.date():
-                print(f'\n=== New market session: {now.date()} ===')
+                print(f'\n=== New market day: {now.date()} ({phase}) ===')
                 tickers = get_streaming_tickers()
                 print(f'Streaming {len(tickers)} tickers')
                 last_session_date = now.date()
                 last_ticker_refresh = time.time()
 
-            # Periodic ticker refresh — picks up new holdings intraday.
+            # Periodic ticker refresh — picks up new holdings/paper-trades intraday.
             if time.time() - last_ticker_refresh > TICKER_REFRESH:
                 refreshed = get_streaming_tickers()
                 if refreshed != tickers:
@@ -414,23 +465,27 @@ def main():
                     tickers = refreshed
                 last_ticker_refresh = time.time()
 
-            n = fetch_and_update_prices(session, tickers)
-            # Paper-trade state: fill pending -> open, then intraday stop checks,
-            # then MFE/MAE updates. Order matters: a fresh fill needs the LTP
-            # before its stop can be evaluated in the same cycle (it can't,
-            # since the fill closes the cycle for that ticker, but next tick
-            # will re-evaluate). Mirrors India ordering.
-            filled = fill_pending_paper_trades() if n > 0 else 0
-            stopped = check_paper_stops() if n > 0 else 0
-            excursions = update_paper_excursions() if n > 0 else 0
+            n = fetch_and_update_prices(session, tickers, phase)
+
+            # Paper-trader functions: REGULAR phase ONLY (India parity — algo
+            # never acts on PM/AH prices, those are display-only on the dashboard).
+            filled = stopped = excursions = 0
+            if phase == 'REGULAR' and n > 0:
+                filled = fill_pending_paper_trades()
+                stopped = check_paper_stops()
+                excursions = update_paper_excursions()
 
             suffix_parts = []
             if filled:     suffix_parts.append(f'filled_paper={filled}')
             if stopped:    suffix_parts.append(f'stopped_paper={stopped}')
             if excursions: suffix_parts.append(f'excursions={excursions}')
             suffix = (', ' + ', '.join(suffix_parts)) if suffix_parts else ''
-            print(f'{now:%H:%M:%S} ET - updated {n}/{len(tickers)} prices{suffix}')
-            time.sleep(POLL_INTERVAL)
+            print(f'{now:%H:%M:%S} ET [{phase}] - updated {n}/{len(tickers)} prices{suffix}')
+
+            # Slower polling outside regular session — PM/AH liquidity is thin and
+            # there's no point hammering Yahoo every 15s for sparse ticks.
+            interval = POLL_REGULAR if phase == 'REGULAR' else POLL_EXTENDED
+            time.sleep(interval)
 
         except KeyboardInterrupt:
             print('\nShutting down.')
