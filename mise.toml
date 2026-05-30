@@ -1,0 +1,15 @@
+# Pin Python for Railway's Railpack/mise builder.
+#
+# Railpack uses mise to install language runtimes. As of mise ~2026-05-28 it
+# requires GitHub artifact attestations for every download — but python@3.11.7
+# (and other older patch releases) were published without attestations, so the
+# install step fails before our app code is even copied.
+#
+# Setting `python.github_attestations = false` keeps the existing 3.11.7 pin
+# (matching runtime.txt) without forcing a Python upgrade. Once mise/upstream
+# starts publishing attestations for 3.11.x we can flip this back to true.
+[tools]
+python = "3.11"
+
+[settings]
+python.github_attestations = false
