@@ -504,6 +504,7 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let summaryFilter = 'all';         // all | multiple | strong_buy | multi_strong | buy — Summary tab clickable filter
         let preSignalFilter = 'all';       // all | multi | bz_buy | bz_strong | golden_cross | macd | pullback_bounce | rs_acceleration
         let bySectorExpanded = {};         // sector -> bool (which sector cards are open in By Sector tab)
+        let analystRatings = {};           // ticker -> {consensus, consensus_score, target_mean, target_high, target_low, num_analysts, rating_counts, recent_actions, last_updated}
         let tickerClassifications = {};    // ticker -> {sector, industry, peer_group} for the whole scan universe
         let peerGroupRankings = {};        // peer_group -> {composite_rank, composite, breadth, n_tickers, rrg_quadrant, parent_sector, peer_group_type}
         let selectedWinLoseYear = new Date().getFullYear();
@@ -1712,6 +1713,54 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             }
             if (!parts.length) return '';
             return `<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;align-items:center;">${parts.join('')}</div>`;
+        }
+
+        async function loadAnalystRatingsFromSupabase() {
+            try {
+                const { data, error } = await supabase
+                    .from('analyst_ratings')
+                    .select('*');
+                if (error) throw error;
+                const out = {};
+                (data || []).forEach(r => { out[r.ticker] = r; });
+                console.log(`✅ Loaded analyst ratings for ${Object.keys(out).length} tickers`);
+                return out;
+            } catch (e) {
+                console.error('❌ Error loading analyst_ratings:', e);
+                return {};
+            }
+        }
+
+        // Returns a compact HTML pill for the Holdings table — color-coded by
+        // consensus and showing implied upside vs current price.
+        function analystPill(ticker, currentPrice) {
+            const r = analystRatings[ticker];
+            if (!r) return '';
+            const consensus = (r.consensus || '').toLowerCase();
+            const map = {
+                'strong_buy':    { label: 'STRONG BUY', color: '#10b981', bg: '#10b98118', emoji: '🟢' },
+                'buy':           { label: 'BUY',        color: '#22c55e', bg: '#22c55e18', emoji: '🟢' },
+                'hold':          { label: 'HOLD',       color: '#f59e0b', bg: '#f59e0b18', emoji: '🟡' },
+                'underperform':  { label: 'UNDER',      color: '#ef4444', bg: '#ef444418', emoji: '🔴' },
+                'sell':          { label: 'SELL',       color: '#ef4444', bg: '#ef444418', emoji: '🔴' },
+                'strong_sell':   { label: 'STR SELL',   color: '#dc2626', bg: '#dc262618', emoji: '🔴' },
+            };
+            const s = map[consensus] || { label: (r.consensus || '?').toUpperCase(), color: '#94a3b8', bg: '#94a3b818', emoji: '⚪' };
+            const target = Number(r.target_mean) || null;
+            const upside = (target && currentPrice) ? (target / currentPrice - 1) * 100 : null;
+            const upsideStr = upside == null ? '' : ` ${upside >= 0 ? '+' : ''}${upside.toFixed(1)}%`;
+            const upsideColor = upside == null ? s.color : upside >= 0 ? '#10b981' : '#ef4444';
+            const targetStr = target ? `$${target.toFixed(0)}` : '?';
+            const n = r.num_analysts || 0;
+            const counts = r.rating_counts || {};
+            const recentTxt = (r.recent_actions || []).slice(0, 3)
+                .map(a => `${(a.date || '').slice(0,10)} ${a.firm}: ${a.from_grade || '-'} → ${a.to_grade}`).join(' · ');
+            const tip = `${n} analysts · target avg ${targetStr} (low $${(Number(r.target_low) || 0).toFixed(0)} / high $${(Number(r.target_high) || 0).toFixed(0)})`
+                + (counts.strongBuy != null ? ` · sB:${counts.strongBuy} B:${counts.buy} H:${counts.hold} S:${counts.sell} sS:${counts.strongSell}` : '')
+                + (recentTxt ? ` · recent: ${recentTxt}` : '');
+            return `<span title="${tip.replace(/"/g, '&quot;')}" style="display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:700;background:${s.bg};color:${s.color};border:1px solid ${s.color}40;white-space:nowrap;">
+                ${s.emoji} ${s.label}<span style="color:${upsideColor};font-weight:600;">${upsideStr}</span>
+            </span>`;
         }
 
         async function loadPortfolioAlertsFromSupabase() {
@@ -4582,7 +4631,12 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                         <td class="text-right">${formatNumber(stock.quantity)}</td>
                                         <td class="text-right">$${formatNumber(fifoAvg)}</td>
                                         <td class="text-right font-semibold">$${formatNumber(costValue)}</td>
-                                        <td class="text-right">$${formatNumber(currentPrice)}${sessionTag}</td>
+                                        <td class="text-right">
+                                            <div style="display:inline-flex;flex-direction:column;align-items:flex-end;gap:3px;">
+                                                <div>$${formatNumber(currentPrice)}${sessionTag}</div>
+                                                ${analystPill(stock.ticker, currentPrice)}
+                                            </div>
+                                        </td>
                                         <td class="text-right">
                                             <span class="badge ${priceChange >= 0 ? 'badge-green' : 'badge-red'}">
                                                 ${priceChange >= 0 ? '+' : ''}${formatNumber(priceChange)}%
@@ -5424,13 +5478,14 @@ if (supabaseTransactions && supabaseTransactions.length > 0) {
     // Load QQQ history for the Custom Period card's NASDAQ benchmark comparison
     qqqHistory = await loadQqqHistoryFromSupabase();
 
-    // Load Phase 3 alerts data + peer-group context + paper trading data
-    const [_es, _ps, _pa, _pgc, _paper] = await Promise.all([
+    // Load Phase 3 alerts data + peer-group context + paper trading data + analyst ratings
+    const [_es, _ps, _pa, _pgc, _paper, _ar] = await Promise.all([
         loadEntrySignalsFromSupabase(),
         loadPresignalScoresFromSupabase(),
         loadPortfolioAlertsFromSupabase(),
         loadPeerGroupContextFromSupabase(),
         loadPaperDataFromSupabase(),
+        loadAnalystRatingsFromSupabase(),
     ]);
     entrySignalsData = _es;
     presignalScoresData = _ps;
@@ -5441,6 +5496,7 @@ if (supabaseTransactions && supabaseTransactions.length > 0) {
     paperEquity = _paper.equity;
     paperRunLog = _paper.runLog;
     paperTickerCloses = _paper.closes || {};
+    analystRatings = _ar;
 
     // Load meta (sector + market cap) for sector/market-cap charts
     stockMeta = await loadMetaFromSupabase();
