@@ -54,12 +54,25 @@ def _safe_int(v):
 
 
 def get_universe(sb):
-    """Holdings + any open/pending paper positions. Keeps the universe small
-    so the daily run stays within ~30s and well under any reasonable
-    rate-limit."""
+    """Full scan universe (S&P 500 + NASDAQ 100 + held tickers ~ 518 names).
+    Runtime ~4 minutes — well within yfinance polite-use limits and far below
+    any GH Actions timeout. The deep dive needs analyst data for any ticker
+    the user looks at, not just held names."""
     if len(sys.argv) > 1:
         return [t.strip().upper() for t in sys.argv[1:]]
     tickers = set()
+    # us_stock_sectors covers the full universe (S&P 500 + NASDAQ adds + holdings)
+    page = 1000
+    frm = 0
+    while True:
+        resp = sb.table('us_stock_sectors').select('ticker').range(frm, frm + page - 1).execute()
+        for r in (resp.data or []):
+            if r.get('ticker'):
+                tickers.add(r['ticker'])
+        if not resp.data or len(resp.data) < page:
+            break
+        frm += page
+    # Defensive: also include any holdings or open paper trades not in us_stock_sectors
     for h in (sb.table('holdings').select('ticker').execute().data or []):
         if h.get('ticker'):
             tickers.add(h['ticker'])
