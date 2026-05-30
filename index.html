@@ -521,6 +521,7 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let paperRunLog = [];              // paper_run_log (newest-first)
         let paperTickerCloses = {};        // ticker -> latest EOD close (fallback when live_prices is empty)
         let paperTierFilter = 'ALL';       // ALL | T1_MULTI_STRONG | T2_STRONG_REG | T3_MULTI_REG | T4_RS_ACCEL
+        let strategyGuideOpen = false;     // collapsible "How the strategy works" panel on Algo tab
         let algoCharts = {};               // Chart.js instances on Algo tab
         let sectorDrawerOpen = false;      // is the sector-detail drawer open?
         let sectorDrawerPeerGroup = null;  // which peer_group's drawer is showing
@@ -2809,6 +2810,104 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             setTimeout(drawAlgoEquityChart, 80);
         }
 
+        function toggleStrategyGuide() {
+            strategyGuideOpen = !strategyGuideOpen;
+            render();
+            setTimeout(drawAlgoEquityChart, 80);
+        }
+
+        function renderStrategyGuide() {
+            return `
+            <div style="margin-top:14px;border-top:1px solid var(--border-color);padding-top:12px">
+                <button onclick="toggleStrategyGuide()"
+                    style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:13px;display:flex;align-items:center;gap:8px;padding:0;font-weight:500"
+                    onmouseover="this.style.color='var(--text-primary)'"
+                    onmouseout="this.style.color='var(--text-secondary)'">
+                    <span style="font-size:10px">${strategyGuideOpen ? '▼' : '▶'}</span>
+                    How the strategy works
+                </button>
+
+                ${strategyGuideOpen ? `
+                <div style="margin-top:14px">
+                    <div style="background:var(--bg-secondary);border-radius:10px;padding:18px;font-size:13px;line-height:1.5">
+                        <p style="margin:0 0 14px;color:var(--text-secondary)">
+                            Each weekday after US market close (<strong style="color:var(--text-primary)">22:35 UTC</strong> ≈ 6:35 PM ET), the algo scans today's signals from <code>entry_signals</code> + <code>presignal_scores</code> and ranks candidates into <strong style="color:var(--text-primary)">4 tiers of conviction</strong>. The next morning at the open (<strong style="color:var(--text-primary)">~9:30 AM ET</strong>), the Railway worker fills pending picks at the first live tick. Intraday stops fire live during the day; partial profit-taking and trailing happen end-of-day.
+                        </p>
+
+                        <div style="font-weight:600;margin:18px 0 10px;color:var(--text-primary);font-size:13px">The four tiers (priority: T1 &gt; T2 &gt; T3 &gt; T4)</div>
+
+                        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:16px">
+                            <div style="padding:12px 14px;background:var(--bg-card);border-radius:8px;border-left:3px solid #7c3aed">
+                                <div style="font-weight:700;color:#7c3aed;font-size:14px">T1 &nbsp;Multi-Strong</div>
+                                <div style="font-size:12px;color:var(--text-secondary);margin-top:6px">
+                                    <strong style="color:var(--text-primary)">≥ 2 different "strong" entry patterns</strong> fired on the same day — e.g. Blue Zone Strong + MACD Strong. Eligible strong patterns: blue_zone, golden_cross, macd, bull_flag, vcp. Highest conviction setup.<br>
+                                    <span style="font-size:11px">Sizing: 1.5% risk &middot; $6,000 cap</span>
+                                </div>
+                            </div>
+                            <div style="padding:12px 14px;background:var(--bg-card);border-radius:8px;border-left:3px solid #2563eb">
+                                <div style="font-weight:700;color:#2563eb;font-size:14px">T2 &nbsp;Strong + Regular</div>
+                                <div style="font-size:12px;color:var(--text-secondary);margin-top:6px">
+                                    Exactly <strong style="color:var(--text-primary)">1 strong family</strong> + <strong style="color:var(--text-primary)">≥ 1 regular family</strong> — e.g. Blue Zone Strong + MACD Buy. Good but not as confluent as T1.<br>
+                                    <span style="font-size:11px">Sizing: 1.0% risk &middot; $5,000 cap</span>
+                                </div>
+                            </div>
+                            <div style="padding:12px 14px;background:var(--bg-card);border-radius:8px;border-left:3px solid #0891b2">
+                                <div style="font-weight:700;color:#0891b2;font-size:14px">T3 &nbsp;Multi-Regular</div>
+                                <div style="font-size:12px;color:var(--text-secondary);margin-top:6px">
+                                    <strong style="color:var(--text-primary)">≥ 2 different regular families</strong>, no strong tags — e.g. Blue Zone Buy + Bull Flag Buy. Multiple confirmations, but each at the weaker tier.<br>
+                                    <span style="font-size:11px">Sizing: 0.66% risk &middot; $3,000 cap</span>
+                                </div>
+                            </div>
+                            <div style="padding:12px 14px;background:var(--bg-card);border-radius:8px;border-left:3px solid #0d9488">
+                                <div style="font-weight:700;color:#0d9488;font-size:14px">T4 &nbsp;RS Acceleration</div>
+                                <div style="font-size:12px;color:var(--text-secondary);margin-top:6px">
+                                    Pre-signal play: <code>rs_acceleration</code> score ≥ 80 AND any other rule (bz_buy / bz_strong / golden_cross / macd / pullback_bounce) ≥ 70 on the same day. Catches stocks before the breakout.<br>
+                                    <span style="font-size:11px">Sizing: 0.5% risk &middot; $2,000 cap</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="font-weight:600;margin:18px 0 10px;color:var(--text-primary);font-size:13px">Universal gates (must pass for every tier)</div>
+                        <ul style="margin:0 0 16px;padding-left:20px;font-size:12px;color:var(--text-secondary);line-height:1.8">
+                            <li><strong style="color:var(--text-primary)">Peer-group gate</strong>: ticker's peer group (GICS industry with ≥ 5 tickers, else GICS sector) must rank in the <strong style="color:var(--text-primary)">top 12 by composite score</strong> AND clear breadth ≥ 50% above EMA50.</li>
+                            <li><strong style="color:var(--text-primary)">Earnings filter</strong>: latest quarter revenue AND net income YoY positive (≥ 5 quarters of history). Note: India also checks "AND improving", US relaxes this because yfinance caps quarterly history at 5 quarters vs Screener.in's 6+.</li>
+                            <li><strong style="color:var(--text-primary)">Intraday distribution filter</strong>: D0 close must be in the upper 70% of D0 range. Catches signal-day fakeouts where the move already faded into the close.</li>
+                            <li>Not already in your real portfolio. Not already an open / pending paper trade. <strong style="color:var(--text-primary)">21 trading-day cooldown</strong> after a close.</li>
+                            <li><strong style="color:var(--text-primary)">Sector concentration</strong> ≤ 25% of the $50k sleeve. Committed capital ≤ <strong style="color:var(--text-primary)">95% of the sleeve</strong> (cash gate), max <strong style="color:var(--text-primary)">20 open positions</strong>, max <strong style="color:var(--text-primary)">5 new entries per day</strong>.</li>
+                            <li><strong style="color:var(--text-primary)">Kill switches</strong>: skip new entries if today's P&L &lt; −2% or drawdown from peak &lt; −8%.</li>
+                        </ul>
+
+                        <div style="font-weight:600;margin:18px 0 10px;color:var(--text-primary);font-size:13px">Entry flow</div>
+                        <div style="background:var(--bg-card);border-radius:8px;padding:12px 14px;font-size:12px;color:var(--text-secondary);line-height:1.7;margin-bottom:16px">
+                            <strong style="color:var(--text-primary)">22:35 UTC scanner (D0)</strong> → writes approved candidates as <strong style="color:var(--text-primary)">Pending</strong> rows (D0 close as placeholder, D0 ATR captured).<br>
+                            <strong style="color:var(--text-primary)">~13:30 UTC next morning (D1, 9:30 AM ET)</strong> → Railway worker reads the first live tick, fills the pending row at <strong style="color:var(--text-primary)">live price × 1.0015</strong> (15 bps slippage), sets stop at <strong style="color:var(--text-primary)">entry − 2 × ATR(14)</strong>, sizes qty by tier risk %.<br>
+                            Pending rows that can't be filled within 2 trading days are auto-cancelled (<code>fill_expired</code>).
+                        </div>
+
+                        <div style="font-weight:600;margin:18px 0 10px;color:var(--text-primary);font-size:13px">Exit flow (&quot;R&quot; = risk = entry-to-stop distance)</div>
+                        <ul style="margin:0 0 14px;padding-left:20px;font-size:12px;color:var(--text-secondary);line-height:1.8">
+                            <li><strong style="color:var(--text-primary)">Initial stop hit</strong> (intraday, live): Railway worker closes full remainder at LTP.</li>
+                            <li><strong style="color:#7c3aed">T1</strong>: book 33% at +3R (stop moves to breakeven), 33% at +6R (start 2×ATR trail), rest trails.</li>
+                            <li><strong style="color:#2563eb">T2</strong> / <strong style="color:#0891b2">T3</strong> / <strong style="color:#0d9488">T4</strong>: book 33% at +2R (breakeven), 33% at +4R (start 2×ATR trail), rest trails.</li>
+                            <li><strong style="color:var(--text-primary)">Early trail (+10% MFE)</strong>: if a trade ever reaches +10% — even before any R-partial fires — the trailing stop arms immediately at breakeven and trails 2×ATR below close. Safety net for high-ATR names whose first R-target is far away. Books no profit, just locks in the floor.</li>
+                            <li><strong style="color:var(--text-primary)">Universal book-25%</strong>: book 25% if up &gt; 25% within 15 trading days (catches fast spikes).</li>
+                            <li><strong style="color:var(--text-primary)">Time stop</strong>: close fully if still flat (−2% to +2%) after 25 trading days.</li>
+                        </ul>
+
+                        <div style="font-weight:600;margin:18px 0 10px;color:var(--text-primary);font-size:13px">What the algo records (for later review)</div>
+                        <ul style="margin:0 0 14px;padding-left:20px;font-size:12px;color:var(--text-secondary);line-height:1.8">
+                            <li><strong style="color:var(--text-primary)">MFE / MAE</strong> — every trade's best (max favourable) and worst (max adverse) excursion, updated live by the Railway worker, so we can later see how close trades got to their targets vs how deep they drew down.</li>
+                            <li><strong style="color:var(--text-primary)">Entry context</strong> — how extended / chased each entry was at scan time (distance from EMA20/50, prior 1-/3-day move, ATR%, entry-bar range vs ATR, market regime). Recorded only — never acted on — to evaluate entry quality after enough trades.</li>
+                        </ul>
+
+                        <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border-color);font-size:11px;color:var(--text-secondary);font-style:italic">
+                            Ranking note: tier dominates absolutely (a T1 candidate always beats a T4 candidate, even if T4 has a higher score). signal_score only breaks ties <em>within</em> the same tier — the formulas differ per tier, so cross-tier scores aren't directly comparable.
+                        </div>
+                    </div>
+                </div>` : ''}
+            </div>`;
+        }
+
         function tierBadge(tier) {
             const cfg = TIER_CONFIG[tier];
             if (!cfg) return tier || '—';
@@ -2906,7 +3005,8 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         ${tierPill('T4_RS_ACCEL',      'T4 RS Accel',      '#0d9488')}
                     </div>
                 </div>
-                <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                ${renderStrategyGuide()}
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-3" style="margin-top:12px;">
                     <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;text-align:center;">
                         <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">Sleeve Value</div>
                         <div style="font-size:22px;font-weight:700;margin-top:4px;">${fmtUsd(totalValue)}</div>
