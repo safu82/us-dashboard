@@ -1731,8 +1731,9 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             }
         }
 
-        // Returns a compact HTML pill for the Holdings table — color-coded by
-        // consensus and showing implied upside vs current price.
+        // Compact analyst badge for the Holdings table — color-coded consensus
+        // pill on top, and an inline numeric strip below showing # analysts +
+        // low / avg / high targets. Tooltip kept short (last 1-2 actions).
         function analystPill(ticker, currentPrice) {
             const r = analystRatings[ticker];
             if (!r) return '';
@@ -1747,20 +1748,29 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             };
             const s = map[consensus] || { label: (r.consensus || '?').toUpperCase(), color: '#94a3b8', bg: '#94a3b818', emoji: '⚪' };
             const target = Number(r.target_mean) || null;
+            const low    = Number(r.target_low)  || null;
+            const high   = Number(r.target_high) || null;
+            const n      = r.num_analysts || 0;
             const upside = (target && currentPrice) ? (target / currentPrice - 1) * 100 : null;
             const upsideStr = upside == null ? '' : ` ${upside >= 0 ? '+' : ''}${upside.toFixed(1)}%`;
             const upsideColor = upside == null ? s.color : upside >= 0 ? '#10b981' : '#ef4444';
-            const targetStr = target ? `$${target.toFixed(0)}` : '?';
-            const n = r.num_analysts || 0;
-            const counts = r.rating_counts || {};
-            const recentTxt = (r.recent_actions || []).slice(0, 3)
-                .map(a => `${(a.date || '').slice(0,10)} ${a.firm}: ${a.from_grade || '-'} → ${a.to_grade}`).join(' · ');
-            const tip = `${n} analysts · target avg ${targetStr} (low $${(Number(r.target_low) || 0).toFixed(0)} / high $${(Number(r.target_high) || 0).toFixed(0)})`
-                + (counts.strongBuy != null ? ` · sB:${counts.strongBuy} B:${counts.buy} H:${counts.hold} S:${counts.sell} sS:${counts.strongSell}` : '')
-                + (recentTxt ? ` · recent: ${recentTxt}` : '');
-            return `<span title="${tip.replace(/"/g, '&quot;')}" style="display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:700;background:${s.bg};color:${s.color};border:1px solid ${s.color}40;white-space:nowrap;">
-                ${s.emoji} ${s.label}<span style="color:${upsideColor};font-weight:600;">${upsideStr}</span>
-            </span>`;
+
+            const fmt = (v) => v == null ? '—' : '$' + Math.round(v).toLocaleString('en-US');
+
+            // Short tooltip: last rating action (if any)
+            const lastAct = (r.recent_actions || [])[0];
+            const tip = lastAct
+                ? `Last action: ${(lastAct.date || '').slice(0,10)} ${lastAct.firm}: ${lastAct.from_grade || '-'} → ${lastAct.to_grade}`
+                : `${n} analyst${n === 1 ? '' : 's'}`;
+
+            return `<div title="${tip.replace(/"/g, '&quot;')}" style="display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px;">
+                <span style="display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:700;background:${s.bg};color:${s.color};border:1px solid ${s.color}40;white-space:nowrap;">
+                    ${s.emoji} ${s.label}<span style="color:${upsideColor};font-weight:600;">${upsideStr}</span>
+                </span>
+                <span style="font-size:9px;color:var(--text-secondary);white-space:nowrap;">
+                    ${n}A · L ${fmt(low)} / Avg <span style="color:var(--text-primary);font-weight:600;">${fmt(target)}</span> / H ${fmt(high)}
+                </span>
+            </div>`;
         }
 
         async function loadPortfolioAlertsFromSupabase() {
