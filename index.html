@@ -837,6 +837,27 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
             return `<a href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(ticker)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color: inherit; text-decoration: none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${label}</a>`;
         }
 
+        // Returns a label linked to the per-ticker deep dive page. Prefer this
+        // over tvLink for ticker columns — deep dive has more context than TV.
+        function ddLink(ticker, label) {
+            if (!ticker || label == null || label === '') return label || '-';
+            return `<a href="deep_dive.html?symbol=${encodeURIComponent(ticker)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color: inherit; text-decoration: none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'" title="Open deep dive for ${ticker}">${label}</a>`;
+        }
+
+        // Small magnifier icon link suitable for placing next to a ticker
+        // that already has a TV chart link.
+        function ddIcon(ticker) {
+            if (!ticker) return '';
+            return `<a href="deep_dive.html?symbol=${encodeURIComponent(ticker)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="text-decoration:none;color:var(--text-secondary);font-size:11px;margin-left:4px;" title="Open deep dive for ${ticker}">🔍</a>`;
+        }
+
+        // Small chart icon link to TradingView. Use this next to a ddLink so the
+        // ticker name itself opens the deep dive but TV access is one click away.
+        function tvIcon(ticker) {
+            if (!ticker) return '';
+            return `<a href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(ticker)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="text-decoration:none;color:var(--text-secondary);font-size:11px;margin-left:4px;" title="Open TradingView chart for ${ticker}">📊</a>`;
+        }
+
         // Sum of all realized-gain slices from the FIFO engine (post-seed sells only).
         // Historical realized P&L (sells before the lot-ledger seed) loads separately.
         function totalRealizedGains() {
@@ -2679,7 +2700,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     const rsColor = (r.alkalyme_rs||0) >= 65 ? '#10b981' : (r.alkalyme_rs||0) >= 50 ? '#3b82f6' : '#ef4444';
                     const d52 = r.high_52w && r.close ? ((r.close - r.high_52w) / r.high_52w * 100).toFixed(1) : null;
                     html += `<div style="display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;padding:6px 0;border-bottom:1px solid var(--border-color);align-items:center">
-                        <a href="https://www.tradingview.com/chart/?symbol=${r.ticker}" target="_blank" style="font-weight:600;color:var(--text-primary);text-decoration:none">${r.ticker}${heldBadge}</a>
+                        <a href="deep_dive.html?symbol=${encodeURIComponent(r.ticker)}" target="_blank" title="Deep dive for ${r.ticker}" style="font-weight:600;color:var(--text-primary);text-decoration:none">${r.ticker}${heldBadge}</a>
                         <span style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.name || ''}</span>
                         <span style="color:${rsColor};font-weight:600">RS ${rs}</span>
                         <span style="color:var(--text-secondary)">${d52 != null ? d52 + '%' : '—'}</span>
@@ -2973,7 +2994,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 })();
                 const families = (tr.signal_families || []).join(' · ');
                 return `<tr style="border-bottom:1px solid var(--border-color);">
-                    <td style="padding:7px 6px;"><a href="https://www.tradingview.com/chart/?symbol=${tr.ticker}" target="_blank" style="font-weight:600;color:var(--text-primary);text-decoration:none;">${tr.ticker}</a></td>
+                    <td style="padding:7px 6px;font-weight:600;">${ddLink(tr.ticker, tr.ticker)}${tvIcon(tr.ticker)}</td>
                     <td style="padding:7px 6px;">${tierBadge(tr.strategy_tier)}</td>
                     <td style="padding:7px 6px;color:var(--text-secondary);font-size:12px;">${tr.sector || '—'}</td>
                     <td style="padding:7px 6px;color:var(--text-secondary);font-size:11px;">${families}</td>
@@ -3016,7 +3037,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 const pnlColor = pnl >= 0 ? '#10b981' : '#ef4444';
                 const rColor = (isNaN(r) || r == null) ? 'var(--text-secondary)' : r >= 1 ? '#10b981' : r <= -1 ? '#ef4444' : '#f59e0b';
                 return `<tr style="border-bottom:1px solid var(--border-color);">
-                    <td style="padding:6px;font-weight:600;">${tr.ticker}</td>
+                    <td style="padding:6px;font-weight:600;">${ddLink(tr.ticker, tr.ticker)}</td>
                     <td style="padding:6px;">${tierBadge(tr.strategy_tier)}</td>
                     <td style="padding:6px;color:var(--text-secondary);font-size:11px;">${tr.entry_date || '—'} → ${tr.exit_date || '—'}</td>
                     <td style="padding:6px;color:var(--text-secondary);font-size:11px;">${tr.exit_reason || '—'}</td>
@@ -3368,7 +3389,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             <div class="card p-4" style="position: relative; text-align: center; ${cardGlow}">
                 ${multiStrongBanner}
                 <div class="mb-3">
-                    <div class="text-lg font-bold mb-1">${tvLink(ticker, ticker)}</div>
+                    <div class="text-lg font-bold mb-1">${ddLink(ticker, ticker)}${tvIcon(ticker)}</div>
                     <div class="text-2xl font-bold" style="color: #667eea;">$${formatNumber(signal.close)}</div>
                     ${rsRank != null ? `
                     <div class="mt-2">
@@ -3544,7 +3565,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                             display: flex; align-items: center; justify-content: center; gap: 6px;">
                     ${cfg.label}
                 </div>
-                <div style="font-size: 17px; font-weight: 700; margin-bottom: 2px;">${tvLink(p.ticker, p.ticker)}</div>
+                <div style="font-size: 17px; font-weight: 700; margin-bottom: 2px;">${ddLink(p.ticker, p.ticker)}${tvIcon(p.ticker)}</div>
                 ${rsRank != null ? `
                 <div style="margin: 4px 0;">
                     <span style="padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; background: ${rsBg}; color: ${rsColor};">
@@ -4636,7 +4657,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                                     return `
                                     <tr style="cursor: pointer;" onclick="toggleHolding('${stock.ticker}')">
                                         <td class="font-medium">
-                                            <i class="fas fa-chevron-${expanded ? 'down' : 'right'} text-xs" style="color: var(--text-secondary); margin-right: 6px;"></i>${tvLink(stock.ticker, stock.name)}
+                                            <i class="fas fa-chevron-${expanded ? 'down' : 'right'} text-xs" style="color: var(--text-secondary); margin-right: 6px;"></i>${ddLink(stock.ticker, stock.name)}${tvIcon(stock.ticker)}
                                         </td>
                                         <td class="text-right">${formatNumber(stock.quantity)}</td>
                                         <td class="text-right">$${formatNumber(fifoAvg)}</td>
