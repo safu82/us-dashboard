@@ -97,12 +97,31 @@ def open_mcp_session():
     return session, sid
 
 
+# TipRanks get_assets_data caps responses at 100 tickers per request. Confirmed
+# by passing 200 and getting only 101 back. So we chunk the universe accordingly.
+TICKERS_PER_CALL = 100
+# Rate limit: free tier = 5 req/min. Sleep between batches to stay under.
+SLEEP_BETWEEN_BATCHES = 15  # seconds
+
+
 def get_universe(sb):
-    """Holdings + open/pending paper trades only (small set, single batched call).
-    The whole-universe expansion would require a paid TipRanks tier."""
+    """Full scan universe (S&P 500 + NASDAQ 100 + held tickers ~ 518 names).
+    Chunked into batches of TICKERS_PER_CALL for the get_assets_data call.
+    Total calls: ceil(518 / 100) = 6 per day, well within the 25/day free tier."""
     if len(sys.argv) > 1:
         return sorted({t.strip().upper() for t in sys.argv[1:]})
     tickers = set()
+    # us_stock_sectors covers the full scan universe
+    page, frm = 1000, 0
+    while True:
+        resp = sb.table('us_stock_sectors').select('ticker').range(frm, frm + page - 1).execute()
+        for r in (resp.data or []):
+            if r.get('ticker'):
+                tickers.add(r['ticker'])
+        if not resp.data or len(resp.data) < page:
+            break
+        frm += page
+    # Defensive: union holdings + open/pending paper in case anything's missing
     for h in (sb.table('holdings').select('ticker').execute().data or []):
         if h.get('ticker'):
             tickers.add(h['ticker'])
@@ -111,6 +130,11 @@ def get_universe(sb):
         if p.get('ticker'):
             tickers.add(p['ticker'])
     return sorted(tickers)
+
+
+def chunks(lst, size):
+    for i in range(0, len(lst), size):
+        yield lst[i:i + size]
 
 
 def _to_date(v):
@@ -193,50 +217,61 @@ def main():
     tickers = get_universe(sb)
     if not tickers:
         sys.exit('No tickers in universe')
-    print(f'Universe ({len(tickers)} tickers): {", ".join(tickers)}')
+    n_batches = (len(tickers) + TICKERS_PER_CALL - 1) // TICKERS_PER_CALL
+    print(f'Universe: {len(tickers)} tickers in {n_batches} batches of up to {TICKERS_PER_CALL}')
 
     try:
         session, sid = open_mcp_session()
     except Exception as e:
         sys.exit(f'Failed to open MCP session: {e}')
 
-    # One batched call covers everything — keeps us within the 25/day free tier
-    try:
-        result = mcp_call(session, sid, 'tools/call', {
-            'name': 'get_assets_data',
-            'arguments': {'tickers': ','.join(tickers)},
-        })
-    except Exception as e:
-        sys.exit(f'get_assets_data failed: {e}')
-
-    # Tool responses come back as text content (JSON-encoded inside)
-    try:
-        content_text = result['content'][0]['text']
-        data = json.loads(content_text)
-        rows = data.get('assetsData', [])
-    except Exception as e:
-        sys.exit(f'Failed to parse tool response: {e}\nRaw: {str(result)[:500]}')
-
-    print(f'Got {len(rows)} ticker rows back')
+    import time
     now_iso = datetime.now(timezone.utc).isoformat()
-    ok = 0
-    for ad in rows:
+    total_ok = 0
+    total_rows = 0
+    counts_by_consensus = {}
+
+    for i, batch in enumerate(chunks(tickers, TICKERS_PER_CALL), start=1):
         try:
-            if upsert_ticker_row(sb, ad, now_iso):
-                ok += 1
-                ss = ad.get('smartScore', '?')
-                bc = (ad.get('bestAnalystConsensus') or {}).get('consensus', '?')
-                bt = ad.get('bestPriceTarget')
-                up = _pct(ad.get('bestPriceTargetUpside'))
-                hf = (ad.get('hedgeFundSentimentData') or {}).get('rating', '?')
-                ins = (ad.get('insiderSentimentData') or {}).get('rating', '?')
-                bt_str = f'${bt:.0f}' if bt else '—'
-                up_str = f'{up:+.1f}%' if up is not None else '—'
-                print(f'  {ad["ticker"]:6s} SS={ss:>2}  best={bc:10s} target={bt_str:>7s} ({up_str})  HF={hf:6s} INS={ins:6s}')
+            result = mcp_call(session, sid, 'tools/call', {
+                'name': 'get_assets_data',
+                'arguments': {'tickers': ','.join(batch)},
+            }, req_id=10 + i)
         except Exception as e:
-            print(f'  {ad.get("ticker", "?")}: upsert failed: {e}')
+            print(f'  batch {i}/{n_batches}: FAILED -- {e}')
+            continue
+
+        try:
+            data = json.loads(result['content'][0]['text'])
+            rows = data.get('assetsData', [])
+        except Exception as e:
+            print(f'  batch {i}/{n_batches}: parse failed -- {e}')
+            continue
+
+        total_rows += len(rows)
+        batch_ok = 0
+        for ad in rows:
+            try:
+                if upsert_ticker_row(sb, ad, now_iso):
+                    batch_ok += 1
+                    bc = (ad.get('bestAnalystConsensus') or {}).get('consensus', '?')
+                    counts_by_consensus[bc] = counts_by_consensus.get(bc, 0) + 1
+            except Exception as e:
+                print(f'    {ad.get("ticker", "?")}: upsert failed: {e}')
+        total_ok += batch_ok
+        print(f'  batch {i}/{n_batches}: requested {len(batch)} -> got {len(rows)} -> upserted {batch_ok}')
+
+        # Respect rate limit: 5 req/min = 12s between calls minimum
+        if i < n_batches:
+            time.sleep(SLEEP_BETWEEN_BATCHES)
+
     print('=' * 60)
-    print(f'Done. {ok}/{len(rows)} tickers updated')
+    print(f'Done. {total_ok}/{total_rows} tickers updated (universe size {len(tickers)})')
+    if counts_by_consensus:
+        print('Best-analyst consensus distribution:')
+        for k in ('StrongBuy', 'Buy', 'Hold', 'Sell', 'StrongSell'):
+            if counts_by_consensus.get(k):
+                print(f'  {k:11s}: {counts_by_consensus[k]}')
 
 
 if __name__ == '__main__':
