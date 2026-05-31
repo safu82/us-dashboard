@@ -741,18 +741,47 @@ function renderTipRanksBlock(a, cmp) {
                 <div style="font-size:38px;font-weight:800;color:${ssColor};line-height:1">${ss != null ? ss.toFixed(0) : '—'}</div>
                 <div style="font-size:10px;color:var(--text2)">of 10</div>
             </div>
-            <!-- Best Analyst Consensus + Target -->
-            <div>
-                <div style="font-size:10px;color:var(--text2);margin-bottom:4px">Top-Analyst Consensus (best-performing analysts only)</div>
-                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                    <span style="display:inline-flex;padding:4px 12px;border-radius:12px;background:${bestConColor}18;color:${bestConColor};border:1px solid ${bestConColor}40;font-weight:700;font-size:13px">${bestConDisplay}</span>
-                    ${a.best_target_mean != null ? `<span style="font-size:13px"><span style="color:var(--text2)">avg target</span> <b>${fmtUsd(a.best_target_mean, 0)}</b></span>` : ''}
-                    ${bestUp != null ? `<span style="font-size:13px;color:${bestUpColor};font-weight:600">${bestUp >= 0 ? '+' : ''}${bestUp.toFixed(1)}%</span>` : ''}
+            <!-- Consensus comparison: TipRanks broad vs Top-Analyst -->
+            <div style="display:flex;flex-direction:column;gap:10px">
+                ${(() => {
+                    const broadCon = (a.tipranks_broad_consensus || '').toLowerCase();
+                    const broadConDisplay = a.tipranks_broad_consensus
+                        ? a.tipranks_broad_consensus.replace(/([A-Z])/g, ' $1').trim().toUpperCase()
+                        : '—';
+                    const broadConColor = broadCon.includes('strongbuy') ? '#10b981'
+                                       : broadCon.includes('buy') ? '#22c55e'
+                                       : broadCon.includes('hold') ? '#f59e0b'
+                                       : broadCon.includes('sell') ? '#ef4444' : '#94a3b8';
+                    const broadTarget = a.tipranks_broad_target != null ? Number(a.tipranks_broad_target) : null;
+                    const broadUp = (broadTarget && cmp) ? (broadTarget / cmp - 1) * 100 : null;
+                    const broadUpColor = broadUp == null ? '#94a3b8' : broadUp >= 0 ? '#10b981' : '#ef4444';
+                    const broadDist = a.tipranks_broad_distribution;
+                    return a.tipranks_broad_consensus ? `
+                    <div>
+                        <div style="font-size:10px;color:var(--text2);margin-bottom:4px">Broad Consensus (all TipRanks-covered analysts)</div>
+                        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                            <span style="display:inline-flex;padding:3px 11px;border-radius:11px;background:${broadConColor}18;color:${broadConColor};border:1px solid ${broadConColor}40;font-weight:700;font-size:12px">${broadConDisplay}</span>
+                            ${broadTarget != null ? `<span style="font-size:12px"><span style="color:var(--text2)">avg target</span> <b>${fmtUsd(broadTarget, 0)}</b></span>` : ''}
+                            ${broadUp != null ? `<span style="font-size:12px;color:${broadUpColor};font-weight:600">${broadUp >= 0 ? '+' : ''}${broadUp.toFixed(1)}%</span>` : ''}
+                        </div>
+                        ${broadDist ? `
+                        <div style="font-size:11px;color:var(--text2);margin-top:4px">
+                            ${broadDist.buy || 0} Buy · ${broadDist.hold || 0} Hold · ${broadDist.sell || 0} Sell
+                        </div>` : ''}
+                    </div>` : '';
+                })()}
+                <div>
+                    <div style="font-size:10px;color:var(--text2);margin-bottom:4px">Top-Analyst Consensus (best-performing analysts only)</div>
+                    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                        <span style="display:inline-flex;padding:4px 12px;border-radius:12px;background:${bestConColor}18;color:${bestConColor};border:1px solid ${bestConColor}40;font-weight:700;font-size:13px">${bestConDisplay}</span>
+                        ${a.best_target_mean != null ? `<span style="font-size:13px"><span style="color:var(--text2)">avg target</span> <b>${fmtUsd(a.best_target_mean, 0)}</b></span>` : ''}
+                        ${bestUp != null ? `<span style="font-size:13px;color:${bestUpColor};font-weight:600">${bestUp >= 0 ? '+' : ''}${bestUp.toFixed(1)}%</span>` : ''}
+                    </div>
+                    ${a.best_distribution ? `
+                    <div style="font-size:11px;color:var(--text2);margin-top:4px">
+                        ${a.best_distribution.buy || 0} Buy · ${a.best_distribution.hold || 0} Hold · ${a.best_distribution.sell || 0} Sell
+                    </div>` : ''}
                 </div>
-                ${a.best_distribution ? `
-                <div style="font-size:11px;color:var(--text2);margin-top:6px">
-                    Top analysts: ${a.best_distribution.buy || 0} Buy · ${a.best_distribution.hold || 0} Hold · ${a.best_distribution.sell || 0} Sell
-                </div>` : ''}
             </div>
         </div>
 

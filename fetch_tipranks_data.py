@@ -177,20 +177,24 @@ def upsert_ticker_row(sb, ad, now_iso):
     ticker = ad.get('ticker')
     if not ticker:
         return False
-    best_c = ad.get('bestAnalystConsensus') or {}
-    hf     = ad.get('hedgeFundSentimentData') or {}
-    ins    = ad.get('insiderSentimentData') or {}
-    blog   = ad.get('bloggerSentimentData') or {}
-    cal    = ad.get('calendarEarningsData') or {}
+    best_c  = ad.get('bestAnalystConsensus') or {}
+    broad_c = ad.get('analystConsensus') or {}     # TipRanks broad (all analysts)
+    hf      = ad.get('hedgeFundSentimentData') or {}
+    ins     = ad.get('insiderSentimentData') or {}
+    blog    = ad.get('bloggerSentimentData') or {}
+    cal     = ad.get('calendarEarningsData') or {}
 
     patch = {
         'ticker': ticker,
-        'smart_score':             _num(ad.get('smartScore'), 2),
-        'best_consensus':          best_c.get('consensus'),
-        'best_target_mean':        _num(ad.get('bestPriceTarget'), 4),
-        'best_target_upside_pct':  _pct(ad.get('bestPriceTargetUpside')),
-        'best_distribution':       best_c.get('distribution'),
-        'price_target_upside_pct': _pct(ad.get('priceTargetUpside')),
+        'smart_score':                _num(ad.get('smartScore'), 2),
+        'best_consensus':             best_c.get('consensus'),
+        'best_target_mean':           _num(ad.get('bestPriceTarget'), 4),
+        'best_target_upside_pct':     _pct(ad.get('bestPriceTargetUpside')),
+        'best_distribution':          best_c.get('distribution'),
+        'tipranks_broad_consensus':   broad_c.get('consensus'),
+        'tipranks_broad_target':      _num(ad.get('priceTarget'), 4),
+        'tipranks_broad_distribution': broad_c.get('distribution'),
+        'price_target_upside_pct':    _pct(ad.get('priceTargetUpside')),
         'hedge_fund_score':        _num(ad.get('hedgeFundsScore'), 4),
         'hedge_fund_rating':       hf.get('rating'),
         'insider_score':           _num(ad.get('insiderScore'), 4),
