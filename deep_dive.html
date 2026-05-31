@@ -676,6 +676,8 @@ function renderAnalystPanel(a, cmp) {
             </div>
         </div>` : ''}
 
+        ${a.smart_score != null || a.best_consensus || a.hedge_fund_rating || a.insider_rating ? renderTipRanksBlock(a, cmp) : ''}
+
         ${a.recent_actions && a.recent_actions.length ? `
         <div style="margin-top:18px">
             <div style="font-size:11px;color:var(--text2);margin-bottom:8px">Recent Rating Actions (last ${a.recent_actions.length})</div>
@@ -691,7 +693,102 @@ function renderAnalystPanel(a, cmp) {
             </div>
         </div>` : ''}
 
-        <div style="font-size:10px;color:var(--text2);margin-top:14px">Source: yfinance · Last updated: ${a.last_updated ? new Date(a.last_updated).toLocaleString() : '—'}</div>
+        <div style="font-size:10px;color:var(--text2);margin-top:14px">Source: yfinance${a.tipranks_last_updated ? ' + TipRanks' : ''} · Last updated: ${a.last_updated ? new Date(a.last_updated).toLocaleString() : '—'}</div>
+    </div>`;
+}
+
+// TipRanks-specific signals block. Inserted in the middle of the Analyst Coverage
+// panel so the yfinance broad consensus + TipRanks top-analyst view sit next to
+// each other for direct comparison.
+function renderTipRanksBlock(a, cmp) {
+    const ss = a.smart_score != null ? Number(a.smart_score) : null;
+    const ssColor = ss == null ? '#94a3b8'
+                  : ss >= 8 ? '#10b981'
+                  : ss >= 6 ? '#22c55e'
+                  : ss >= 4 ? '#f59e0b'
+                  : ss >= 2 ? '#f97316' : '#ef4444';
+
+    const ratingColor = (r) => {
+        const rl = (r || '').toLowerCase();
+        if (rl === 'buy') return '#10b981';
+        if (rl === 'sell') return '#ef4444';
+        if (rl === 'hold') return '#f59e0b';
+        return '#94a3b8';
+    };
+
+    const bestCon = (a.best_consensus || '').toLowerCase();
+    const bestConDisplay = a.best_consensus
+        ? a.best_consensus.replace(/([A-Z])/g, ' $1').trim().toUpperCase()
+        : '—';
+    const bestConColor = bestCon.includes('strongbuy') ? '#10b981'
+                       : bestCon.includes('buy') ? '#22c55e'
+                       : bestCon.includes('hold') ? '#f59e0b'
+                       : bestCon.includes('sell') ? '#ef4444' : '#94a3b8';
+    const bestUp = a.best_target_upside_pct;
+    const bestUpColor = bestUp == null ? '#94a3b8' : bestUp >= 0 ? '#10b981' : '#ef4444';
+
+    return `
+    <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:0.5px">TIPRANKS SIGNALS</div>
+            <span style="font-size:10px;color:var(--text2)">Smart Score, Top-Analyst, Sentiment</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center;margin-bottom:14px">
+            <!-- Smart Score big number -->
+            <div style="text-align:center;min-width:120px">
+                <div style="font-size:10px;color:var(--text2);margin-bottom:4px">Smart Score</div>
+                <div style="font-size:38px;font-weight:800;color:${ssColor};line-height:1">${ss != null ? ss.toFixed(0) : '—'}</div>
+                <div style="font-size:10px;color:var(--text2)">of 10</div>
+            </div>
+            <!-- Best Analyst Consensus + Target -->
+            <div>
+                <div style="font-size:10px;color:var(--text2);margin-bottom:4px">Top-Analyst Consensus (best-performing analysts only)</div>
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                    <span style="display:inline-flex;padding:4px 12px;border-radius:12px;background:${bestConColor}18;color:${bestConColor};border:1px solid ${bestConColor}40;font-weight:700;font-size:13px">${bestConDisplay}</span>
+                    ${a.best_target_mean != null ? `<span style="font-size:13px"><span style="color:var(--text2)">avg target</span> <b>${fmtUsd(a.best_target_mean, 0)}</b></span>` : ''}
+                    ${bestUp != null ? `<span style="font-size:13px;color:${bestUpColor};font-weight:600">${bestUp >= 0 ? '+' : ''}${bestUp.toFixed(1)}%</span>` : ''}
+                </div>
+                ${a.best_distribution ? `
+                <div style="font-size:11px;color:var(--text2);margin-top:6px">
+                    Top analysts: ${a.best_distribution.buy || 0} Buy · ${a.best_distribution.hold || 0} Hold · ${a.best_distribution.sell || 0} Sell
+                </div>` : ''}
+            </div>
+        </div>
+
+        <!-- Sentiment row -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:10px">
+            ${a.hedge_fund_rating ? `
+            <div style="padding:8px 10px;background:var(--bg3);border-radius:6px">
+                <div style="font-size:10px;color:var(--text2)">Hedge Fund Trend</div>
+                <div style="font-size:13px;font-weight:700;color:${ratingColor(a.hedge_fund_rating)};margin-top:2px">${a.hedge_fund_rating.toUpperCase()}</div>
+                ${a.hedge_fund_score != null ? `<div style="font-size:10px;color:var(--text2)">score ${(Number(a.hedge_fund_score) * 100).toFixed(0)}/100</div>` : ''}
+            </div>` : ''}
+            ${a.insider_rating ? `
+            <div style="padding:8px 10px;background:var(--bg3);border-radius:6px">
+                <div style="font-size:10px;color:var(--text2)">Insider Sentiment</div>
+                <div style="font-size:13px;font-weight:700;color:${ratingColor(a.insider_rating)};margin-top:2px">${a.insider_rating.toUpperCase()}</div>
+                ${a.insider_score != null ? `<div style="font-size:10px;color:var(--text2)">score ${(Number(a.insider_score) * 100).toFixed(0)}/100</div>` : ''}
+            </div>` : ''}
+            ${a.blogger_rating ? `
+            <div style="padding:8px 10px;background:var(--bg3);border-radius:6px">
+                <div style="font-size:10px;color:var(--text2)">Blogger Sentiment</div>
+                <div style="font-size:13px;font-weight:700;color:${ratingColor(a.blogger_rating)};margin-top:2px">${a.blogger_rating.toUpperCase()}</div>
+                ${(a.blogger_bullish_count != null && a.blogger_bearish_count != null) ? `<div style="font-size:10px;color:var(--text2)">${a.blogger_bullish_count} bull · ${a.blogger_bearish_count} bear</div>` : ''}
+            </div>` : ''}
+            ${a.news_sentiment != null ? `
+            <div style="padding:8px 10px;background:var(--bg3);border-radius:6px">
+                <div style="font-size:10px;color:var(--text2)">News Sentiment</div>
+                <div style="font-size:13px;font-weight:700;color:${Number(a.news_sentiment) >= 0.6 ? '#10b981' : Number(a.news_sentiment) <= 0.4 ? '#ef4444' : '#f59e0b'};margin-top:2px">${(Number(a.news_sentiment) * 100).toFixed(0)}/100</div>
+                <div style="font-size:10px;color:var(--text2)">${Number(a.news_sentiment) >= 0.6 ? 'Positive' : Number(a.news_sentiment) <= 0.4 ? 'Negative' : 'Neutral'}</div>
+            </div>` : ''}
+            ${a.next_earnings_date ? `
+            <div style="padding:8px 10px;background:var(--bg3);border-radius:6px">
+                <div style="font-size:10px;color:var(--text2)">Next Earnings</div>
+                <div style="font-size:13px;font-weight:700;color:var(--text);margin-top:2px">${a.next_earnings_date}</div>
+                ${a.last_earnings_date ? `<div style="font-size:10px;color:var(--text2)">last ${a.last_earnings_date}</div>` : ''}
+            </div>` : ''}
+        </div>
     </div>`;
 }
 

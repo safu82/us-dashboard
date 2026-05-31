@@ -1,0 +1,35 @@
+name: Fetch TipRanks data (US)
+
+# Daily at 06:30 UTC — runs right after the yfinance ratings refresh (06:23).
+# Uses ONE batched get_assets_data MCP call to cover the entire holdings +
+# paper-trade universe (~22 tickers) for smart score, best-analyst consensus,
+# insider/hedge-fund/blogger sentiment, news sentiment, next earnings date.
+# Free TipRanks tier = 5 req/min, 25 req/day — we use exactly 1 call.
+#
+# REQUIRES GitHub secret: TIPRANKS_API_KEY
+# Get one at https://www.tipranks.com/developer-portal (Free plan is enough).
+on:
+  schedule:
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    name: Fetch TipRanks data
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests supabase python-dotenv
+      - name: Run fetch_tipranks_data.py
+        run: python fetch_tipranks_data.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          TIPRANKS_API_KEY: ${{ secrets.TIPRANKS_API_KEY }}
