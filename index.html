@@ -505,6 +505,8 @@ let selectedPeriodYear = new Date().getFullYear(); // Track year for period gain
         let preSignalFilter = 'all';       // all | multi | bz_buy | bz_strong | golden_cross | macd | pullback_bounce | rs_acceleration
         let bySectorExpanded = {};         // sector -> bool (which sector cards are open in By Sector tab)
         let analystRatings = {};           // ticker -> {consensus, consensus_score, target_mean, target_high, target_low, num_analysts, rating_counts, recent_actions, last_updated}
+        let convictionScores = {};         // ticker -> {score, grade, breakdown, snapshot_date, last_updated}
+        let alertsConvictionFilter = 'all'; // all | A | B+ | C+  (Tech Alerts conviction filter)
         let tickerClassifications = {};    // ticker -> {sector, industry, peer_group} for the whole scan universe
         let peerGroupRankings = {};        // peer_group -> {composite_rank, composite, breadth, n_tickers, rrg_quadrant, parent_sector, peer_group_type}
         let selectedWinLoseYear = new Date().getFullYear();
@@ -1753,6 +1755,42 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             }
         }
 
+        async function loadConvictionScoresFromSupabase() {
+            try {
+                const { data, error } = await supabase
+                    .from('conviction_scores')
+                    .select('ticker, score, grade, breakdown, snapshot_date');
+                if (error) throw error;
+                const out = {};
+                (data || []).forEach(r => {
+                    out[r.ticker] = {
+                        score: Number(r.score),
+                        grade: r.grade,
+                        breakdown: r.breakdown,
+                        snapshot_date: r.snapshot_date,
+                    };
+                });
+                console.log(`✅ Loaded conviction scores for ${Object.keys(out).length} tickers`);
+                return out;
+            } catch (e) {
+                console.error('❌ Error loading conviction_scores:', e);
+                return {};
+            }
+        }
+
+        // Small Conviction grade chip — used in Holdings + Tech Alerts cards.
+        // Returns '' when no data so callers can compose freely.
+        function convictionBadge(ticker, size = 'sm') {
+            const c = convictionScores[ticker];
+            if (!c || !c.grade) return '';
+            const g = c.grade;
+            const color = g === 'A' ? '#10b981' : g === 'B' ? '#3b82f6' : g === 'C' ? '#f59e0b' : '#ef4444';
+            const score = Number(c.score) || 0;
+            const fs = size === 'lg' ? '12px' : '10px';
+            const pad = size === 'lg' ? '2px 9px' : '1px 7px';
+            return `<span title="Conviction Score ${score}/100 (Grade ${g}) — 100-pt composite of technical, peer-group, fundamentals, broad+top analyst, and TipRanks sentiment signals" style="display:inline-flex;align-items:center;gap:3px;padding:${pad};border-radius:8px;font-size:${fs};font-weight:700;background:${color}18;color:${color};border:1px solid ${color}40;white-space:nowrap;">CONV ${g}</span>`;
+        }
+
         // Small Smart Score chip (1-10) — color from red (1-3) to green (8-10).
         function smartScoreChip(ss) {
             if (ss == null) return '';
@@ -1794,12 +1832,14 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                 : `${n} analyst${n === 1 ? '' : 's'}`;
 
             const ssChip = smartScoreChip(r.smart_score);
+            const cvChip = convictionBadge(ticker, 'sm');
             return `<div title="${tip.replace(/"/g, '&quot;')}" style="display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px;">
-                <span style="display:inline-flex;align-items:center;gap:4px;">
+                <span style="display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
                     <span style="display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:700;background:${s.bg};color:${s.color};border:1px solid ${s.color}40;white-space:nowrap;">
                         ${s.emoji} ${s.label}<span style="color:${upsideColor};font-weight:600;">${upsideStr}</span>
                     </span>
                     ${ssChip}
+                    ${cvChip}
                 </span>
                 <span style="font-size:9px;color:var(--text-secondary);white-space:nowrap;">
                     ${n}A · L ${fmt(low)} / Avg <span style="color:var(--text-primary);font-weight:600;">${fmt(target)}</span> / H ${fmt(high)}
@@ -2047,21 +2087,37 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             return entrySignalsData.filter(s => s.pattern === slug);
         }
 
-        // Apply the Summary tab's clickable filter to a signal list.
+        // Apply the Summary tab's clickable filter to a signal list, plus the
+        // Conviction filter (orthogonal — applied on top).
         function applySummaryFilter(signals) {
-            if (summaryFilter === 'all') return signals;
-            if (summaryFilter === 'strong_buy') return signals.filter(s => s.signal_strength === 'Strong');
-            if (summaryFilter === 'buy')        return signals.filter(s => s.signal_strength === 'Buy');
-            if (summaryFilter === 'multiple' || summaryFilter === 'multi_strong') {
+            let out = signals;
+            if (summaryFilter === 'strong_buy') out = out.filter(s => s.signal_strength === 'Strong');
+            else if (summaryFilter === 'buy')   out = out.filter(s => s.signal_strength === 'Buy');
+            else if (summaryFilter === 'multiple' || summaryFilter === 'multi_strong') {
                 const targets = summaryFilter === 'multi_strong'
-                    ? signals.filter(s => s.signal_strength === 'Strong')
-                    : signals;
+                    ? out.filter(s => s.signal_strength === 'Strong') : out;
                 const counts = {};
                 targets.forEach(s => { counts[s.ticker] = (counts[s.ticker] || 0) + 1; });
-                const multiTickers = new Set(Object.entries(counts).filter(([_, c]) => c > 1).map(([t]) => t));
-                return signals.filter(s => multiTickers.has(s.ticker));
+                const multi = new Set(Object.entries(counts).filter(([_, c]) => c > 1).map(([t]) => t));
+                out = out.filter(s => multi.has(s.ticker));
             }
-            return signals;
+            // Conviction overlay
+            if (alertsConvictionFilter !== 'all') {
+                out = out.filter(s => {
+                    const g = convictionScores[s.ticker]?.grade;
+                    if (!g) return false;
+                    if (alertsConvictionFilter === 'A')  return g === 'A';
+                    if (alertsConvictionFilter === 'B+') return g === 'A' || g === 'B';
+                    if (alertsConvictionFilter === 'C+') return g === 'A' || g === 'B' || g === 'C';
+                    return true;
+                });
+            }
+            return out;
+        }
+
+        function setAlertsConvictionFilter(v) {
+            alertsConvictionFilter = (alertsConvictionFilter === v) ? 'all' : v;
+            render();
         }
 
         // Sub-tab navigation — centered pills (India parity).
@@ -3406,6 +3462,25 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     ${filterCard('all',          filtered.length,            '',     'Total Signals',    '#667eea')}
                 </div>
 
+                <!-- Conviction filter — overlays on top of the strength filter above -->
+                <div style="display:flex;gap:8px;align-items:center;justify-content:center;margin-bottom:16px;flex-wrap:wrap;">
+                    <span style="font-size:12px;color:var(--text-secondary);font-weight:600;">CONVICTION FILTER:</span>
+                    ${[
+                        ['all', 'All',  '#94a3b8'],
+                        ['C+',  'C+',   '#f59e0b'],
+                        ['B+',  'B+',   '#3b82f6'],
+                        ['A',   'A only','#10b981'],
+                    ].map(([v, lbl, col]) => {
+                        const active = alertsConvictionFilter === v;
+                        return `<button onclick="setAlertsConvictionFilter('${v}')"
+                            style="padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;
+                                   background:${active ? col : 'var(--bg-card)'};
+                                   color:${active ? 'white' : 'var(--text-secondary)'};
+                                   border:1px solid ${active ? col : 'var(--border-color)'};">${lbl}</button>`;
+                    }).join('')}
+                    ${alertsConvictionFilter !== 'all' ? `<span style="font-size:11px;color:var(--text-secondary);">— only ${alertsConvictionFilter === 'A' ? 'A-grade' : alertsConvictionFilter} conviction stocks visible</span>` : ''}
+                </div>
+
                 ${summaryFilter !== 'all' ? `
                 <div class="mb-4 p-3 rounded-lg" style="background: var(--bg-secondary); border: 1px solid #667eea;">
                     <span style="color: var(--text-secondary);">Showing: </span>
@@ -3546,6 +3621,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                         </span>
                     </div>` : ''}
                     ${renderPeerContext(ticker, signal.sector)}
+                    ${convictionBadge(ticker, 'sm') ? `<div style="margin-top:6px;">${convictionBadge(ticker, 'sm')}</div>` : ''}
                 </div>
 
                 <div class="mb-3" style="display: inline-block;">
@@ -3719,6 +3795,7 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
                     </span>
                 </div>` : ''}
                 ${renderPeerContext(p.ticker, p.sector)}
+                ${convictionBadge(p.ticker, 'sm') ? `<div style="margin-top:6px;">${convictionBadge(p.ticker, 'sm')}</div>` : ''}
                 <div style="margin: 10px 0 4px;">
                     <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">
                         <span>Proximity Score</span>
@@ -5655,14 +5732,15 @@ if (supabaseTransactions && supabaseTransactions.length > 0) {
     // Load QQQ history for the Custom Period card's NASDAQ benchmark comparison
     qqqHistory = await loadQqqHistoryFromSupabase();
 
-    // Load Phase 3 alerts data + peer-group context + paper trading data + analyst ratings
-    const [_es, _ps, _pa, _pgc, _paper, _ar] = await Promise.all([
+    // Load Phase 3 alerts data + peer-group context + paper trading data + analyst ratings + conviction
+    const [_es, _ps, _pa, _pgc, _paper, _ar, _cv] = await Promise.all([
         loadEntrySignalsFromSupabase(),
         loadPresignalScoresFromSupabase(),
         loadPortfolioAlertsFromSupabase(),
         loadPeerGroupContextFromSupabase(),
         loadPaperDataFromSupabase(),
         loadAnalystRatingsFromSupabase(),
+        loadConvictionScoresFromSupabase(),
     ]);
     entrySignalsData = _es;
     presignalScoresData = _ps;
@@ -5674,6 +5752,7 @@ if (supabaseTransactions && supabaseTransactions.length > 0) {
     paperRunLog = _paper.runLog;
     paperTickerCloses = _paper.closes || {};
     analystRatings = _ar;
+    convictionScores = _cv;
 
     // Load meta (sector + market cap) for sector/market-cap charts
     stockMeta = await loadMetaFromSupabase();

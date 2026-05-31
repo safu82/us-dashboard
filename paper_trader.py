@@ -142,6 +142,11 @@ SECTOR_GATE_MIN_BREADTH = 50  # peer group breadth >= 50% (% above EMA50)
 # 5 quarters (yfinance cap) is enough for the latest-YoY check.
 EARNINGS_MIN_QUARTERS = 5
 
+# Conviction Score gating: reject any candidate with grade D (score < 45).
+# Tiebreaker: within each tier, candidates are sorted by Conviction Score
+# descending after tier-priority is applied. See compute_conviction.py.
+CONVICTION_GRADE_FLOOR = 'D'   # candidates AT this grade or worse are rejected
+
 # Intraday distribution filter: reject candidates whose D0 close sits in the
 # bottom N% of the D0 range. A weak close on the signal-day suggests the move
 # already faded intraday and we'd be entering into distribution. See the
@@ -336,6 +341,28 @@ def load_sector_rankings(sb, today_iso):
     except Exception as e:
         log(f'load_sector_rankings failed: {e}')
         return {}
+
+
+def load_conviction(sb, tickers):
+    """ticker -> {score, grade}. Computed nightly by compute_conviction.py."""
+    out = {}
+    if not tickers:
+        return out
+    tickers = list(tickers)
+    BATCH = 100
+    for i in range(0, len(tickers), BATCH):
+        chunk = tickers[i:i + BATCH]
+        try:
+            resp = (sb.table('conviction_scores')
+                      .select('ticker, score, grade')
+                      .in_('ticker', chunk).execute())
+        except Exception as e:
+            log(f'load_conviction batch failed: {e}')
+            continue
+        for r in (resp.data or []):
+            out[r['ticker']] = {'score': to_float(r.get('score'), 0),
+                                'grade': r.get('grade')}
+    return out
 
 
 def load_fundamentals(sb, tickers):
@@ -879,7 +906,14 @@ def process_entries(sb, candidates, today_snap, today_date, holdings,
                     prior_snap, snap_3d, market_regime):
     tier_order = {'T1_MULTI_STRONG': 0, 'T2_STRONG_REG': 1,
                   'T3_MULTI_REG': 2,    'T4_RS_ACCEL': 3}
-    candidates.sort(key=lambda c: (tier_order[c['tier']], -c['signal_score']))
+    # Tier dominates absolutely. Within a tier, sort by Conviction Score
+    # DESC first (better-confirmed names win the 5/day cap), then by
+    # signal_score DESC as the final tiebreaker.
+    candidates.sort(key=lambda c: (
+        tier_order[c['tier']],
+        -float(c.get('conviction_score') or 0),
+        -float(c.get('signal_score') or 0),
+    ))
 
     deployed = sum(sector_exposure.values())
     cash_cap = SLEEVE * MAX_DEPLOYED_PCT
@@ -936,6 +970,8 @@ def process_entries(sb, candidates, today_snap, today_date, holdings,
             'initial_risk': round(est_initial_risk, 2),
             'initial_stop': round(est_initial_stop, 4),
             'current_stop': round(est_initial_stop, 4),
+            'conviction_score': c.get('conviction_score'),
+            'conviction_grade': c.get('conviction_grade'),
             'status': 'pending',
             'mode': 'paper',
         }
@@ -1040,12 +1076,14 @@ def main():
         'signal_rows': 0, 'unique_tickers': 0,
         'no_bucket': 0,
         'sector_rejected': 0, 'earnings_rejected': 0, 'intraday_rejected': 0,
+        'conviction_rejected': 0,
         'in_holdings': 0, 'in_cooldown': 0, 'already_open': 0,
         'qualified': 0, 'inserted': 0,
         'qty_zero_rejected': 0, 'cash_rejected': 0, 'sector_conc_rejected': 0,
         'deployed_pct': 0, 'deployed_usd': 0,
         'bucket_counts': {},
         'sector_reasons': {}, 'earnings_reasons': {}, 'intraday_reasons': {},
+        'conviction_reasons': {},
     }
     errors = []
 
@@ -1149,6 +1187,9 @@ def main():
             fundamentals = load_fundamentals(
                 sb, [c['ticker'] for c in raw_candidates]
             )
+            conviction = load_conviction(
+                sb, [c['ticker'] for c in raw_candidates]
+            )
 
             candidates = []
             for c in raw_candidates:
@@ -1182,6 +1223,20 @@ def main():
                         funnel['intraday_reasons'].get(i_reason, 0) + 1
                     )
                     continue
+                # Conviction floor: reject any candidate at grade D (score < 45).
+                # Missing conviction data is treated as a pass (data should
+                # exist; missing implies the nightly compute hasn't caught up).
+                cv = conviction.get(ticker)
+                if cv and cv.get('grade') == 'D':
+                    funnel['conviction_rejected'] += 1
+                    reason = f'D ({cv.get("score", 0)})'
+                    funnel['conviction_reasons'][reason] = (
+                        funnel['conviction_reasons'].get(reason, 0) + 1
+                    )
+                    continue
+                # Stash conviction on the candidate for the within-tier tiebreaker
+                c['conviction_score'] = cv.get('score', 0) if cv else 0
+                c['conviction_grade'] = cv.get('grade') if cv else None
                 funnel['bucket_counts'][c['tier']] = (
                     funnel['bucket_counts'].get(c['tier'], 0) + 1
                 )

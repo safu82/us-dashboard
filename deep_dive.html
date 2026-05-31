@@ -144,7 +144,7 @@ async function fetchAll(ticker) {
         try { const r = await p; if (r.error) { console.error(label, r.error); return null; } return r; }
         catch (e) { console.error(label, e); return null; }
     };
-    const [lR, sR, fR, sigR, presR, hR, ahR, srR, secR, indR, anaR, ptR, alR] = await Promise.all([
+    const [lR, sR, fR, sigR, presR, hR, ahR, srR, secR, indR, ptR, alR, cvR] = await Promise.all([
         safe(sb.from('live_prices').select('*').eq('ticker', ticker).maybeSingle(), 'live_prices'),
         safe(sb.from('daily_stock_snapshots')
             .select('snapshot_date,open,high,low,close,volume,ema_9,ema_20,ema_50,ema_200,atr_14,rsi_14,rsi_ema_9,weekly_rsi_14,weekly_rsi_ema_9,high_52w,alkalyme_rs,rs_rank,vol_ratio,sector_percentile,sector_composite_pct,peer_percentile,peer_composite_pct,peer_group,bz_streak,gc_crossover_date,macd_line,macd_signal,macd_hist,adx_14')
@@ -160,6 +160,7 @@ async function fetchAll(ticker) {
         safe(sb.from('analyst_ratings').select('*').eq('ticker', ticker).maybeSingle(), 'analyst_ratings'),
         safe(sb.from('paper_trades').select('*').eq('ticker', ticker).order('entry_date', { ascending: false }).limit(10), 'paper_trades'),
         safe(sb.from('alerts').select('alert_type,alert_date,direction,close,metadata').eq('ticker', ticker).order('alert_date', { ascending: false }).limit(20), 'alerts'),
+        safe(sb.from('conviction_scores').select('score, grade, breakdown, snapshot_date, last_updated').eq('ticker', ticker).maybeSingle(), 'conviction_scores'),
     ]);
     return {
         live: lR?.data, snaps: sR?.data || [], fund: fR?.data,
@@ -169,6 +170,7 @@ async function fetchAll(ticker) {
         sectorRankings: secR?.data || [],
         analyst: indR?.data, paperTrades: ptR?.data || [],
         alerts: alR?.data || [],
+        conviction: cvR?.data,
     };
 }
 
@@ -314,6 +316,8 @@ async function render(ticker, d) {
     </div>
 
     <div class="page">
+        ${d.conviction ? renderConvictionPanel(d.conviction) : ''}
+
         ${holding && portfolioWeight != null ? `
         <div class="card" style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">
             <div><div class="card-title">Portfolio Weight</div><div style="font-size:22px;font-weight:700">${N(portfolioWeight, 2)}%</div></div>
@@ -694,6 +698,41 @@ function renderAnalystPanel(a, cmp) {
         </div>` : ''}
 
         <div style="font-size:10px;color:var(--text2);margin-top:14px">Source: yfinance${a.tipranks_last_updated ? ' + TipRanks' : ''} · Last updated: ${a.last_updated ? new Date(a.last_updated).toLocaleString() : '—'}</div>
+    </div>`;
+}
+
+// Conviction Score panel — big A-D grade + per-component breakdown bar.
+// Rendered at the top of the deep dive page (right under the header) so
+// the user sees the headline conviction read immediately.
+function renderConvictionPanel(c) {
+    if (!c) return '';
+    const score = Number(c.score) || 0;
+    const grade = c.grade || '?';
+    const gColor = grade === 'A' ? '#3fb950' : grade === 'B' ? '#58a6ff' : grade === 'C' ? '#e3b341' : '#f85149';
+    const bd = Array.isArray(c.breakdown) ? c.breakdown : [];
+    return `
+    <div class="card" style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">
+        <div style="text-align:center;min-width:130px">
+            <div class="card-title" style="margin-bottom:6px">Conviction Score</div>
+            <div style="display:flex;align-items:center;gap:10px;justify-content:center">
+                <div style="font-size:36px;font-weight:800;color:${gColor};line-height:1">${grade}</div>
+                <div>
+                    <div style="font-size:16px;font-weight:700">${score.toFixed(0)}/100</div>
+                    <div style="width:120px;height:5px;background:var(--border);border-radius:3px;margin-top:4px;overflow:hidden">
+                        <div style="width:${Math.min(100, Math.max(0, score))}%;height:100%;background:${gColor}"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-sub" style="margin-top:8px">A≥80 · B≥65 · C≥45</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;flex:1">
+            ${bd.map(b => `
+            <div style="text-align:center;padding:8px 10px;background:var(--bg3);border-radius:6px;min-width:84px">
+                <div style="font-size:10px;color:var(--text2);margin-bottom:3px;white-space:nowrap">${b.label}</div>
+                <div style="font-size:14px;font-weight:700;color:${b.pts === b.max ? 'var(--green)' : b.pts > 0 ? 'var(--blue)' : 'var(--text2)'}">${b.pts}/${b.max}</div>
+                <div style="font-size:10px;color:var(--text2);margin-top:2px;white-space:nowrap">${b.detail || ''}</div>
+            </div>`).join('')}
+        </div>
     </div>`;
 }
 

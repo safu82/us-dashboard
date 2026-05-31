@@ -1,0 +1,30 @@
+name: Compute Conviction Score (US)
+
+# Daily at 06:45 UTC — runs AFTER both fetch-analyst-ratings (06:23) and
+# fetch-tipranks-data (06:30) so the conviction score uses fresh inputs.
+# Reads snapshot + fundamentals + sector_rankings + analyst_ratings, writes
+# conviction_scores. ~518 tickers, ~30 sec runtime.
+on:
+  schedule:
+    - cron: '45 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  compute:
+    name: Compute Conviction scores
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install supabase python-dotenv
+      - name: Run compute_conviction.py
+        run: python compute_conviction.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
