@@ -3323,7 +3323,11 @@ function calculateYTDXIRR(currentPortfolioValue, year = null) {
             const cmpFor = (t) => Number(prices[t]?.price) || Number(paperTickerCloses[t]) || 0;
             const tiedUp = allOpen.reduce((s, t) =>
                 s + (Number(t.current_quantity) || 0) * (Number(t.entry_price) || 0), 0);
-            const cumRealised = allClosed.reduce((s, t) => s + (Number(t.total_pnl) || 0), 0);
+            // Realized = closed trades + partials booked on still-open trades —
+            // must match the headline Cash/Total cards (line ~3041). Omitting the
+            // open partials made the equity-chart total disagree with the cards.
+            const cumRealised = allClosed.reduce((s, t) => s + (Number(t.total_pnl) || 0), 0)
+                + allOpen.reduce((s, t) => s + (Number(t.realised_pnl) || 0), 0);
             const positionsValue = allOpen.reduce((s, t) =>
                 s + cmpFor(t.ticker) * (Number(t.current_quantity) || 0), 0);
             const liveTotal = SLEEVE_USD - tiedUp + cumRealised + positionsValue;

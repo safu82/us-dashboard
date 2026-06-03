@@ -903,7 +903,7 @@ def compute_entry_context(ticker, today_snap, prior_snap, snap_3d, market_regime
 def process_entries(sb, candidates, today_snap, today_date, holdings,
                     recent_closed, open_tickers, sector_map,
                     sector_exposure, max_new, funnel,
-                    prior_snap, snap_3d, market_regime):
+                    prior_snap, snap_3d, market_regime, realised_total=0.0):
     tier_order = {'T1_MULTI_STRONG': 0, 'T2_STRONG_REG': 1,
                   'T3_MULTI_REG': 2,    'T4_RS_ACCEL': 3}
     # Tier dominates absolutely. Within a tier, sort by Conviction Score
@@ -916,7 +916,11 @@ def process_entries(sb, candidates, today_snap, today_date, holdings,
     ))
 
     deployed = sum(sector_exposure.values())
-    cash_cap = SLEEVE * MAX_DEPLOYED_PCT
+    # Deployable ceiling = 95% of the sleeve GROWN by realized P&L (closed +
+    # open-trade partials). Realized gains add real cash to deploy; realized
+    # losses shrink it. `deployed` is now current cost basis (see main), so
+    # partials correctly reopen room here.
+    cash_cap = (SLEEVE + realised_total) * MAX_DEPLOYED_PCT
 
     inserted = []
     for c in candidates:
@@ -1043,7 +1047,14 @@ def fetch_benchmark_closes(sb, today_date):
 def write_equity_row(sb, today_date, open_trades, today_snap, equity_history,
                      cum_realised_closed, opened, closed, realised_today):
     pv = positions_mtm(open_trades, today_snap)
-    cash = SLEEVE - open_capital_tied(open_trades) + cum_realised_closed
+    # Cash = sleeve - cost basis still held (current qty) + ALL realized P&L.
+    # Realized = closed trades (cum_realised_closed) + partials booked on
+    # still-open trades. Omitting the open partials understated stored cash by
+    # the partial profits and left it inconsistent with the dashboard Cash card.
+    realised_partials_open = sum(to_float(tr.get('realised_pnl'), 0)
+                                 for tr in open_trades)
+    cash = (SLEEVE - open_capital_tied(open_trades)
+            + cum_realised_closed + realised_partials_open)
     total_value = cash + pv
     ath = max([SLEEVE] + [to_float(e['total_value'], SLEEVE) for e in equity_history]
               + [total_value])
@@ -1130,14 +1141,29 @@ def main():
         committed_trades = open_trades + pending_trades
         open_tickers = {t['ticker'] for t in committed_trades}
 
+        # Capital actually tied up RIGHT NOW = current_quantity * entry_price,
+        # NOT the frozen initial entry_value. Partials reduce current_quantity
+        # and free real cash, so the deployment gate must see the reduced figure
+        # — otherwise a trimmed position keeps blocking new entries at full size.
+        # This is the same cost basis the dashboard's Cash card uses (index.html).
         sector_exposure = defaultdict(float)
         for tr in committed_trades:
-            sector_exposure[tr.get('sector') or 'Unknown'] += to_float(tr['entry_value'], 0)
+            cost = to_int(tr.get('current_quantity')) * to_float(tr.get('entry_price'), 0)
+            sector_exposure[tr.get('sector') or 'Unknown'] += cost
 
         cum_realised_closed = load_cumulative_closed_pnl(sb)
+        # Realized P&L (closed trades + partials booked on still-open trades) is
+        # real cash and lifts the deployable ceiling — same notion as the
+        # dashboard's totalRealised.
+        realised_partials_open = sum(to_float(tr.get('realised_pnl'), 0)
+                                     for tr in open_trades)
+        realised_total = cum_realised_closed + realised_partials_open
         pv_now = positions_mtm(open_trades, today_snap)
+        # Use realised_total (closed + open partials) so the kill-switch /
+        # drawdown total matches the stored equity definition — otherwise open
+        # partial profits are invisible here and drawdown reads too deep.
         provisional_total = (
-            SLEEVE - open_capital_tied(open_trades) + cum_realised_closed + pv_now
+            SLEEVE - open_capital_tied(open_trades) + realised_total + pv_now
         )
         kill, kill_reason = kill_switch(equity_history, provisional_total)
 
@@ -1248,6 +1274,7 @@ def main():
                 open_tickers, sector_map, sector_exposure, max_new=slots,
                 funnel=funnel,
                 prior_snap=prior_snap, snap_3d=snap_3d, market_regime=market_regime,
+                realised_total=realised_total,
             )
             funnel['inserted'] = len(inserted)
             log(f'entries: qualified={len(candidates)} inserted={len(inserted)}')
