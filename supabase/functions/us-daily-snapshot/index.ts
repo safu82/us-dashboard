@@ -29,9 +29,12 @@ Deno.serve(async () => {
       return json({ success: true, message: 'Snapshot already exists', date: snapshotDate });
     }
 
-    // Live prices.
+    // Live prices. `regular_close` is the frozen 4 PM ET regular-session close;
+    // `price` carries the live pre/post-market LTP. We value the EOD snapshot off
+    // regular_close so after-hours drift doesn't skew NAV (this function runs ~6 PM
+    // ET, mid post-market). Falls back to price, then avg_cost, per holding.
     const { data: livePrices, error: pricesErr } = await supabase
-      .from('live_prices').select('ticker, price, updated_at');
+      .from('live_prices').select('ticker, price, regular_close, updated_at');
     if (pricesErr) throw pricesErr;
 
     // Staleness guard — refuse to snapshot off stale prices (e.g. if the
@@ -55,8 +58,15 @@ Deno.serve(async () => {
       });
     }
 
+    // Prefer the frozen regular close; fall back to the live LTP.
+    const closeMap: Record<string, number> = {};
     const priceMap: Record<string, number> = {};
-    livePrices?.forEach((r) => { if (r.price > 0) priceMap[r.ticker] = r.price; });
+    livePrices?.forEach((r) => {
+      if (r.regular_close > 0) closeMap[r.ticker] = r.regular_close;
+      if (r.price > 0) priceMap[r.ticker] = r.price;
+    });
+    const eodPrice = (ticker: string): number | undefined =>
+      closeMap[ticker] ?? priceMap[ticker];
 
     // Holdings.
     const { data: holdings, error: holdErr } = await supabase
@@ -66,13 +76,13 @@ Deno.serve(async () => {
     let totalValue = 0;
     const missing: string[] = [];
     holdings?.forEach((h) => {
-      const price = priceMap[h.ticker] ?? h.avg_cost;
-      if (!priceMap[h.ticker]) missing.push(h.ticker);
+      const price = eodPrice(h.ticker) ?? h.avg_cost;
+      if (eodPrice(h.ticker) === undefined) missing.push(h.ticker);
       totalValue += h.quantity * price;
     });
 
     // QQQ benchmark CAGR — baseline $268.65 on 2023-01-02.
-    const qqqPrice = priceMap['QQQ'] || 0;
+    const qqqPrice = eodPrice('QQQ') || 0;
     const qqqStartPrice = 268.65;
     const qqqStartDate = new Date('2023-01-02');
     const years = (Date.now() - qqqStartDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);

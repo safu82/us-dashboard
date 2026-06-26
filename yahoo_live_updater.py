@@ -261,6 +261,10 @@ def fetch_and_update_prices(session, tickers, phase):
             'post_market_price':      round(post, 4) if post is not None else None,
             'post_market_change_pct': round(post_chg_pct, 4) if post_chg_pct is not None else None,
             'market_state': state,
+            # Frozen regular-session (4 PM ET) close, distinct from `price`
+            # (which carries the live pre/post-market LTP). The EOD snapshot
+            # values the book off this so it isn't skewed by after-hours drift.
+            'regular_close': round(q['regular'], 4) if q.get('regular') is not None else None,
             'updated_at': now_iso,
         })
     if updates:
