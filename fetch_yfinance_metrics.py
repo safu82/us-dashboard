@@ -34,14 +34,18 @@ if not URL or not KEY:
     sys.exit('ERROR: SUPABASE_URL and SUPABASE_SERVICE_KEY must be set')
 
 BATCH_SIZE = 50
-SLEEP_BATCH = 3
+SLEEP_BATCH = 3          # sequential pacing — concurrency triggers Yahoo throttling
+FETCH_ATTEMPTS = 3       # per-batch retries on transient download errors
 
 
 def _safe(val, decimals=4):
     try:
-        if val is None or (isinstance(val, float) and np.isnan(val)):
+        if val is None:
             return None
-        return round(float(val), decimals)
+        f = float(val)
+        if np.isnan(f) or np.isinf(f):   # inf (e.g. debt/equity on zero equity) breaks JSON upsert
+            return None
+        return round(f, decimals)
     except Exception:
         return None
 
@@ -57,8 +61,21 @@ def pct(v):
 def get_universe(sb):
     if len(sys.argv) > 1:
         return [t.strip().upper() for t in sys.argv[1:]]
-    rows = sb.table('us_stock_sectors').select('ticker').execute().data or []
-    tickers = [r['ticker'] for r in rows if r.get('ticker')]
+    # Paginate — PostgREST caps a plain select at 1000 rows, which silently
+    # truncated the ~1,900-name universe to 1000.
+    tickers, seen = [], set()
+    page, frm = 1000, 0
+    while True:
+        resp = (sb.table('us_stock_sectors').select('ticker')
+                  .range(frm, frm + page - 1).execute())
+        for r in (resp.data or []):
+            t = r.get('ticker')
+            if t and t not in seen:
+                seen.add(t)
+                tickers.append(t)
+        if not resp.data or len(resp.data) < page:
+            break
+        frm += page
     print(f'{len(tickers)} tickers from us_stock_sectors')
     return tickers
 
@@ -89,13 +106,29 @@ def _compute_price_metrics(highs, closes):
     }
 
 
+def _download_max(batch, attempts=FETCH_ATTEMPTS):
+    """yf.download(period='max') with retry/backoff so a transient error doesn't
+    silently drop a whole batch of price metrics."""
+    for a in range(1, attempts + 1):
+        try:
+            hist = yf.download(batch, period='max', interval='1d', auto_adjust=True,
+                               progress=False, threads=True)
+            if hist is not None and not hist.empty:
+                return hist
+        except Exception as e:
+            if a < attempts:
+                time.sleep(2 * a)
+                continue
+            print(f'    price download error: {str(e)[:60]}')
+    return None
+
+
 def fetch_price_metrics_batch(batch):
     results = {}
+    hist = _download_max(batch)
+    if hist is None or hist.empty:
+        return results
     try:
-        hist = yf.download(batch, period='max', interval='1d', auto_adjust=True,
-                           progress=False, threads=True)
-        if hist.empty:
-            return results
         if len(batch) == 1:
             closes = hist['Close'] if 'Close' in hist.columns else None
             highs = hist['High'] if 'High' in hist.columns else None
@@ -210,6 +243,23 @@ def fetch_metadata_batch(batch):
     return results
 
 
+def run_pass(label, batches, fn):
+    """Run one fetch pass over all batches SEQUENTIALLY (concurrency triggers
+    Yahoo rate-limiting — the OHLC fetcher proved sequential + threads=True +
+    sleep gets full coverage). Per-batch retry lives inside the fetch fns."""
+    out = {}
+    for i, b in enumerate(batches, 1):
+        try:
+            out.update(fn(b) or {})
+        except Exception as e:
+            print(f'  {label} batch {i} failed: {str(e)[:60]}')
+        if i % 5 == 0 or i == len(batches):
+            print(f'  {label}: {i}/{len(batches)} batches | {len(out)} tickers')
+        if i < len(batches):
+            time.sleep(SLEEP_BATCH)
+    return out
+
+
 def main():
     print('=' * 70)
     print('US YFINANCE METRICS FETCHER  ',
@@ -220,38 +270,11 @@ def main():
     if not tickers:
         sys.exit('No tickers found')
 
-    n_batches = (len(tickers) + BATCH_SIZE - 1) // BATCH_SIZE
-    price_metrics, metadata, quarterly = {}, {}, {}
-
-    print(f'Fetching price history in {n_batches} batches ...')
-    for i in range(0, len(tickers), BATCH_SIZE):
-        batch = tickers[i:i + BATCH_SIZE]
-        print(f'  price batch {i // BATCH_SIZE + 1}/{n_batches} ...', end=' ', flush=True)
-        m = fetch_price_metrics_batch(batch)
-        price_metrics.update(m)
-        print(f'{len(m)}/{len(batch)}')
-        if i + BATCH_SIZE < len(tickers):
-            time.sleep(SLEEP_BATCH)
-
-    print(f'Fetching metadata in {n_batches} batches ...')
-    for i in range(0, len(tickers), BATCH_SIZE):
-        batch = tickers[i:i + BATCH_SIZE]
-        print(f'  meta batch {i // BATCH_SIZE + 1}/{n_batches} ...', end=' ', flush=True)
-        m = fetch_metadata_batch(batch)
-        metadata.update(m)
-        print(f'{len(m)}/{len(batch)}')
-        if i + BATCH_SIZE < len(tickers):
-            time.sleep(SLEEP_BATCH)
-
-    print(f'Fetching quarterly financials in {n_batches} batches ...')
-    for i in range(0, len(tickers), BATCH_SIZE):
-        batch = tickers[i:i + BATCH_SIZE]
-        print(f'  quarterly batch {i // BATCH_SIZE + 1}/{n_batches} ...', end=' ', flush=True)
-        m = fetch_quarterly_batch(batch)
-        quarterly.update(m)
-        print(f'{len(m)}/{len(batch)}')
-        if i + BATCH_SIZE < len(tickers):
-            time.sleep(SLEEP_BATCH)
+    batches = [tickers[i:i + BATCH_SIZE] for i in range(0, len(tickers), BATCH_SIZE)]
+    print(f'{len(tickers)} tickers in {len(batches)} batches (sequential)')
+    price_metrics = run_pass('price', batches, fetch_price_metrics_batch)
+    metadata = run_pass('metadata', batches, fetch_metadata_batch)
+    quarterly = run_pass('quarterly', batches, fetch_quarterly_batch)
 
     records = []
     now_iso = datetime.now(timezone.utc).isoformat()
