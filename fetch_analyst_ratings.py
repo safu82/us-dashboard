@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Pull analyst consensus + price targets + recent upgrades-downgrades from
-yfinance for the holdings universe (extendable to the full S&P/NDX universe
-later). Upserts into analyst_ratings keyed by ticker.
+yfinance for the full us_stock_sectors universe (~1,900 names). Upserts into
+analyst_ratings keyed by ticker.
 
-Runs daily via GitHub Actions. Holdings + paper open positions = small set
-(< 30 tickers), so this script finishes in ~30 seconds.
+Runs daily via GitHub Actions. Each ticker is 3 per-ticker yfinance calls
+(.info + recommendations_summary + upgrades_downgrades), so the universe is
+fetched concurrently via a thread pool with per-ticker retry/backoff to stay
+within a sane runtime; results are batch-upserted from the main thread.
 
 Env: SUPABASE_URL, SUPABASE_SERVICE_KEY (or local .env).
 """
@@ -12,6 +14,7 @@ Env: SUPABASE_URL, SUPABASE_SERVICE_KEY (or local .env).
 import os
 import sys
 import time
+import concurrent.futures
 from datetime import datetime, timezone
 
 import yfinance as yf
@@ -29,6 +32,8 @@ if not URL or not KEY:
 
 
 RECENT_ACTIONS_LIMIT = 30  # last N analyst actions per ticker
+MAX_WORKERS = 6            # concurrent yfinance fetches (lower if throttled)
+FETCH_ATTEMPTS = 3         # per-ticker retries on transient Yahoo errors
 
 
 def _safe_float(v):
@@ -83,70 +88,80 @@ def get_universe(sb):
     return sorted(tickers)
 
 
-def fetch_one(ticker):
-    """Returns a dict ready to upsert, or None on failure."""
+def fetch_one(ticker, attempts=FETCH_ATTEMPTS):
+    """Returns a dict ready to upsert, or None. Retries on transient Yahoo
+    errors (throttling) with backoff; a clean no-data result is not retried."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return _fetch_one_inner(ticker)
+        except Exception as e:
+            if attempt < attempts:
+                time.sleep(1.5 * attempt)
+                continue
+            print(f'  {ticker}: ERROR {e}')
+            return None
+
+
+def _fetch_one_inner(ticker):
+    """Core fetch — raises on transient errors so fetch_one can retry."""
+    tk = yf.Ticker(ticker)
+    info = tk.info or {}
+
+    consensus = info.get('recommendationKey')
+    consensus_score = _safe_float(info.get('recommendationMean'))
+    num_analysts = _safe_int(info.get('numberOfAnalystOpinions'))
+    target_mean = _safe_float(info.get('targetMeanPrice'))
+    target_high = _safe_float(info.get('targetHighPrice'))
+    target_low = _safe_float(info.get('targetLowPrice'))
+
+    # Recommendations summary — current month row only (most relevant snapshot)
+    rating_counts = None
     try:
-        tk = yf.Ticker(ticker)
-        info = tk.info or {}
+        rs = tk.recommendations_summary
+        if rs is not None and not rs.empty:
+            row = rs.iloc[0]
+            rating_counts = {
+                'strongBuy': _safe_int(row.get('strongBuy')),
+                'buy': _safe_int(row.get('buy')),
+                'hold': _safe_int(row.get('hold')),
+                'sell': _safe_int(row.get('sell')),
+                'strongSell': _safe_int(row.get('strongSell')),
+            }
+    except Exception:
+        pass
 
-        consensus = info.get('recommendationKey')
-        consensus_score = _safe_float(info.get('recommendationMean'))
-        num_analysts = _safe_int(info.get('numberOfAnalystOpinions'))
-        target_mean = _safe_float(info.get('targetMeanPrice'))
-        target_high = _safe_float(info.get('targetHighPrice'))
-        target_low = _safe_float(info.get('targetLowPrice'))
+    # Upgrades / downgrades — last N
+    recent_actions = []
+    try:
+        ud = tk.upgrades_downgrades
+        if ud is not None and not ud.empty:
+            # ud is indexed by datetime; head() gives the most recent
+            for ts, row in ud.head(RECENT_ACTIONS_LIMIT).iterrows():
+                recent_actions.append({
+                    'date': ts.isoformat() if hasattr(ts, 'isoformat') else str(ts),
+                    'firm': str(row.get('Firm') or ''),
+                    'from_grade': str(row.get('FromGrade') or ''),
+                    'to_grade': str(row.get('ToGrade') or ''),
+                    'action': str(row.get('Action') or ''),
+                })
+    except Exception:
+        pass
 
-        # Recommendations summary — current month row only (most relevant snapshot)
-        rating_counts = None
-        try:
-            rs = tk.recommendations_summary
-            if rs is not None and not rs.empty:
-                row = rs.iloc[0]
-                rating_counts = {
-                    'strongBuy': _safe_int(row.get('strongBuy')),
-                    'buy': _safe_int(row.get('buy')),
-                    'hold': _safe_int(row.get('hold')),
-                    'sell': _safe_int(row.get('sell')),
-                    'strongSell': _safe_int(row.get('strongSell')),
-                }
-        except Exception:
-            pass
+    if consensus is None and target_mean is None and not recent_actions:
+        return None  # nothing useful
 
-        # Upgrades / downgrades — last N
-        recent_actions = []
-        try:
-            ud = tk.upgrades_downgrades
-            if ud is not None and not ud.empty:
-                # ud is indexed by datetime; head() gives the most recent
-                for ts, row in ud.head(RECENT_ACTIONS_LIMIT).iterrows():
-                    recent_actions.append({
-                        'date': ts.isoformat() if hasattr(ts, 'isoformat') else str(ts),
-                        'firm': str(row.get('Firm') or ''),
-                        'from_grade': str(row.get('FromGrade') or ''),
-                        'to_grade': str(row.get('ToGrade') or ''),
-                        'action': str(row.get('Action') or ''),
-                    })
-        except Exception:
-            pass
-
-        if consensus is None and target_mean is None and not recent_actions:
-            return None  # nothing useful
-
-        return {
-            'ticker': ticker,
-            'consensus': consensus,
-            'consensus_score': consensus_score,
-            'target_mean': target_mean,
-            'target_high': target_high,
-            'target_low': target_low,
-            'num_analysts': num_analysts,
-            'rating_counts': rating_counts,
-            'recent_actions': recent_actions or None,
-            'last_updated': datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as e:
-        print(f'  {ticker}: ERROR {e}')
-        return None
+    return {
+        'ticker': ticker,
+        'consensus': consensus,
+        'consensus_score': consensus_score,
+        'target_mean': target_mean,
+        'target_high': target_high,
+        'target_low': target_low,
+        'num_analysts': num_analysts,
+        'rating_counts': rating_counts,
+        'recent_actions': recent_actions or None,
+        'last_updated': datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def main():
@@ -158,26 +173,34 @@ def main():
     universe = get_universe(sb)
     if not universe:
         sys.exit('No tickers in universe')
-    print(f'Universe: {len(universe)} tickers')
+    print(f'Universe: {len(universe)} tickers ({MAX_WORKERS} workers)')
+
+    # Fetch concurrently (yfinance is the bottleneck); upsert from main thread
+    # only (the Supabase client is not shared across worker threads).
+    records, no_data, done = [], 0, 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futs = {ex.submit(fetch_one, tk): tk for tk in universe}
+        for fut in concurrent.futures.as_completed(futs):
+            done += 1
+            rec = fut.result()
+            if rec:
+                records.append(rec)
+            else:
+                no_data += 1
+            if done % 200 == 0 or done == len(universe):
+                print(f'  fetched {done}/{len(universe)} ({len(records)} with data)')
 
     success = 0
-    for tk in universe:
-        rec = fetch_one(tk)
-        if not rec:
-            print(f'  {tk}: no data')
-            continue
+    for i in range(0, len(records), 100):
+        chunk = records[i:i + 100]
         try:
-            sb.table('analyst_ratings').upsert(rec, on_conflict='ticker').execute()
-            success += 1
-            tgt = rec.get('target_mean')
-            tgt_str = f"target ${tgt:.2f}" if tgt else 'no target'
-            print(f'  {tk}: {rec.get("consensus") or "?":<14s} ({rec.get("num_analysts") or "?"} analysts) {tgt_str}')
+            sb.table('analyst_ratings').upsert(chunk, on_conflict='ticker').execute()
+            success += len(chunk)
         except Exception as e:
-            print(f'  {tk}: upsert failed: {e}')
-        time.sleep(0.3)  # be polite to Yahoo
+            print(f'  upsert chunk {i}-{i + len(chunk)} failed: {e}')
 
     print('=' * 60)
-    print(f'Done. {success}/{len(universe)} tickers upserted')
+    print(f'Done. {success}/{len(universe)} upserted | {len(records)} had data | {no_data} no-data')
 
 
 if __name__ == '__main__':

@@ -24,7 +24,7 @@ Env: SUPABASE_URL, SUPABASE_SERVICE_KEY (.env in repo root auto-loaded).
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date, timedelta
 
 import numpy as np
 import pandas as pd
@@ -249,6 +249,11 @@ def compute_records(ticker, df, index_closes):
 
     records = []
     for date, row in df.tail(STORE_DAYS).iterrows():
+        # Skip bars with no OHLC (data gaps / in-progress bar): indicators may
+        # carry forward off prior closes, but a null open/close violates the
+        # daily_stock_snapshots not-null constraint.
+        if pd.isna(row['Open']) or pd.isna(row['Close']):
+            continue
         gc_date = row['gc_crossover_date']
         records.append({
             'ticker': ticker,
@@ -291,34 +296,41 @@ def benchmark_ohlc_records(ticker, df):
         'low': f(row['Low']), 'close': f(row['Close']),
         'adj_close': f(row['Close']),
         'volume': int(row['Volume']) if pd.notna(row['Volume']) else None,
-    } for date, row in df.tail(STORE_DAYS).iterrows()]
+    } for date, row in df.tail(STORE_DAYS).iterrows()
+        if pd.notna(row['Open']) and pd.notna(row['Close'])]
 
 
 def load_universe(sb):
-    """CLI args override; otherwise S&P 500 ∪ NASDAQ 100 ∪ held tickers ∪ ALWAYS_FETCH benchmarks."""
+    """CLI args override; otherwise the full scan universe from us_stock_sectors
+    (S&P 1500 core + NASDAQ overlay + held), ∪ live holdings ∪ ALWAYS_FETCH.
+
+    Repointed from the old tickers_sp500.txt / tickers_nasdaq100.txt files to the
+    us_stock_sectors table so OHLC covers the expanded ~1,900-name universe and
+    stays in lockstep with the analyst/metrics/TipRanks fetchers (which already
+    read this table)."""
     if len(sys.argv) > 1:
         return [t.strip().upper() for t in sys.argv[1:]]
     seen = set()
     tickers = []
-    for fname in ('tickers_sp500.txt', 'tickers_nasdaq100.txt'):
-        path = os.path.join(BASE, fname)
-        if not os.path.exists(path):
-            print(f'  WARN: {fname} not found, skipping')
-            continue
-        added = 0
-        with open(path, encoding='utf-8') as fh:
-            for ln in fh:
-                t = ln.strip().upper()
-                if t and t not in seen:
-                    seen.add(t)
-                    tickers.append(t)
-                    added += 1
-        print(f'  + {added} new from {fname}')
+    page, frm = 1000, 0
+    while True:
+        resp = (sb.table('us_stock_sectors').select('ticker')
+                  .range(frm, frm + page - 1).execute())
+        for r in (resp.data or []):
+            t = (r.get('ticker') or '').strip().upper()
+            if t and t not in seen:
+                seen.add(t)
+                tickers.append(t)
+        if not resp.data or len(resp.data) < page:
+            break
+        frm += page
+    print(f'  + {len(tickers)} from us_stock_sectors')
+    # Defensive: live holdings not yet classified in us_stock_sectors.
     held = {h['ticker'] for h in (sb.table('holdings').select('ticker')
                                   .execute().data or []) if h.get('ticker')}
     extras = sorted(held - seen)
     if extras:
-        print(f'  + {len(extras)} held extras outside the index files: {extras}')
+        print(f'  + {len(extras)} held extras not in us_stock_sectors: {extras}')
         tickers += extras
         seen.update(extras)
     # Dashboard benchmarks that must stay current even if no longer held.
@@ -329,11 +341,41 @@ def load_universe(sb):
     return tickers
 
 
+def download_batch(batch, attempts=3):
+    """yf.download with retry/backoff. At ~38 batches a lone transient error
+    would otherwise silently drop 50 tickers from the snapshot."""
+    for a in range(1, attempts + 1):
+        try:
+            hist = yf.download(batch, period=HISTORY_PERIOD, interval='1d',
+                               auto_adjust=True, progress=False, threads=True,
+                               group_by='ticker')
+            if hist is not None and not hist.empty:
+                return hist
+            print(f'(empty, retry {a}) ', end='', flush=True)
+        except Exception as e:
+            print(f'(err {a}: {str(e)[:50]}) ', end='', flush=True)
+        time.sleep(SLEEP_BATCH * a)
+    return None
+
+
 def cleanup_old(sb):
-    cutoff = (datetime.now(timezone.utc) - pd.Timedelta(days=STORE_DAYS)).strftime('%Y-%m-%d')
+    """Delete rows older than STORE_DAYS. At ~1,900 tickers a single bulk DELETE
+    across the whole window exceeds Supabase's statement timeout, so we delete
+    one calendar date at a time (each ≤ universe size — fast, no timeout)."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=STORE_DAYS)).date()
     try:
-        sb.table('daily_stock_snapshots').delete().lt('snapshot_date', cutoff).execute()
-        print(f'Cleaned daily_stock_snapshots rows before {cutoff}')
+        r = (sb.table('daily_stock_snapshots').select('snapshot_date')
+             .order('snapshot_date').limit(1).execute().data)
+        if not r:
+            return
+        d = date.fromisoformat(r[0]['snapshot_date'])
+        days = 0
+        while d < cutoff:
+            sb.table('daily_stock_snapshots').delete().eq(
+                'snapshot_date', d.isoformat()).execute()
+            days += 1
+            d += timedelta(days=1)
+        print(f'Cleaned {days} day(s) before {cutoff.isoformat()}')
     except Exception as e:
         print(f'WARN cleanup: {e}')
 
@@ -365,12 +407,9 @@ def main():
         batch = universe[i:i + BATCH_SIZE]
         bnum = i // BATCH_SIZE + 1
         print(f'  batch {bnum} ({len(batch)} tickers) ...', end=' ', flush=True)
-        try:
-            hist = yf.download(batch, period=HISTORY_PERIOD, interval='1d',
-                               auto_adjust=True, progress=False, threads=True,
-                               group_by='ticker')
-        except Exception as e:
-            print(f'download error: {e}')
+        hist = download_batch(batch)
+        if hist is None:
+            print('download failed after retries')
             fail += len(batch)
             continue
 
@@ -384,8 +423,11 @@ def main():
                 fail += 1
 
         for j in range(0, len(batch_records), 500):
-            sb.table('daily_stock_snapshots').upsert(
-                batch_records[j:j + 500], on_conflict='ticker,snapshot_date').execute()
+            try:
+                sb.table('daily_stock_snapshots').upsert(
+                    batch_records[j:j + 500], on_conflict='ticker,snapshot_date').execute()
+            except Exception as e:
+                print(f'(upsert chunk error: {str(e)[:80]}) ', end='', flush=True)
         total += len(batch_records)
         print(f'{len(batch_records)} rows')
         if i + BATCH_SIZE < len(universe):

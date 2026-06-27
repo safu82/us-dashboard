@@ -221,3 +221,4 @@ __marimo__/
 migration/
 .claude/settings.local.json
 *.png
+universe_preview.csv
