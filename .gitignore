@@ -222,3 +222,4 @@ migration/
 .claude/settings.local.json
 *.png
 universe_preview.csv
+newsletter_data_pack.md
