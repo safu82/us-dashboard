@@ -156,7 +156,11 @@ def build(md_path, out_path):
             add_inline(p, s)
         i += 1
 
-    doc.save(out_path)
+    try:
+        doc.save(out_path)
+    except PermissionError:            # file open in Word — write a fresh copy
+        out_path = out_path[:-5] + '_new.docx'
+        doc.save(out_path)
     return out_path
 
 

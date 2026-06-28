@@ -19,7 +19,7 @@ Env: SUPABASE_URL, SUPABASE_SERVICE_KEY (.env auto-loaded).
 
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 
 from supabase import create_client
 from dotenv import load_dotenv
@@ -68,6 +68,22 @@ def num(v):
         return None
 
 
+def previous_week_close(dates):
+    """Last trading day of the most recent EARLIER ISO week — the week-over-week
+    baseline for a weekly report (holiday- and weekday-robust)."""
+    latest_wk = date.fromisoformat(dates[-1]).isocalendar()[:2]
+    prior = [d for d in dates if date.fromisoformat(d).isocalendar()[:2] < latest_wk]
+    return prior[-1] if prior else dates[0]
+
+
+def last_dates_per_week(dates, n=3):
+    """The last trading day of each of the most recent n ISO weeks (ascending)."""
+    by_week = {}
+    for d in dates:
+        by_week[date.fromisoformat(d).isocalendar()[:2]] = d   # dates ascending → keeps last
+    return [by_week[w] for w in sorted(by_week)[-n:]]
+
+
 def main():
     # Dates from market_health (one row per date — cheap).
     mh = sorted(paginate('market_health', '*', ['snapshot_date']),
@@ -75,8 +91,9 @@ def main():
     if not mh:
         sys.exit('market_health is empty — run compute_market_health.py first')
     dates = [r['snapshot_date'] for r in mh]
+    mh_by_date = {r['snapshot_date']: r for r in mh}
     latest = dates[-1]
-    week_ago = dates[-(WEEK_TD + 1)] if len(dates) > WEEK_TD else dates[0]
+    week_ago = previous_week_close(dates)        # last trading day of the prior week
     health = mh[-1]
 
     # Reference data.
@@ -158,7 +175,7 @@ def main():
     L = []
     L.append(f"# Weekly Data Pack — {latest}")
     L.append(f"_Generated {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC} · "
-             f"universe {health.get('universe_count')} · week-ago baseline {week_ago}_\n")
+             f"universe {health.get('universe_count')} · week-over-week vs prior-week close {week_ago}_\n")
 
     # Where We Stand
     L.append("## Where We Stand")
@@ -176,8 +193,8 @@ def main():
     L.append("| Check | Reading | Note |\n|---|---|---|")
     for a, b, c in checks:
         L.append(f"| {a} | {b} | {c} |")
-    # NH/NL trend (last 3 weekly readings)
-    trend = [mh[i] for i in range(len(mh) - 1, -1, -WEEK_TD)][:3][::-1]
+    # NH/NL trend — last trading day of each of the last 3 ISO weeks
+    trend = [mh_by_date[d] for d in last_dates_per_week(dates, 3)]
     if len(trend) >= 2:
         tr = " → ".join(f"{t['snapshot_date']}: {t['new_highs']}↑/{t['new_lows']}↓" for t in trend)
         L.append(f"\n_New-high/low trend: {tr}_")

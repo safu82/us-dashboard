@@ -17,7 +17,7 @@ jobs:
   newsletter:
     name: Build + synthesize the weekly newsletter
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -34,28 +34,31 @@ jobs:
           python -m pip install --upgrade pip
           pip install yfinance pandas numpy supabase python-dotenv requests anthropic python-docx lxml
 
-      # 1. Refresh the regime rollup + credit spreads (FRED is reachable here).
-      - name: 1/8 compute_market_health.py
+      # 1. Refresh the regime rollup + credit spreads (FRED is reachable here)
+      #    and the yfinance earnings calendar (gates the earnings section).
+      - name: 1/9 compute_market_health.py
         run: python compute_market_health.py
-      - name: 2/8 fetch_credit_spreads.py
+      - name: 2/9 fetch_credit_spreads.py
         run: python fetch_credit_spreads.py
+      - name: 3/9 fetch_earnings_dates.py
+        run: python fetch_earnings_dates.py
 
       # 2. Deterministic data pack + event detection (pure DB).
-      - name: 3/8 build_data_pack.py
+      - name: 4/9 build_data_pack.py
         run: python build_data_pack.py
-      - name: 4/8 detect_market_events.py
+      - name: 5/9 detect_market_events.py
         run: python detect_market_events.py
 
       # 3. News retrieval (macro keyless GDELT; ticker via Alpha Vantage).
-      - name: 5/8 fetch_macro_news.py
+      - name: 6/9 fetch_macro_news.py
         run: python fetch_macro_news.py
-      - name: 6/8 fetch_ticker_news.py
+      - name: 7/9 fetch_ticker_news.py
         run: python fetch_ticker_news.py
 
       # 4. Synthesize the draft with Claude, then render the .docx.
-      - name: 7/8 synthesize_newsletter.py
+      - name: 8/9 synthesize_newsletter.py
         run: python synthesize_newsletter.py
-      - name: 8/8 make_docx.py
+      - name: 9/9 make_docx.py
         run: python make_docx.py
 
       - name: Upload newsletter artifacts

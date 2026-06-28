@@ -83,6 +83,17 @@ End with a 2–3 sentence close that restates the thesis and signs off
   Cite the substance of the stories; you may name the development, not the outlet.
 - **Ticker news** (per-name, with sentiment) → use to EXPLAIN why a specific moved
   name moved (e.g. "X fell 48% on a dilutive notes offering").
+- **Earnings** → the inputs include an `earnings`-kind event ONLY for companies
+  that actually reported this week (gated on the earnings calendar), with their
+  week-over-week move. Treat those as the only earnings reactions. If there are no
+  `earnings` events, **do not write an earnings section and do not describe any
+  price move as an "earnings reaction"** — an after-hours or intraday wobble is not
+  an earnings report. Use `earnings_upcoming` events (companies due to report next
+  week) in the Key Events section.
+- **This is a weekly report.** Every comparison — ranks, prices, breadth — is
+  measured from the **last trading day of the previous week to the last trading day
+  of this week** (the inputs already use that baseline). Say "this week" / "on the
+  week," never "today." Don't present a single day's move as the week's story.
 - **Never fabricate.** If the data doesn't support a claim, don't make it. If a
   number isn't in the inputs, don't cite it. Missing data ("credit spreads: n/a")
   is stated honestly, not invented.

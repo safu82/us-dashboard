@@ -67,14 +67,25 @@ def num(v):
         return None
 
 
+def previous_week_close(dates):
+    """Last trading day of the most recent EARLIER calendar (ISO) week — the
+    correct week-over-week baseline for a weekly report. Handles holidays and
+    non-Friday runs (unlike a fixed 'N trading days back')."""
+    latest_wk = date.fromisoformat(dates[-1]).isocalendar()[:2]
+    prior = [d for d in dates if date.fromisoformat(d).isocalendar()[:2] < latest_wk]
+    return prior[-1] if prior else dates[0]
+
+
 def main():
     mh = sorted(paginate('market_health', '*', ['snapshot_date']),
                 key=lambda r: r['snapshot_date'])
     if len(mh) < 2:
         sys.exit('need >=2 market_health rows')
     dates = [r['snapshot_date'] for r in mh]
-    latest, week_ago = dates[-1], dates[-(WEEK_TD + 1)] if len(dates) > WEEK_TD else dates[0]
-    now_h, prev_h = mh[-1], mh[-(WEEK_TD + 1)] if len(mh) > WEEK_TD else mh[0]
+    mh_by_date = {r['snapshot_date']: r for r in mh}
+    latest = dates[-1]
+    week_ago = previous_week_close(dates)        # last trading day of the prior week
+    now_h, prev_h = mh_by_date[latest], mh_by_date[week_ago]
 
     meta = {r['ticker']: r for r in paginate('us_stock_sectors',
             'ticker, company_name, sector, industry', ['ticker'])}
@@ -187,22 +198,30 @@ def main():
             f"{meta.get(tk, {}).get('company_name', tk)} ({tk}) {mv:+.0f}% on the week",
             f"{meta.get(tk, {}).get('company_name', tk)} {tk} stock why", {'ticker': tk, 'value': round(mv, 1)})
 
-    # ── Earnings reactions logged by the live worker (last week) ────────────
-    cutoff = (date.fromisoformat(latest) - timedelta(days=9)).isoformat()
-    try:
-        ers = paginate('alerts', 'ticker, alert_date, direction, close, metadata',
-                       ['alert_date'],
-                       filters=[lambda q: q.eq('alert_type', 'earnings_reaction'),
-                                lambda q: q.gte('alert_date', cutoff)])
-    except Exception:
-        ers = []
-    for r in ers:
-        tk = r['ticker']
-        mv = (r.get('metadata') or {}).get('move_pct')
-        add('earnings', 'stock', 55,
-            f"{meta.get(tk, {}).get('company_name', tk)} ({tk}) earnings reaction "
-            f"{r.get('direction')} {mv}%",
-            f"{meta.get(tk, {}).get('company_name', tk)} {tk} earnings", {'ticker': tk})
+    # ── Earnings — gated on yfinance earnings dates (stock_fundamentals), the
+    # reliable source (TipRanks dates were stale/sparse). 'earnings' = a real
+    # report this week with its week-over-week move; 'earnings_upcoming' = reports
+    # due next week for the Key-Events calendar. Empty when none — by design.
+    ef = {r['ticker']: r for r in paginate(
+        'stock_fundamentals', 'ticker, last_earnings_date, next_earnings_date', ['ticker'])}
+    upto = (date.fromisoformat(latest) + timedelta(days=8)).isoformat()
+    for tk, r in ef.items():
+        if tk in NON_STOCKS:
+            continue
+        nm = meta.get(tk, {}).get('company_name', tk)
+        led = r.get('last_earnings_date')
+        if led and week_ago < led <= latest:
+            c, p = num((now.get(tk) or {}).get('close')), num((prev.get(tk) or {}).get('close'))
+            if c and p:
+                wk = (c / p - 1) * 100
+                add('earnings', 'stock', 58,
+                    f"{nm} ({tk}) reported earnings this week, {wk:+.0f}% week-over-week",
+                    f"{nm} {tk} earnings", {'ticker': tk, 'value': round(wk, 1)})
+        ned = r.get('next_earnings_date')
+        if ned and latest < ned <= upto:
+            add('earnings_upcoming', 'stock', 45,
+                f"{nm} ({tk}) reports earnings next week ({ned})",
+                f"{nm} {tk} earnings preview", {'ticker': tk, 'date': ned})
 
     events.sort(key=lambda e: e['impact_score'], reverse=True)
 
