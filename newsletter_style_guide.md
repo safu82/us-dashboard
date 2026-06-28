@@ -67,8 +67,11 @@ Then numbered sections. Adapt to the week, but this is the canonical spine:
    stocks above 200-day, new highs vs lows, VIX, credit spreads), then a
    base/bull/bear **scenario analysis with probabilities** summing to 100%, then a
    one-line stance.
-9. **Key events next week** — earnings + macro calendar, each with "the real tell."
-10. **Glossary** — plain-English definitions of any terms used (see below).
+9. **The Algo** — the paper-strategy track record (only if the data pack has the
+   Algo block): equity vs benchmark, win rate, what it closed this week, the open
+   book — tied to the rotation where it fits, labelled educational paper, not advice.
+10. **Key events next week** — earnings + macro calendar, each with "the real tell."
+11. **Glossary** — plain-English definitions of any terms used (see below).
 
 End with a 2–3 sentence close that restates the thesis and signs off
 ("Stay invested, stay selective, and we'll see you next Sunday.").
@@ -94,6 +97,14 @@ End with a 2–3 sentence close that restates the thesis and signs off
   measured from the **last trading day of the previous week to the last trading day
   of this week** (the inputs already use that baseline). Say "this week" / "on the
   week," never "today." Don't present a single day's move as the week's story.
+- **Algo (paper portfolio)** → the data pack ends with a rules-based paper
+  strategy's track record (equity vs S&P/QQQ, win rate, the trades it closed this
+  week, and its open book). Give it its own short section near the end (section 9,
+  before Key Events). Report it honestly — winners AND losers, the overall win rate
+  even when it's unflattering — and where it fits, connect the week's exits/entries
+  to the rotation story (e.g. trailing out of semis, rotating into financials).
+  Label it clearly as an educational paper track record, **not advice and not a
+  live account**. Skip it if the data pack has no Algo block.
 - **Never fabricate.** If the data doesn't support a claim, don't make it. If a
   number isn't in the inputs, don't cite it. Missing data ("credit spreads: n/a")
   is stated honestly, not invented.

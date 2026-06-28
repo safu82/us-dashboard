@@ -84,6 +84,99 @@ def last_dates_per_week(dates, n=3):
     return [by_week[w] for w in sorted(by_week)[-n:]]
 
 
+TIER_LABELS = {'T2_STRONG_REG': 'T2 strong-regime', 'T3_MULTI_REG': 'T3 multi-regime',
+               'T4_RS_ACCEL': 'T4 RS-acceleration'}
+
+
+def _pct(a, b):
+    a, b = num(a), num(b)
+    return (a / b - 1) * 100 if (a is not None and b) else None
+
+
+def algo_section(latest, week_ago, now, meta):
+    """Markdown block: the paper strategy's equity, track record, the trades it
+    closed this week, and its current open book. Returns [] if no paper data."""
+    def eq_row(desc=True, on_or_before=None):
+        q = sb.table('paper_equity').select(
+            'snapshot_date,total_value,drawdown_pct,open_positions,bench_sp500,bench_qqq')
+        if on_or_before:
+            q = q.lte('snapshot_date', on_or_before)
+        d = q.order('snapshot_date', desc=desc).limit(1).execute().data
+        return d[0] if d else None
+
+    cur = eq_row(desc=True)
+    if not cur:
+        return []
+    first = eq_row(desc=False)
+    wk = eq_row(on_or_before=week_ago)
+
+    trades = paginate('paper_trades',
+                      'ticker, status, entry_price, entry_date, exit_date, strategy_tier, '
+                      'conviction_grade, total_pnl_pct, r_multiple, exit_reason, holding_days',
+                      ['ticker'])
+    closed = [t for t in trades if t.get('status') == 'closed']
+    open_ = [t for t in trades if t.get('status') == 'open']
+    closed_wk = [t for t in closed if t.get('exit_date') and week_ago < t['exit_date'] <= latest]
+
+    wins = [t for t in closed if (num(t.get('total_pnl_pct')) or 0) > 0]
+    pnls = [num(t['total_pnl_pct']) for t in closed if num(t.get('total_pnl_pct')) is not None]
+    rs = [num(t['r_multiple']) for t in closed if num(t.get('r_multiple')) is not None]
+    avg_pnl = sum(pnls) / len(pnls) if pnls else None
+    avg_r = sum(rs) / len(rs) if rs else None
+
+    L = ["\n## Algo (Paper Portfolio) — systematic strategy track record",
+         "_A rules-based paper strategy traded on the same universe. Educational track "
+         "record, not advice or a live account._\n"]
+
+    ret_in = _pct(cur['total_value'], (first or {}).get('total_value'))
+    ret_wk = _pct(cur['total_value'], (wk or {}).get('total_value'))
+    sp_in = _pct(cur.get('bench_sp500'), (first or {}).get('bench_sp500'))
+    qqq_in = _pct(cur.get('bench_qqq'), (first or {}).get('bench_qqq'))
+
+    head = f"**Equity:** ${num(cur['total_value']):,.0f} as of {cur['snapshot_date']}"
+    if ret_in is not None and first:
+        head += f" — {ret_in:+.1f}% since inception ({first['snapshot_date']})"
+        if sp_in is not None:
+            head += f", vs S&P {sp_in:+.1f}% / QQQ {qqq_in:+.1f}% over the same span"
+    L.append(head + ".")
+    extra = []
+    if ret_wk is not None:
+        extra.append(f"week-over-week {ret_wk:+.1f}%")
+    if cur.get('drawdown_pct') is not None:
+        extra.append(f"drawdown {num(cur['drawdown_pct']):.1f}%")
+    extra.append(f"{len(open_)} open / {len(closed)} closed")
+    L.append("**Status:** " + ", ".join(extra) + ".")
+    if closed:
+        wr = 100 * len(wins) / len(closed)
+        tr = f"**Track record (all closed):** {len(closed)} trades, {len(wins)} winners ({wr:.0f}% win rate)"
+        if avg_pnl is not None:
+            tr += f", avg {avg_pnl:+.1f}%/trade"
+        if avg_r is not None:
+            tr += f", avg {avg_r:+.2f}R"
+        L.append(tr + ".")
+
+    if closed_wk:
+        L.append("\n### Closed this week")
+        L.append("| Ticker | P&L % | R | Exit reason | Days held |\n|---|---|---|---|---|")
+        for t in sorted(closed_wk, key=lambda x: num(x.get('total_pnl_pct')) if num(x.get('total_pnl_pct')) is not None else -999, reverse=True):
+            p, r = num(t.get('total_pnl_pct')), num(t.get('r_multiple'))
+            L.append(f"| {t['ticker']} | {p:+.1f}% | {('%+.2fR' % r) if r is not None else '—'} "
+                     f"| {t.get('exit_reason', '—')} | {t.get('holding_days') or '—'} |")
+
+    if open_:
+        L.append("\n### Open positions (unrealized vs latest close)")
+        L.append("| Ticker | Sector | Tier | Conv | Entry date | Unreal % |\n|---|---|---|---|---|---|")
+        rows = [( _pct((now.get(t['ticker']) or {}).get('close'), t.get('entry_price')), t)
+                for t in open_]
+        for un, t in sorted(rows, key=lambda x: (x[0] is None, -(x[0] or 0))):
+            tk = t['ticker']
+            tier = TIER_LABELS.get(t.get('strategy_tier'), t.get('strategy_tier') or '—')
+            sec = (meta.get(tk) or {}).get('sector', '—')
+            L.append(f"| {tk} | {sec} | {tier} | {t.get('conviction_grade') or '—'} "
+                     f"| {t.get('entry_date')} | {('%+.1f%%' % un) if un is not None else '—'} |")
+    return L
+
+
 def main():
     # Dates from market_health (one row per date — cheap).
     mh = sorted(paginate('market_health', '*', ['snapshot_date']),
@@ -223,6 +316,9 @@ def main():
                      f"| {w['rank']} (+{w['delta']}) | {w['grade'] or '—'} | +{w['stretch']:.1f}% |")
     else:
         L.append("_No names passed all four filters this week._")
+
+    # Algo (paper portfolio) track record
+    L += algo_section(latest, week_ago, now, meta)
 
     pack = "\n".join(L) + "\n"
     out_path = os.path.join(BASE, 'newsletter_data_pack.md')
