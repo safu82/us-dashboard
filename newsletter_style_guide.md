@@ -104,7 +104,10 @@ End with a 2–3 sentence close that restates the thesis and signs off
   even when it's unflattering — and where it fits, connect the week's exits/entries
   to the rotation story (e.g. trailing out of semis, rotating into financials).
   Label it clearly as an educational paper track record, **not advice and not a
-  live account**. Skip it if the data pack has no Algo block.
+  live account**. **End the Algo section with the "Methodology." paragraph from the
+  data pack, reproduced verbatim** (it explains gates, tiers, sizing, and exits so
+  readers can judge the track record fairly) — italicise it as a footnote. Skip the
+  whole section if the data pack has no Algo block.
 - **Never fabricate.** If the data doesn't support a claim, don't make it. If a
   number isn't in the inputs, don't cite it. Missing data ("credit spreads: n/a")
   is stated honestly, not invented.

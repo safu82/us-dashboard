@@ -87,6 +87,24 @@ def last_dates_per_week(dates, n=3):
 TIER_LABELS = {'T2_STRONG_REG': 'T2 strong-regime', 'T3_MULTI_REG': 'T3 multi-regime',
                'T4_RS_ACCEL': 'T4 RS-acceleration'}
 
+# Static, accurate description of the paper strategy (mirrors paper_trader.py config).
+# Single source of truth; the synthesis reproduces it verbatim as the Algo footnote.
+METHODOLOGY_FOOTNOTE = (
+    "The Algo is a long-only, rules-based paper strategy on a $50,000 notional sleeve, "
+    "trading the same ~1,900-stock universe. A name is bought only if it clears every gate: "
+    "its sector ranks near the top of the board with broad participation, earnings are growing "
+    "year-over-year in both revenue and profit, it isn't already held, and it's past a 21-day "
+    "cooldown. Qualifying setups are sorted into four conviction tiers by how many independent "
+    "signals fire — from T1 (multiple 'strong' chart patterns, risked at 1.5% of the sleeve) "
+    "down to T4 (relative-strength acceleration, 0.5%). Size is set by risk, not dollars: each "
+    "trade is sized so a stop 2×ATR below entry costs only that tier's risk budget, capped at "
+    "$2,000–$6,000. Exits are mechanical — scale out a third at +2R and a third at +4R "
+    "(1R = the initial stop distance), trail the remainder by 2×ATR, book some after a +25% "
+    "spike, and time out positions left flat after 25 trading days. New entries pause if the book "
+    "is down 2% on the day or 8% from its peak. Signals are generated after the close and filled "
+    "the next session at the live price plus 0.15% slippage. These are educational paper results "
+    "— not advice, and not a live account.")
+
 
 def _pct(a, b):
     a, b = num(a), num(b)
@@ -174,6 +192,8 @@ def algo_section(latest, week_ago, now, meta):
             sec = (meta.get(tk) or {}).get('sector', '—')
             L.append(f"| {tk} | {sec} | {tier} | {t.get('conviction_grade') or '—'} "
                      f"| {t.get('entry_date')} | {('%+.1f%%' % un) if un is not None else '—'} |")
+
+    L.append("\n**Methodology.** " + METHODOLOGY_FOOTNOTE)
     return L
 
 
