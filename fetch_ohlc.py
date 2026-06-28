@@ -219,6 +219,7 @@ def compute_records(ticker, df, index_closes):
     df['ema_200'] = calculate_ema(df['Close'], 200)
     df['atr_14'] = calculate_atr(df, 14)
     df['high_52w'] = df['High'].rolling(window=252, min_periods=1).max()
+    df['low_52w'] = df['Low'].rolling(window=252, min_periods=1).min()
     df['vol_20_avg'] = df['Volume'].shift(1).rolling(window=20, min_periods=5).mean()
     df['vol_ratio'] = (df['Volume'] / df['vol_20_avg']).round(2)
 
@@ -269,6 +270,7 @@ def compute_records(ticker, df, index_closes):
             'weekly_rsi_14': f(row['weekly_rsi_14']),
             'weekly_rsi_ema_9': f(row['weekly_rsi_ema_9']),
             'high_52w': f(row['high_52w']),
+            'low_52w': f(row['low_52w']),
             'vol_ratio': f(row['vol_ratio']),
             'alkalyme_rs': f(row['alkalyme_rs']),
             'macd_line': f(row['macd_line']), 'macd_signal': f(row['macd_signal']),
@@ -282,9 +284,16 @@ def compute_records(ticker, df, index_closes):
 
 
 def benchmark_ohlc_records(ticker, df):
-    """OHLC-only rows for an index — no indicators, no RS."""
+    """OHLC + key EMAs / 52w range for an index. No alkalyme_rs / rs_rank, so the
+    index stays OUT of the cross-sectional stock ranking — but ema_200 is stored
+    so market-health can read the index's own trend (S&P vs its 200-day)."""
     if df is None or df.empty:
         return []
+    df = df.copy()
+    df['ema_50'] = calculate_ema(df['Close'], 50)
+    df['ema_200'] = calculate_ema(df['Close'], 200)
+    df['high_52w'] = df['High'].rolling(window=252, min_periods=1).max()
+    df['low_52w'] = df['Low'].rolling(window=252, min_periods=1).min()
 
     def f(v):
         return float(v) if pd.notna(v) else None
@@ -296,6 +305,8 @@ def benchmark_ohlc_records(ticker, df):
         'low': f(row['Low']), 'close': f(row['Close']),
         'adj_close': f(row['Close']),
         'volume': int(row['Volume']) if pd.notna(row['Volume']) else None,
+        'ema_50': f(row['ema_50']), 'ema_200': f(row['ema_200']),
+        'high_52w': f(row['high_52w']), 'low_52w': f(row['low_52w']),
     } for date, row in df.tail(STORE_DAYS).iterrows()
         if pd.notna(row['Open']) and pd.notna(row['Close'])]
 
