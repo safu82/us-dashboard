@@ -639,6 +639,7 @@ def _close_trade(sb, tr, exit_price, exit_date, exit_reason,
         'max_unrealized_pct': round(max_unrealized_pct, 3) if max_unrealized_pct is not None else None,
         'min_unrealized_pct': round(min_unrealized_pct, 3) if min_unrealized_pct is not None else None,
         'status': 'closed',
+        'exits_processed_date': exit_date.isoformat(),
         'updated_at': datetime.utcnow().isoformat(),
     }).eq('id', tr['id']).execute()
 
@@ -646,8 +647,10 @@ def _close_trade(sb, tr, exit_price, exit_date, exit_reason,
 def _update_open_trade(sb, trade_id, current_qty, current_stop, partials_taken,
                        partials, realised_pnl, realised_qty,
                        breakeven_armed, trail_armed,
-                       max_unrealized_pct, min_unrealized_pct, trail_armed_reason):
+                       max_unrealized_pct, min_unrealized_pct, trail_armed_reason,
+                       today_date):
     sb.table('paper_trades').update({
+        'exits_processed_date': today_date.isoformat(),
         'current_quantity': current_qty,
         'current_stop': round(current_stop, 4),
         'partials_taken': partials_taken,
@@ -669,6 +672,13 @@ def process_exits(sb, open_trades, today_snap, today_date):
     closed_today = 0
 
     for tr in open_trades:
+        # Idempotency guard: never exit-process the same bar twice. On a re-run
+        # the persisted current_stop already reflects THIS bar's trail, so
+        # re-checking this bar's low against it fabricates a stop-out (look-ahead).
+        # Stamped at the end of processing; a genuine next-day bar clears it.
+        last_proc = tr.get('exits_processed_date')
+        if last_proc and date.fromisoformat(last_proc) >= today_date:
+            continue
         ticker = tr['ticker']
         snap = today_snap.get(ticker)
         if not snap:
@@ -832,6 +842,7 @@ def process_exits(sb, open_trades, today_snap, today_date):
             sb, tr['id'], current_qty, current_stop, partials_taken, partials,
             realised_pnl, realised_qty, breakeven_armed, trail_armed,
             max_unrealized_pct, min_unrealized_pct, trail_armed_reason,
+            today_date,
         )
 
     return actions, closed_today, realised_today
