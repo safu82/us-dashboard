@@ -4,9 +4,9 @@ yfinance for the full us_stock_sectors universe (~1,900 names). Upserts into
 analyst_ratings keyed by ticker.
 
 Runs daily via GitHub Actions. Each ticker is 3 per-ticker yfinance calls
-(.info + recommendations_summary + upgrades_downgrades), so the universe is
-fetched concurrently via a thread pool with per-ticker retry/backoff to stay
-within a sane runtime; results are batch-upserted from the main thread.
+(.info + recommendations_summary + upgrades_downgrades), fetched SEQUENTIALLY
+with per-ticker retry/backoff — concurrency triggers Yahoo rate-limiting at this
+scale (observed only 1256/1906 at 6 workers). Batch-upserted at the end.
 
 Env: SUPABASE_URL, SUPABASE_SERVICE_KEY (or local .env).
 """
@@ -14,7 +14,6 @@ Env: SUPABASE_URL, SUPABASE_SERVICE_KEY (or local .env).
 import os
 import sys
 import time
-import concurrent.futures
 from datetime import datetime, timezone
 
 import yfinance as yf
@@ -32,7 +31,6 @@ if not URL or not KEY:
 
 
 RECENT_ACTIONS_LIMIT = 30  # last N analyst actions per ticker
-MAX_WORKERS = 6            # concurrent yfinance fetches (lower if throttled)
 FETCH_ATTEMPTS = 3         # per-ticker retries on transient Yahoo errors
 
 
@@ -173,22 +171,20 @@ def main():
     universe = get_universe(sb)
     if not universe:
         sys.exit('No tickers in universe')
-    print(f'Universe: {len(universe)} tickers ({MAX_WORKERS} workers)')
+    print(f'Universe: {len(universe)} tickers (sequential)')
 
-    # Fetch concurrently (yfinance is the bottleneck); upsert from main thread
-    # only (the Supabase client is not shared across worker threads).
-    records, no_data, done = [], 0, 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-        futs = {ex.submit(fetch_one, tk): tk for tk in universe}
-        for fut in concurrent.futures.as_completed(futs):
-            done += 1
-            rec = fut.result()
-            if rec:
-                records.append(rec)
-            else:
-                no_data += 1
-            if done % 200 == 0 or done == len(universe):
-                print(f'  fetched {done}/{len(universe)} ({len(records)} with data)')
+    # Sequential — concurrency triggers Yahoo rate-limiting at this scale.
+    # Per-ticker retry/backoff lives in fetch_one.
+    records, no_data = [], 0
+    for i, tk in enumerate(universe, 1):
+        rec = fetch_one(tk)
+        if rec:
+            records.append(rec)
+        else:
+            no_data += 1
+        if i % 200 == 0 or i == len(universe):
+            print(f'  fetched {i}/{len(universe)} ({len(records)} with data)')
+        time.sleep(0.15)
 
     success = 0
     for i in range(0, len(records), 100):

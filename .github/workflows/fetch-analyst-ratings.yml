@@ -1,8 +1,9 @@
 name: Fetch analyst ratings (US)
 
 # Daily at 06:23 UTC. Pulls analyst consensus, price targets, and recent
-# upgrades/downgrades from yfinance for the full S&P 500 + NASDAQ 100 universe
-# (~518 tickers). Runtime ~4 minutes with the 0.3s per-ticker sleep.
+# upgrades/downgrades from yfinance for the full us_stock_sectors universe
+# (~1,900 tickers). Sequential (concurrency triggers Yahoo rate-limiting),
+# ~60-90 min runtime.
 on:
   schedule:
     - cron: '23 6 * * *'
@@ -12,7 +13,7 @@ jobs:
   fetch:
     name: Fetch analyst ratings
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
