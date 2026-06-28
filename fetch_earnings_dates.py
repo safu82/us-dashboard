@@ -62,38 +62,41 @@ def get_universe():
 
 
 def earnings_dates_for(tk):
-    """Return (last_earnings_date, next_earnings_date) as ISO strings or None."""
+    """Return (last_earnings_date, next_earnings_date) as ISO strings or None.
+
+    Primary source is .info (earningsTimestamp / earningsTimestampStart/End),
+    which yfinance keeps CURRENT. The historical .earnings_dates table is often
+    stale (e.g. MU's most-recent row was 2025-06-25 even after its 2026-06-24
+    report), so we use it only as supplementary deep history for past dates.
+    """
     today = datetime.now(timezone.utc).date()
-    last = nxt = None
     t = yf.Ticker(tk)
+    past, future = [], []
+
+    def add_ts(ts):
+        if isinstance(ts, (int, float)) and ts > 0:
+            d = datetime.fromtimestamp(ts, timezone.utc).date()
+            (past if d <= today else future).append(d)
+
     try:
-        df = t.earnings_dates
+        info = t.info or {}
     except Exception:
-        df = None
-    if df is not None and not df.empty:
-        days = []
-        for ix in df.index:
-            try:
-                days.append(ix.date())
-            except Exception:
-                continue
-        past = [d for d in days if d <= today]
-        fut = [d for d in days if d > today]
-        if past:
-            last = max(past)
-        if fut:
-            nxt = min(fut)
-    if nxt is None:                       # fallback to the calendar for next date
-        try:
-            cal = t.calendar
-            ed = cal.get('Earnings Date') if isinstance(cal, dict) else None
-            if ed:
-                d = ed[0] if isinstance(ed, (list, tuple)) else ed
-                nxt = d if hasattr(d, 'year') else None
-                if nxt and hasattr(nxt, 'date'):
-                    nxt = nxt.date()
-        except Exception:
-            pass
+        info = {}
+    add_ts(info.get('earningsTimestamp'))         # most recent (or imminent) report
+    add_ts(info.get('earningsTimestampStart'))    # next estimated window
+    add_ts(info.get('earningsTimestampEnd'))
+
+    try:                                          # deep history (may be stale) — past only
+        df = t.earnings_dates
+        if df is not None and not df.empty:
+            for ix in df.index:
+                d = ix.date()
+                (past if d <= today else future).append(d)
+    except Exception:
+        pass
+
+    last = max(past) if past else None
+    nxt = min(future) if future else None
     return (last.isoformat() if last else None,
             nxt.isoformat() if nxt else None)
 
