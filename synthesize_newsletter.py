@@ -66,9 +66,10 @@ def main():
 
     issue_date = events.get('latest_date') or datetime.now(timezone.utc).strftime('%Y-%m-%d')
 
-    # Assemble the week's inputs. Trim the events list to the high-impact head so
-    # the prompt leads with what actually moved.
-    top_events = events.get('events', [])[:30]
+    # Assemble the week's inputs. Keep the high-impact head, but generously — the
+    # earnings + earnings_upcoming events score lower than sector/breadth moves and
+    # must still reach the model for the earnings section and next-week calendar.
+    top_events = events.get('events', [])[:50]
 
     parts = [
         f"Today's issue date: {issue_date}. Write the weekly newsletter for the US market.",
