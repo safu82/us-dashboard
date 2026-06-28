@@ -1,0 +1,35 @@
+{
+  "_doc": "Prediction ledger for newsletter call-grading. synthesize_newsletter.py feeds status='open' entries to Claude to grade in each issue; the editor then runs manage_predictions.py to mark them graded and add this issue's new calls. Versioned in git as the credibility record. Grades: hit | miss | partial.",
+  "predictions": [
+    {
+      "id": 1,
+      "made_on": "2026-06-26",
+      "claim": "The Health Care / biotech wave (VKTX, RCUS, COGT, RYTM, APGE and peers) holds its rank gains into a second week, confirming a real rotation rather than a one-week spark.",
+      "resolve_after": "2026-07-03",
+      "status": "open",
+      "grade": null,
+      "graded_on": null,
+      "note": ""
+    },
+    {
+      "id": 2,
+      "made_on": "2026-06-26",
+      "claim": "Semiconductors stay in the lower half of the sector board and do not reclaim a top-20 peer-group rank, as the chip trade keeps consolidating.",
+      "resolve_after": "2026-07-03",
+      "status": "open",
+      "grade": null,
+      "graded_on": null,
+      "note": ""
+    },
+    {
+      "id": 3,
+      "made_on": "2026-06-26",
+      "claim": "The regime stays healthy: VIX remains below 20 and the share of stocks above their 200-day holds above 60%.",
+      "resolve_after": "2026-07-03",
+      "status": "open",
+      "grade": null,
+      "graded_on": null,
+      "note": ""
+    }
+  ]
+}

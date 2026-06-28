@@ -228,4 +228,4 @@ macro_news.json
 ticker_news.json
 newsletter_draft_*.md
 previous_issue.md
-open_predictions.json
+*.docx

@@ -114,9 +114,27 @@ This is educational market commentary, not financial advice. Watchlists are
 starting points for the reader's own research, never recommendations. Include a
 one-line disclaimer near the watchlist and in the close.
 
+## Sourcing rule (strict — this is the credibility firewall)
+
+**Every specific number must come from the provided inputs. If a figure is not in
+the inputs, do not print it.** This includes:
+- Stock/index prices, % moves, and "down X% on its earnings" reactions.
+- Analyst price targets, ratings, valuations, and consensus figures.
+- Macro data points (CPI, GDP, oil price levels, rate probabilities).
+- Ranks and rank deltas (use only the data pack / events values, verbatim).
+
+You may state the *direction* and *substance* of a macro story from the news
+headlines ("oil fell toward a multi-month low," "the Fed is leaning toward a
+hike," "Apple raised prices, citing memory costs") — those are in the macro
+inputs. You may NOT attach a specific percentage or price to any name or index
+unless that exact number appears in the inputs. When tempted to write "NVDA fell
+2.8%," check the inputs; if it isn't there, write "the megacap chips were sold"
+instead. A missing number is stated honestly ("credit spreads: n/a"), never
+invented or estimated. Round-number guesses are fabrication.
+
 ## Hard don'ts
 
-- Don't invent ranks, prices, targets, or events not present in the inputs.
+- Don't invent ranks, prices, targets, percentages, or events not present in the inputs.
 - Don't give buy/sell advice or price targets as recommendations.
 - Don't cheerlead, and don't doom-monger. Both sides, always.
 - Don't bury the lead. Open each section with the point.

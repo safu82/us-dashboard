@@ -29,6 +29,11 @@ from dotenv import load_dotenv
 BASE = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE, '.env'))
 
+try:                                  # Windows consoles default to cp1252; the
+    sys.stdout.reconfigure(encoding='utf-8')   # streamed draft uses em-dashes/arrows.
+except Exception:
+    pass
+
 if not os.environ.get('ANTHROPIC_API_KEY'):
     sys.exit('ERROR: ANTHROPIC_API_KEY must be set in .env')
 
@@ -80,10 +85,22 @@ def main():
                               'sector_news': ticker.get('sector_news', {})}, indent=2)]
     if prev_issue:
         parts += ["\n\n===== LAST WEEK'S ISSUE (for continuity + voice; do not repeat it) =====\n", prev_issue]
+    # Only grade predictions that are actually DUE (made in a prior issue and past
+    # their resolve_after) — this issue's freshly-seeded calls wait for next week.
     if predictions:
-        parts += ["\n\n===== OPEN PREDICTIONS TO GRADE (grade each honestly near the top) =====\n",
-                  json.dumps(predictions, indent=2)]
-    parts.append("\n\nWrite the complete newsletter in markdown now, following the style guide exactly.")
+        due = [p for p in predictions.get('predictions', [])
+               if p.get('status') == 'open' and (p.get('resolve_after') or '9999') <= issue_date]
+        if due:
+            parts += ["\n\n===== OPEN PREDICTIONS TO GRADE (grade each honestly near the top, "
+                      "hit/miss/partial, with one line of evidence) =====\n",
+                      json.dumps(due, indent=2)]
+    parts.append(
+        "\n\nWrite the complete newsletter in markdown now, following the style guide exactly. "
+        "CRITICAL sourcing rule: every specific number (stock/index prices, % moves, earnings "
+        "reactions, analyst targets, macro data points, ranks) MUST appear verbatim in the inputs "
+        "above. If a figure is not in the inputs, do not print it — describe the direction in words "
+        "instead. Do not estimate, round-guess, or recall numbers from training. A fabricated number "
+        "is the worst possible error.")
 
     user_content = "".join(p for p in parts if p)
 
@@ -105,7 +122,13 @@ def main():
 
     draft = "".join(b.text for b in msg.content if b.type == 'text')
     out_path = os.path.join(BASE, f'newsletter_draft_{issue_date}.md')
-    open(out_path, 'w', encoding='utf-8').write(draft)
+    try:
+        open(out_path, 'w', encoding='utf-8').write(draft)
+    except PermissionError:
+        # Primary file is locked (open in Word/editor) — never lose a paid draft.
+        out_path = os.path.join(BASE, f'newsletter_draft_{issue_date}_{datetime.now(timezone.utc):%H%M%S}.md')
+        open(out_path, 'w', encoding='utf-8').write(draft)
+        print(f'\n(primary path was locked — wrote to {os.path.basename(out_path)} instead)')
     u = msg.usage
     print(f'\n\n[draft written to {out_path}]')
     print(f'[tokens: in={u.input_tokens} cache_read={getattr(u, "cache_read_input_tokens", 0)} '

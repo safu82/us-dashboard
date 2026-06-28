@@ -1,0 +1,100 @@
+name: Weekly newsletter (US)
+
+# Sundays 13:00 UTC (~9 AM ET). Builds the weekly market newsletter end-to-end:
+# refresh the market-health rollup + credit spreads, assemble the data pack,
+# detect what moved, fetch macro + ticker news, synthesize the draft with Claude,
+# and render a formatted .docx. The .md + .docx are uploaded as run artifacts.
+#
+# Assumes the daily nightly-scan chain (OHLC -> cross_sectional -> sector_rankings
+# -> market_health) and the analyst/tipranks/conviction jobs have already run for
+# the week. This workflow only builds the newsletter-specific artifacts.
+on:
+  schedule:
+    - cron: '0 13 * * 0'
+  workflow_dispatch:
+
+jobs:
+  newsletter:
+    name: Build + synthesize the weekly newsletter
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yfinance pandas numpy supabase python-dotenv requests anthropic python-docx lxml
+
+      # 1. Refresh the regime rollup + credit spreads (FRED is reachable here).
+      - name: 1/8 compute_market_health.py
+        run: python compute_market_health.py
+      - name: 2/8 fetch_credit_spreads.py
+        run: python fetch_credit_spreads.py
+
+      # 2. Deterministic data pack + event detection (pure DB).
+      - name: 3/8 build_data_pack.py
+        run: python build_data_pack.py
+      - name: 4/8 detect_market_events.py
+        run: python detect_market_events.py
+
+      # 3. News retrieval (macro keyless GDELT; ticker via Alpha Vantage).
+      - name: 5/8 fetch_macro_news.py
+        run: python fetch_macro_news.py
+      - name: 6/8 fetch_ticker_news.py
+        run: python fetch_ticker_news.py
+
+      # 4. Synthesize the draft with Claude, then render the .docx.
+      - name: 7/8 synthesize_newsletter.py
+        run: python synthesize_newsletter.py
+      - name: 8/8 make_docx.py
+        run: python make_docx.py
+
+      - name: Upload newsletter artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-newsletter
+          path: |
+            newsletter_draft_*.md
+            newsletter_draft_*.docx
+          if-no-files-found: warn
+          retention-days: 90
+
+  notify:
+    name: Telegram notification
+    runs-on: ubuntu-latest
+    needs: newsletter
+    if: always()
+    steps:
+      - name: Send Telegram message
+        continue-on-error: true
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT:  ${{ secrets.TELEGRAM_CHAT_ID }}
+          STATUS: ${{ needs.newsletter.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then
+            echo "Telegram secrets not set; skipping notification."
+            exit 0
+          fi
+          if [ "$STATUS" = "success" ]; then
+            EMOJI="📰"; TITLE="US weekly newsletter ready"
+          else
+            EMOJI="❌"; TITLE="US weekly newsletter FAILED"
+          fi
+          printf -v MSG '%s <b>%s</b>\nstatus: %s\n\n<a href="%s">download the draft + .docx</a>' "$EMOJI" "$TITLE" "$STATUS" "$RUN_URL"
+          curl -sS -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "text=${MSG}" \
+            --data-urlencode "disable_web_page_preview=true"
