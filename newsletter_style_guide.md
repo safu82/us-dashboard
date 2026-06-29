@@ -32,20 +32,69 @@ paying for.
 
 ## Voice
 
-- Plain English. Short, declarative sentences. Confident but not arrogant.
-- Conversational and direct — "Let's dig in." "Here's the whole point." "Read that
-  again." Address the reader as "you."
-- Explain, don't assert. Every number gets a "so what." A rank move is meaningless
-  until you say what it implies.
-- Calm under noise. The recurring thesis: read past the headline, watch where the
-  money actually goes, trust the direction not the single data point.
-- No emoji in body prose. No exclamation-point hype. Let the analysis carry it.
+- Write the way a sharp, experienced investor talks to a smart friend who's short
+  on time. Plain English, real opinions, no hedging for cover.
+- Vary your cadence on purpose. Mix long, winding sentences with short ones. Some
+  paragraphs run five sentences; some are a single line. If every paragraph has the
+  same shape — setup, three examples, bolded takeaway — it reads like a machine.
+- Explain, don't assert. Every number gets a "so what," said once, in your own
+  words — not as a formula you repeat each section.
+- Calm under noise: read past the headline, watch where the money actually goes,
+  trust the direction over a single data point. Show this through the analysis;
+  don't keep announcing it.
+- Address the reader as "you." Use contractions. An occasional fragment for
+  emphasis is fine. A dry aside is fine. Forced enthusiasm is not.
+- No emoji, no exclamation-point hype.
+
+## Sounding human — the anti-AI-tell rules (apply every issue)
+
+The fastest way to look machine-written is to fall into these patterns. Hard rules.
+
+**Banned constructions — never use:**
+- "It's not just X — it's Y." / "This isn't about X, it's about Y." (the antithesis crutch)
+- "Here's the thing / the whole point." / "Let's dig in." / "Make no mistake." /
+  "The bottom line." / "Read that again." / "Let that sink in."
+- "That's the rotation / the signal / the discipline / the tell." as a section-ending stinger.
+- A rhetorical question answered in the next sentence, used as a rhythm device.
+- "X. Full stop." / "Period." for emphasis.
+- Opening a section by restating its header, or with "Now, let's turn to / When it
+  comes to / In this section."
+- Closing the issue or a section by neatly restating what you just said ("In short,
+  …", "The takeaway is …").
+
+**Kill these tics:**
+- The rule of three. AI defaults to "A, B, and C" triplets and three-part parallel
+  sentences. Use two items, or four, or one. Break the pattern deliberately.
+- Em-dash overload — at most one per paragraph; usually a comma or full stop is better.
+- A bolded aphorism at the end of every section. Bold at most two or three things in
+  the WHOLE issue, and only a genuinely surprising number or claim.
+- Filler intensifiers: genuinely, truly, simply, really, quite, very, clearly,
+  notably, importantly, crucially, fundamentally, exactly, precisely. Cut them.
+- Hedge stacks: "that said," "to be fair," "of course," "it's worth noting."
+
+**Banned vocabulary (LLM fingerprints):** delve, tapestry, underscore(s), landscape,
+navigate (figuratively), realm, robust, leverage (as a verb), testament, pivotal,
+crucial, garner, boast, "stark reminder," "speaks volumes," "double-edged sword,"
+"perfect storm," "in the world of," "when it comes to."
+
+**Do instead:** lead with the concrete thing, not a framing sentence ("Steel fell
+from #31 to #95" beats "There's a real story in steel this week"). Make one clear
+point per section and trust the reader to get it without a bolded restatement. Let
+sentences end flat sometimes — not every line needs a kicker.
+
+Before → after:
+- AI: "This isn't just a dip — it's a rotation. And rotations, by definition, mean
+  money moves. That's the signal."
+- Human: "The index fell, but more stocks rose than dropped. The money didn't leave.
+  It moved out of chips and into hospitals and hotels."
 
 ## Structure (10–12 numbered sections)
 
 Open with a **title** + a **one-line dek** (issue number, date), then a 2–3
-sentence **cold open** that frames the week's biggest tension and ends with "We
-rank ~1,900 stocks every day. Let's dig in."
+sentence **cold open** that frames the week's biggest tension. Write a fresh open
+every week — do NOT use a fixed catchphrase or sign-on. You can remind the reader
+once, naturally, that the view rests on ranking ~1,900 stocks daily, but vary how
+you say it (or skip it some weeks).
 
 Then numbered sections. Adapt to the week, but this is the canonical spine:
 
@@ -130,7 +179,8 @@ End with a 2–3 sentence close that restates the thesis and signs off
 
 - ~2,500–4,000 words. Markdown. Numbered section headers.
 - Tables for RS Movers, the watchlist, and Where We Stand.
-- Bold sparingly for the one key takeaway per section.
+- Bold almost nothing — at most two or three times in the whole issue, for a
+  genuinely surprising number or claim. A bolded line in every section is an AI tell.
 
 ## Glossary (reuse these definitions)
 
