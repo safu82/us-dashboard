@@ -59,10 +59,12 @@ jobs:
       - name: 8/10 fetch_ticker_news.py
         run: python fetch_ticker_news.py
 
-      # 4. Synthesize the draft with Claude, then render the .docx.
-      - name: 9/10 synthesize_newsletter.py
+      # 4. Synthesize the draft, humanize it (strip AI tells), then render .docx.
+      - name: 9/11 synthesize_newsletter.py
         run: python synthesize_newsletter.py
-      - name: 10/10 make_docx.py
+      - name: 10/11 humanize_newsletter.py
+        run: python humanize_newsletter.py
+      - name: 11/11 make_docx.py
         run: python make_docx.py
 
       - name: Upload newsletter artifacts
