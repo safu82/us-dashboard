@@ -281,7 +281,9 @@ def rates_macro_section(latest):
                      f"on the week), 2-year {m.get('ust_2y')}% ({bp(m.get('ust_2y_chg_bp'))}); "
                      f"2s10s spread {int(sp) if sp is not None else '—'}bp ({curve}).")
         if m.get('cpi_yoy') is not None:
-            L.append(f"- **Inflation:** CPI {m['cpi_yoy']}% YoY, core {m.get('core_cpi_yoy')}% YoY.")
+            core = m.get('core_cpi_yoy')
+            L.append(f"- **Inflation:** CPI {m['cpi_yoy']}% YoY"
+                     + (f", core {core}% YoY." if core is not None else "."))
         if m.get('unemployment') is not None:
             nf = m.get('nonfarm_chg_k')
             L.append(f"- **Jobs:** unemployment {m['unemployment']}%; last nonfarm payrolls "
@@ -289,7 +291,7 @@ def rates_macro_section(latest):
         if m.get('fed_funds') is not None:
             L.append(f"- **Fed funds (target upper):** {m['fed_funds']}%.")
         if L:
-            L.append(f"\n_Rates/macro as of {m['snapshot_date']} (FRED)._")
+            L.append(f"\n_Rates/macro as of {m['snapshot_date']} (US Treasury / BLS)._")
 
     cal = econ_calendar(latest)
     if cal:
