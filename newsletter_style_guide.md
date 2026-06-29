@@ -108,6 +108,20 @@ End with a 2–3 sentence close that restates the thesis and signs off
   data pack, reproduced verbatim** (it explains gates, tiers, sizing, and exits so
   readers can judge the track record fairly) — italicise it as a footnote. Skip the
   whole section if the data pack has no Algo block.
+- **Analyst Moves** → the data pack lists this week's upgrades / downgrades /
+  initiations on well-covered names (firm, from → to, consensus, target upside).
+  Weave the notable ones into the relevant sections — a downgrade ahead of earnings,
+  an upgrade confirming a leader — or give them a short "Analyst moves" section.
+  Lead with the best-known names. A single broker call isn't a thesis; frame it as
+  one input, and flag when the Street is fading a name your rankings still like (or
+  vice-versa) — that disagreement is the signal.
+- **Rates & Macro Data** → the data pack's Rates & Macro block carries Treasury
+  yields (10y / 2y + the 2s10s spread), CPI and core inflation, unemployment + the
+  last payrolls print, and the Fed-funds rate. Use the actual numbers in the macro
+  and Where-We-Stand sections: rising yields and a flatter/inverted curve tighten
+  financial conditions and pressure long-duration names (chips, growth); falling
+  yields do the opposite. The "Scheduled next week" releases (plus any
+  `earnings_upcoming` events) populate Key Events, each with its "real tell."
 - **Never fabricate.** If the data doesn't support a claim, don't make it. If a
   number isn't in the inputs, don't cite it. Missing data ("credit spreads: n/a")
   is stated honestly, not invented.
@@ -130,6 +144,10 @@ End with a 2–3 sentence close that restates the thesis and signs off
 - **VIX:** the market's fear gauge. Below 20 = calm, above 20 = stress.
 - **Credit spreads:** the extra yield investors demand on risky corporate bonds vs
   safe government bonds. Widening = early warning; tight = calm.
+- **Treasury yields / 2s10s:** the interest rate the US government pays to borrow for
+  10 years vs 2 years. The "2s10s spread" is the 10-year minus the 2-year; negative
+  ("inverted") has historically warned of recession, and a rising 10-year yield
+  pressures expensive, long-duration stocks (chips, growth).
 - **Breadth:** how many stocks participate. Strong breadth (most stocks above their
   200-day, new highs beating new lows) = a broad, healthy rally.
 

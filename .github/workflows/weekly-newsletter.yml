@@ -34,31 +34,35 @@ jobs:
           python -m pip install --upgrade pip
           pip install yfinance pandas numpy supabase python-dotenv requests anthropic python-docx lxml
 
-      # 1. Refresh the regime rollup + credit spreads (FRED is reachable here)
-      #    and the yfinance earnings calendar (gates the earnings section).
-      - name: 1/9 compute_market_health.py
+      # 1. Refresh the regime rollup, credit spreads + rates/macro (FRED is
+      #    reachable here) and the yfinance earnings calendar.
+      - name: 1/10 compute_market_health.py
         run: python compute_market_health.py
-      - name: 2/9 fetch_credit_spreads.py
+      - name: 2/10 fetch_credit_spreads.py
         run: python fetch_credit_spreads.py
-      - name: 3/9 fetch_earnings_dates.py
+      - name: 3/10 fetch_macro_data.py
+        run: python fetch_macro_data.py
+      - name: 4/10 fetch_earnings_dates.py
         run: python fetch_earnings_dates.py
 
-      # 2. Deterministic data pack + event detection (pure DB).
-      - name: 4/9 build_data_pack.py
+      # 2. Deterministic data pack + event detection (pure DB). The data pack also
+      #    reads analyst_ratings (maintained by the daily analyst job) for the
+      #    Analyst Moves block — no extra fetch needed here.
+      - name: 5/10 build_data_pack.py
         run: python build_data_pack.py
-      - name: 5/9 detect_market_events.py
+      - name: 6/10 detect_market_events.py
         run: python detect_market_events.py
 
       # 3. News retrieval (macro keyless GDELT; ticker via Alpha Vantage).
-      - name: 6/9 fetch_macro_news.py
+      - name: 7/10 fetch_macro_news.py
         run: python fetch_macro_news.py
-      - name: 7/9 fetch_ticker_news.py
+      - name: 8/10 fetch_ticker_news.py
         run: python fetch_ticker_news.py
 
       # 4. Synthesize the draft with Claude, then render the .docx.
-      - name: 8/9 synthesize_newsletter.py
+      - name: 9/10 synthesize_newsletter.py
         run: python synthesize_newsletter.py
-      - name: 9/9 make_docx.py
+      - name: 10/10 make_docx.py
         run: python make_docx.py
 
       - name: Upload newsletter artifacts

@@ -197,6 +197,109 @@ def algo_section(latest, week_ago, now, meta):
     return L
 
 
+def analyst_moves_section(week_ago, latest, meta):
+    """This week's analyst upgrades / downgrades / initiations (from
+    analyst_ratings.recent_actions via the analyst_moves_since() SQL function),
+    deduped and ranked by coverage. Returns [] if none."""
+    try:
+        rows = sb.rpc('analyst_moves_since', {'cutoff': week_ago}).execute().data or []
+    except Exception:
+        return []
+    rows = [r for r in rows if (r.get('act_date') or '') <= latest]
+    if not rows:
+        return []
+    best = {}                                   # dedup (ticker, firm, action) → latest
+    for r in rows:
+        k = (r['ticker'], r.get('firm'), r['action'])
+        if k not in best or (r.get('act_date') or '') > (best[k].get('act_date') or ''):
+            best[k] = r
+    rows = list(best.values())
+    downs = sorted([r for r in rows if r['action'] == 'down'],
+                   key=lambda r: r.get('num_analysts') or 0, reverse=True)
+    ups = sorted([r for r in rows if r['action'] == 'up'],
+                 key=lambda r: r.get('num_analysts') or 0, reverse=True)
+    inits = sorted([r for r in rows if r['action'] == 'init'],
+                   key=lambda r: r.get('num_analysts') or 0, reverse=True)
+
+    def fmt(r, label):
+        tk = r['ticker']
+        up = num(r.get('upside'))
+        cons = (r.get('consensus') or '—').replace('_', ' ')
+        return (f"| {tk} | {(meta.get(tk) or {}).get('company_name', tk)} | {label} | "
+                f"{r.get('firm') or '—'} | {r.get('from_grade') or '?'} → {r.get('to_grade') or '?'} "
+                f"| {cons} | {('%+.0f%%' % up) if up is not None else '—'} |")
+
+    L = ["\n## Analyst Moves (this week)",
+         f"_Rating changes over the week: {len(downs)} downgrades, {len(ups)} upgrades, "
+         f"{len(inits)} new initiations across the universe. Table shows the best-covered names._\n",
+         "| Ticker | Company | Move | Firm | From → To | Consensus | Target upside |\n"
+         "|---|---|---|---|---|---|---|"]
+    for r in downs[:10]:
+        L.append(fmt(r, 'DOWNGRADE'))
+    for r in ups[:10]:
+        L.append(fmt(r, 'UPGRADE'))
+    if inits:
+        names = ", ".join(f"{r['ticker']} ({r.get('to_grade')}, {r.get('firm')})" for r in inits[:6])
+        L.append(f"\n_Notable new coverage: {names}._")
+    return L
+
+
+def econ_calendar(latest):
+    """Rule-deterministic recurring US releases due in the next 7 days. Only the
+    cadences that are genuinely rule-based (so we don't fabricate exact dates):
+    nonfarm payrolls = first Friday; initial jobless claims = every Thursday."""
+    from datetime import date, timedelta
+    d0 = date.fromisoformat(latest)
+    out, cur = [], d0 + timedelta(days=1)
+    while cur <= d0 + timedelta(days=7):
+        if cur.weekday() == 4 and cur.day <= 7:
+            out.append((cur.isoformat(), "Nonfarm payrolls & unemployment (BLS jobs report)",
+                        "the headline jobs number and wage growth — the Fed's other mandate"))
+        if cur.weekday() == 3:
+            out.append((cur.isoformat(), "Initial jobless claims (weekly)",
+                        "early read on whether the labor market is softening"))
+        cur += timedelta(days=1)
+    return out
+
+
+def rates_macro_section(latest):
+    """Treasury yields + 2s10s + inflation/jobs/Fed prints (from macro_indicators),
+    plus next week's recurring economic calendar. Each part renders only if present."""
+    L = []
+    d = (sb.table('macro_indicators').select('*')
+           .order('snapshot_date', desc=True).limit(1).execute().data)
+    if d:
+        m = d[0]
+
+        def bp(x):
+            return f"{int(x):+d}bp" if x is not None else "—"
+
+        if m.get('ust_10y') is not None:
+            sp = m.get('spread_10y_2y')
+            curve = ("inverted" if sp < 0 else "positive/steepening") if sp is not None else ""
+            L.append(f"- **Treasury yields:** 10-year {m['ust_10y']}% ({bp(m.get('ust_10y_chg_bp'))} "
+                     f"on the week), 2-year {m.get('ust_2y')}% ({bp(m.get('ust_2y_chg_bp'))}); "
+                     f"2s10s spread {int(sp) if sp is not None else '—'}bp ({curve}).")
+        if m.get('cpi_yoy') is not None:
+            L.append(f"- **Inflation:** CPI {m['cpi_yoy']}% YoY, core {m.get('core_cpi_yoy')}% YoY.")
+        if m.get('unemployment') is not None:
+            nf = m.get('nonfarm_chg_k')
+            L.append(f"- **Jobs:** unemployment {m['unemployment']}%; last nonfarm payrolls "
+                     f"{('%+d k' % int(nf)) if nf is not None else 'n/a'}.")
+        if m.get('fed_funds') is not None:
+            L.append(f"- **Fed funds (target upper):** {m['fed_funds']}%.")
+        if L:
+            L.append(f"\n_Rates/macro as of {m['snapshot_date']} (FRED)._")
+
+    cal = econ_calendar(latest)
+    if cal:
+        L.append("\n**Scheduled next week (recurring releases):**")
+        for dt, name, tell in cal:
+            L.append(f"- {dt}: {name} — *{tell}*")
+
+    return (["\n## Rates & Macro Data"] + L) if L else []
+
+
 def main():
     # Dates from market_health (one row per date — cheap).
     mh = sorted(paginate('market_health', '*', ['snapshot_date']),
@@ -336,6 +439,12 @@ def main():
                      f"| {w['rank']} (+{w['delta']}) | {w['grade'] or '—'} | +{w['stretch']:.1f}% |")
     else:
         L.append("_No names passed all four filters this week._")
+
+    # Rates & macro data (+ next-week economic calendar)
+    L += rates_macro_section(latest)
+
+    # Analyst moves (upgrades / downgrades / initiations this week)
+    L += analyst_moves_section(week_ago, latest, meta)
 
     # Algo (paper portfolio) track record
     L += algo_section(latest, week_ago, now, meta)
