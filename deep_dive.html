@@ -210,12 +210,24 @@ function sessionPhaseFromLive(live) {
 async function render(ticker, d) {
     const { live, snaps, fund, signals, presignals, holding, allHoldings, meta, sectorRankings, analyst, paperTrades, alerts } = d;
     const latest = snaps[0] || {};
-    const cmp = live?.price || latest.close || 0;
+    // The live worker only streams holdings + paper-trade tickers, so live_prices
+    // is frozen for everything else. Trust the live tick only if it's at least as
+    // recent as the latest EOD close; otherwise fall back to that close (which the
+    // daily job keeps current for the whole universe).
+    const latestSnapDate = latest.snapshot_date;
+    const liveTs = live?.updated_at ? new Date(live.updated_at) : null;
+    const liveFresh = !!(live?.price && liveTs && (!latestSnapDate ||
+        liveTs >= new Date(latestSnapDate + 'T00:00:00Z')));
+    const cmp = liveFresh ? live.price : (latest.close ?? live?.price ?? 0);
     const sessionPhase = sessionPhaseFromLive(live);
 
     // Pick effective price for display (mirrors index.html effectivePrice logic)
-    let displayPrice = cmp, displayChange = live?.day_change_pct, displayTag = null;
-    if (sessionPhase === 'PRE' && live?.pre_market_price) { displayPrice = live.pre_market_price; displayChange = live.pre_market_change_pct; displayTag = 'PM'; }
+    let displayPrice = cmp, displayChange = liveFresh ? live?.day_change_pct : null, displayTag = null;
+    if (!liveFresh) {
+        // EOD fallback — show the last close and its day's change, clearly tagged.
+        if (snaps[1]?.close) displayChange = N((cmp - snaps[1].close) / snaps[1].close * 100, 2);
+        displayTag = latestSnapDate ? `CLOSE ${latestSnapDate.slice(5)}` : 'CLOSE';
+    } else if (sessionPhase === 'PRE' && live?.pre_market_price) { displayPrice = live.pre_market_price; displayChange = live.pre_market_change_pct; displayTag = 'PM'; }
     else if (sessionPhase === 'POST' && live?.post_market_price) { displayPrice = live.post_market_price; displayChange = live.post_market_change_pct; displayTag = 'AH'; }
 
     // 52W high distance + ATH distance
