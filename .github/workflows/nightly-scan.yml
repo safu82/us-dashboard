@@ -40,15 +40,6 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      # 1b. Backfill the EOD close into live_prices for every ticker the live worker
-      #     doesn't stream, so the dashboard never shows a stale price. Only touches
-      #     stale/missing rows; leaves the streamed (fresh) rows alone.
-      - name: 1b/8 seed_live_prices_eod.py
-        run: python seed_live_prices_eod.py
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-
       # 2. Append latest QQQ close to benchmark_history (long-lived; survives 90d prune)
       - name: 2/7 sync_benchmark_history.py
         run: python sync_benchmark_history.py
