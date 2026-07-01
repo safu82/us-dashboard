@@ -172,36 +172,60 @@ def _int(v):
         return None
 
 
+def _obj(v):
+    """TipRanks occasionally returns a nested block as a plain string instead of an
+    object. Return v only if it's a dict, else {} — keeps .get() from crashing."""
+    return v if isinstance(v, dict) else {}
+
+
+def _consensus(v):
+    """A consensus block may be a dict {consensus, distribution} or a plain string
+    like 'Buy'. Return (consensus_str_or_None, distribution_or_None)."""
+    if isinstance(v, dict):
+        return v.get('consensus'), v.get('distribution')
+    if isinstance(v, str):
+        return (v or None), None
+    return None, None
+
+
+def _rating(v):
+    """A sentiment block may be a dict {rating: 'Positive'} or a plain string
+    'Positive'. Return the rating either way."""
+    if isinstance(v, dict):
+        return v.get('rating')
+    if isinstance(v, str):
+        return v or None
+    return None
+
+
 def upsert_ticker_row(sb, ad, now_iso):
     """Map one assetsData entry -> partial analyst_ratings update."""
     ticker = ad.get('ticker')
     if not ticker:
         return False
-    best_c  = ad.get('bestAnalystConsensus') or {}
-    broad_c = ad.get('analystConsensus') or {}     # TipRanks broad (all analysts)
-    hf      = ad.get('hedgeFundSentimentData') or {}
-    ins     = ad.get('insiderSentimentData') or {}
-    blog    = ad.get('bloggerSentimentData') or {}
-    cal     = ad.get('calendarEarningsData') or {}
+    best_cons, best_dist = _consensus(ad.get('bestAnalystConsensus'))
+    broad_cons, broad_dist = _consensus(ad.get('analystConsensus'))  # broad (all analysts)
+    blog = _obj(ad.get('bloggerSentimentData'))
+    cal  = _obj(ad.get('calendarEarningsData'))
 
     patch = {
         'ticker': ticker,
         'smart_score':                _num(ad.get('smartScore'), 2),
-        'best_consensus':             best_c.get('consensus'),
+        'best_consensus':             best_cons,
         'best_target_mean':           _num(ad.get('bestPriceTarget'), 4),
         'best_target_upside_pct':     _pct(ad.get('bestPriceTargetUpside')),
-        'best_distribution':          best_c.get('distribution'),
-        'tipranks_broad_consensus':   broad_c.get('consensus'),
+        'best_distribution':          best_dist,
+        'tipranks_broad_consensus':   broad_cons,
         'tipranks_broad_target':      _num(ad.get('priceTarget'), 4),
-        'tipranks_broad_distribution': broad_c.get('distribution'),
+        'tipranks_broad_distribution': broad_dist,
         'price_target_upside_pct':    _pct(ad.get('priceTargetUpside')),
         'hedge_fund_score':        _num(ad.get('hedgeFundsScore'), 4),
-        'hedge_fund_rating':       hf.get('rating'),
+        'hedge_fund_rating':       _rating(ad.get('hedgeFundSentimentData')),
         'insider_score':           _num(ad.get('insiderScore'), 4),
-        'insider_rating':          ins.get('rating'),
+        'insider_rating':          _rating(ad.get('insiderSentimentData')),
         'blogger_bullish_count':   _int(blog.get('bullishCount')),
         'blogger_bearish_count':   _int(blog.get('bearishCount')),
-        'blogger_rating':          blog.get('rating'),
+        'blogger_rating':          _rating(ad.get('bloggerSentimentData')),
         'news_sentiment':          _num(ad.get('newsSentiment'), 4),
         'investor_score':          _num(ad.get('investorScore'), 4),
         'buzz':                    _num(ad.get('buzz'), 4),
@@ -258,7 +282,7 @@ def main():
             try:
                 if upsert_ticker_row(sb, ad, now_iso):
                     batch_ok += 1
-                    bc = (ad.get('bestAnalystConsensus') or {}).get('consensus', '?')
+                    bc = _consensus(ad.get('bestAnalystConsensus'))[0] or '?'
                     counts_by_consensus[bc] = counts_by_consensus.get(bc, 0) + 1
             except Exception as e:
                 print(f'    {ad.get("ticker", "?")}: upsert failed: {e}')
