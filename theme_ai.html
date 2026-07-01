@@ -54,17 +54,28 @@
   .badge-red{background:#f8514920;color:var(--red);border:1px solid #f8514940;}
   .badge-grey{background:#8b949e20;color:var(--text2);border:1px solid #8b949e40;}
   .badge-blue{background:#58a6ff20;color:var(--blue);border:1px solid #58a6ff40;}
-  .layer{display:flex;flex-direction:column;gap:8px;}
-  .layer-label{font-size:10px;color:var(--text2);font-weight:700;letter-spacing:1px;text-transform:uppercase;}
-  .node-row{display:flex;flex-wrap:wrap;gap:12px;}
-  .node{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;width:230px;cursor:pointer;transition:border-color .15s,transform .1s;}
-  .node:hover{border-color:var(--accent);transform:translateY(-1px);}
-  .node.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
-  .node-name{font-size:13px;font-weight:700;line-height:1.25;}
-  .node-meta{display:flex;justify-content:space-between;align-items:center;margin-top:9px;}
-  .node-count{font-size:11px;color:var(--text2);}
-  .node-blurb{font-size:11px;color:var(--text2);margin-top:8px;line-height:1.4;height:44px;overflow:hidden;}
-  .flow{color:var(--text2);text-align:center;font-size:14px;opacity:.5;margin:-2px 0;}
+  .cap{font-size:12.5px;color:var(--text2);margin:2px 2px 10px;line-height:1.55;}
+  .cap b{color:var(--text);}
+  .atglance{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px;}
+  .gstat{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
+  .gstat .l{font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;}
+  .gstat .v{font-size:17px;font-weight:800;margin-top:4px;line-height:1.2;}
+  .stack{display:flex;flex-direction:column;gap:10px;}
+  .band{display:flex;border-radius:12px;overflow:hidden;border:1px solid var(--border);background:hsl(var(--h),42%,13%);cursor:pointer;transition:transform .1s,box-shadow .1s;}
+  .band:hover{transform:translateX(3px);}
+  .band.sel{box-shadow:0 0 0 2px var(--accent);}
+  .band-side{width:56px;flex:none;display:flex;align-items:center;justify-content:center;background:hsl(var(--h),52%,42%);}
+  .band-side .ic{font-size:24px;}
+  .band-body{flex:1;padding:12px 16px;min-width:0;}
+  .band-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .band-title{font-size:15px;font-weight:800;letter-spacing:.4px;color:#fff;}
+  .band-tag{font-size:12px;color:hsl(var(--h),25%,82%);line-height:1.4;flex:1 1 260px;min-width:0;}
+  .valchip{margin-left:auto;flex:none;}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px;}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:7px;background:#0d1117cc;border:1px solid var(--cc);font-size:12px;font-weight:700;color:var(--text);}
+  .chip:hover{background:#0d1117;filter:brightness(1.25);}
+  .chip .rk{font-size:10px;color:var(--text2);font-weight:600;}
+  .chip.ctx{opacity:.5;font-weight:600;}
   .card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px 20px;}
   .card-title{font-size:15px;font-weight:700;}
   table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:12px;}
@@ -125,6 +136,9 @@ function band(v){ if(v==null||themeMed==null) return null; if(v < 0.65*themeMed)
 const BAND_LABEL = {under:'Undervalued',fair:'Fair',rich:'Rich'};
 const BAND_CLASS = {under:'badge-green',fair:'badge-yellow',rich:'badge-red'};
 const BAND_COLOR = {under:'#3fb950',fair:'#e3b341',rich:'#f85149'};
+const ICON = {materials:'🧱',eda_ip:'✏️',equipment:'🛠️',compute:'🧠',foundry:'🏭',memory:'💾',packaging:'📦',networking:'🔀',optical:'🌈',power_delivery:'🔌',systems:'🖥️',cooling:'❄️',dc_reit:'🏢',power_gen:'⚡',hyperscalers:'☁️',software_apps:'🤖'};
+const SHORT = {materials:'Materials & Inputs',eda_ip:'Chip Design & IP',equipment:'Chip-Making Equipment',compute:'AI Chips (GPUs)',foundry:'The Foundries',memory:'Memory & HBM',packaging:'Advanced Packaging',networking:'Networking',optical:'Optical & Photonics',power_delivery:'Power Delivery',systems:'AI Servers',cooling:'Cooling',dc_reit:'Data-Center REITs',power_gen:'Power Generation',hyperscalers:'The Cloud (Buyers)',software_apps:'AI Software'};
+const compBand = t => band(GAPS[t]);
 
 async function load(){
   THEME = (await sb.from('themes').select('*').eq('slug','ai').maybeSingle()).data || {};
@@ -172,24 +186,53 @@ function nodeStats(key){
 }
 
 function renderMap(){
-  const layers = [...new Set(NODES.map(n=>n.layer))].sort((a,b)=>a-b);
-  let html='';
-  layers.forEach((L,i)=>{
-    const nodes = NODES.filter(n=>n.layer===L);
-    html += `<div class="layer"><div class="node-row">`;
-    nodes.forEach(n=>{
-      const s = nodeStats(n.node_key);
-      const chip = s.band ? `<span class="badge ${BAND_CLASS[s.band]}">${BAND_LABEL[s.band]}</span>` : `<span class="badge badge-grey">—</span>`;
-      html += `<div class="node ${selected===n.node_key?'sel':''}" onclick="selectNode('${n.node_key}')">
-        <div class="node-name">${n.name}</div>
-        <div class="node-meta"><span class="node-count">${s.n} companies</span>${chip}</div>
-        <div class="node-blurb">${n.blurb||''}</div>
-      </div>`;
+  const uniq = [...new Set(MEMBERS.filter(m=>!m.is_context).map(m=>m.ticker))];
+  const ns = NODES.map(n=>({n, s:nodeStats(n.node_key)})).filter(o=>o.s.med!=null);
+  const cheapest = ns.slice().sort((a,b)=>a.s.med-b.s.med)[0];
+  const richest  = ns.slice().sort((a,b)=>b.s.med-a.s.med)[0];
+  const leaders  = uniq.map(t=>({t,r:num(SNAP[t]?.rs_rank)})).filter(o=>o.r!=null)
+                       .sort((a,b)=>a.r-b.r).slice(0,5).map(o=>o.t).join(' · ');
+  const glance = `<div class="atglance">
+    <div class="gstat"><div class="l">Companies mapped</div><div class="v">${uniq.length}</div></div>
+    <div class="gstat"><div class="l">Cheapest link</div><div class="v" style="color:var(--green)">${cheapest?SHORT[cheapest.n.node_key]:'—'}</div></div>
+    <div class="gstat"><div class="l">Priciest link</div><div class="v" style="color:var(--red)">${richest?SHORT[richest.n.node_key]:'—'}</div></div>
+    <div class="gstat"><div class="l">Strongest (RS rank)</div><div class="v" style="font-size:13px">${leaders||'—'}</div></div>
+  </div>`;
+
+  const n = NODES.length;
+  let bands = '';
+  NODES.forEach((node,i)=>{
+    const k=node.node_key, s=nodeStats(k), hue=Math.round((i/Math.max(n-1,1))*300);
+    const chip = s.band ? `<span class="badge ${BAND_CLASS[s.band]} valchip">${BAND_LABEL[s.band]}</span>`
+                        : `<span class="badge badge-grey valchip">no score</span>`;
+    const ms = nodeMembers(k).slice().sort((a,b)=>{
+      if(a.is_context!==b.is_context) return a.is_context?1:-1;
+      return (num(SNAP[a.ticker]?.rs_rank)??9e9) - (num(SNAP[b.ticker]?.rs_rank)??9e9);
     });
-    html += `</div></div>`;
-    if(i<layers.length-1) html += `<div class="flow">↓</div>`;
+    const chips = ms.map(m=>{
+      const t=m.ticker, ctx=m.is_context;
+      const cc = ctx ? '#8b949e55' : (BAND_COLOR[compBand(t)] || '#8b949e55');
+      const rk = num(SNAP[t]?.rs_rank);
+      const title = (m.note||'').replace(/"/g,'&quot;');
+      return ctx
+        ? `<span class="chip ctx" style="--cc:${cc}" title="${title}">${t}</span>`
+        : `<a class="chip" style="--cc:${cc}" title="${title}" href="deep_dive.html?ticker=${t}" onclick="event.stopPropagation()">${t}${rk!=null?` <span class="rk">#${rk}</span>`:''}</a>`;
+    }).join('');
+    bands += `<div class="band ${selected===k?'sel':''}" style="--h:${hue}" onclick="selectNode('${k}')">
+      <div class="band-side"><span class="ic">${ICON[k]||'▹'}</span></div>
+      <div class="band-body">
+        <div class="band-head">
+          <span class="band-title">${(SHORT[k]||node.name).toUpperCase()}</span>
+          <span class="band-tag">${node.blurb||''}</span>${chip}
+        </div>
+        <div class="chips">${chips}</div>
+      </div>
+    </div>`;
   });
-  document.getElementById('map').innerHTML = html;
+
+  document.getElementById('map').innerHTML =
+    `<div class="cap">Each band is one link in the AI chain — from raw materials and chip-making at the top to the AI software you use at the bottom. On every company, the border colour is our valuation read (<span style="color:var(--green)">green = cheaper for its growth</span>, <span style="color:var(--yellow)">yellow = fair</span>, <span style="color:var(--red)">red = pricier</span>) and <b>#n</b> is its strength rank out of ~1,900 stocks. Tap a band to explore that link; tap a company to open its deep dive.</div>
+     ${glance}<div class="stack">${bands}</div>`;
 }
 
 function valCell(t,ctx){
