@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script>
+(function() {
+    var PASS_KEY = 'dashboard_auth_v2';
+    var CORRECT  = 'khimani2026';
+    if (localStorage.getItem(PASS_KEY) === CORRECT) return;
+    document.addEventListener('DOMContentLoaded', function() {
+        document.body.style.display = 'none';
+        var gate = document.createElement('div');
+        gate.style.cssText = 'position:fixed;inset:0;background:#0d1117;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif';
+        gate.innerHTML = '<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:40px 48px;width:320px;text-align:center">'
+            + '<div style="font-size:28px;margin-bottom:8px">🧭</div>'
+            + '<div style="font-size:20px;font-weight:700;color:#e6edf3">Sector Research</div>'
+            + '<div style="font-size:13px;color:#8b949e;margin:6px 0 28px">Enter password to continue</div>'
+            + '<input id="pw-input" type="password" placeholder="Password" style="width:100%;box-sizing:border-box;padding:10px 14px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;outline:none;margin-bottom:12px">'
+            + '<button id="pw-btn" style="width:100%;padding:10px;border-radius:8px;border:none;background:#238636;color:white;font-weight:600;cursor:pointer">Unlock</button>'
+            + '<div id="pw-err" style="display:none;margin-top:12px;font-size:13px;color:#f85149">Incorrect password</div>'
+            + '</div>';
+        document.body.parentNode.insertBefore(gate, document.body);
+        function attempt() {
+            var v = document.getElementById('pw-input').value;
+            if (v === CORRECT) { localStorage.setItem(PASS_KEY, CORRECT); gate.remove(); document.body.style.display = ''; }
+            else { document.getElementById('pw-err').style.display = 'block'; document.getElementById('pw-input').value = ''; }
+        }
+        document.getElementById('pw-btn').onclick = attempt;
+        document.getElementById('pw-input').onkeydown = function(e){ if(e.key==='Enter') attempt(); };
+        setTimeout(function(){ document.getElementById('pw-input').focus(); }, 100);
+    });
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Value Chain (flow view) — Sector Research</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:#0d1117; --bg2:#161b22; --bg3:#1c2128; --border:#30363d;
+    --text:#e6edf3; --text2:#8b949e; --green:#3fb950; --red:#f85149;
+    --blue:#58a6ff; --orange:#f0883e; --purple:#bc8cff; --yellow:#e3b341; --accent:#1f6feb;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;}
+  a{color:inherit;text-decoration:none;}
+  .header{background:var(--bg2);border-bottom:1px solid var(--border);padding:16px 24px;}
+  .h-title{font-size:24px;font-weight:700;letter-spacing:-0.5px;}
+  .h-desc{font-size:13px;color:var(--text2);margin-top:6px;max-width:900px;line-height:1.5;}
+  .page{max-width:1400px;margin:0 auto;padding:20px 24px;display:flex;flex-direction:column;gap:18px;}
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;}
+  .badge-green{background:#3fb95020;color:var(--green);border:1px solid #3fb95040;}
+  .badge-yellow{background:#e3b34120;color:var(--yellow);border:1px solid #e3b34140;}
+  .badge-red{background:#f8514920;color:var(--red);border:1px solid #f8514940;}
+  .badge-grey{background:#8b949e20;color:var(--text2);border:1px solid #8b949e40;}
+  .badge-blue{background:#58a6ff20;color:var(--blue);border:1px solid #58a6ff40;}
+  .cap{font-size:12.5px;color:var(--text2);margin:2px 2px 10px;line-height:1.55;}
+  .cap b{color:var(--text);}
+  .diagram-wrap{overflow-x:auto;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px 8px;}
+  .diagram{display:block;width:100%;min-width:1120px;height:auto;}
+  .conn{fill:none;stroke:#3b4351;stroke-width:1.6;stroke-dasharray:5 6;animation:flow 1.1s linear infinite;opacity:.8;}
+  @keyframes flow{to{stroke-dashoffset:-11;}}
+  .dnode{cursor:pointer;}
+  .dnode rect{transition:filter .15s;}
+  .dnode:hover rect{filter:brightness(1.5);}
+  .dnode text{pointer-events:none;user-select:none;}
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px 20px;}
+  .card-title{font-size:15px;font-weight:700;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:12px;}
+  th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap;}
+  th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--bg2);}
+  th{color:var(--text2);font-size:10px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;cursor:default;}
+  tr.ctx td{color:var(--text2);opacity:.7;}
+  .tk{font-weight:700;color:var(--blue);}
+  .co{color:var(--text2);font-size:11px;}
+  .na{color:var(--text2);opacity:.5;}
+  .note{font-size:11px;color:var(--text2);}
+  .grid2{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;}
+  .statline{display:flex;flex-wrap:wrap;gap:18px;margin-top:6px;font-size:12px;color:var(--text2);}
+  .statline b{color:var(--text);}
+  .tblwrap{overflow-x:auto;}
+  .foot{font-size:11px;color:var(--text2);line-height:1.6;border-top:1px solid var(--border);padding-top:14px;}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11px;color:var(--text2);}
+  @media(max-width:900px){.grid2{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="h-title">🧭 <span id="theme-name">AI Value Chain</span></div>
+  <div class="h-desc" id="theme-desc"></div>
+  <div class="legend" style="margin-top:12px">
+    <span>Valuation (relative, growth-adjusted):</span>
+    <span class="badge badge-green">Undervalued</span>
+    <span class="badge badge-yellow">Fair</span>
+    <span class="badge badge-red">Rich</span>
+    <span class="badge badge-grey">No data / private</span>
+    <span style="margin-left:auto">Educational — not investment advice.</span>
+  </div>
+</div>
+<div class="page">
+  <div id="map"></div>
+  <div id="detail"></div>
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+const SB_URL='https://jblrurlpyplbquqibphh.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpibHJ1cmxweXBsYnF1cWlicGhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzNDY1NzAsImV4cCI6MjA5NDkyMjU3MH0.oYZarIlHqxpZY6ZWA0KRD9HoxYyv80otXKVNkpuNLRo';
+const sb = supabase.createClient(SB_URL, SB_KEY);
+
+const N = (v,d=2)=> v==null||isNaN(v) ? null : +Number(v).toFixed(d);
+const num = v => { const n = Number(v); return (v==null || isNaN(n)) ? null : n; };
+const median = a => { const s=a.filter(x=>x!=null&&isFinite(x)).sort((x,y)=>x-y); if(!s.length) return null; const m=Math.floor(s.length/2); return s.length%2?s[m]:(s[m-1]+s[m])/2; };
+const na = '<span class="na">—</span>';
+const fx = (v,d=1)=> v==null?na:Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+function fmtCap(v){ v=num(v); if(v==null) return na; if(v>=1e12) return '$'+(v/1e12).toFixed(2)+'T'; if(v>=1e9) return '$'+(v/1e9).toFixed(1)+'B'; if(v>=1e6) return '$'+(v/1e6).toFixed(0)+'M'; return '$'+v.toFixed(0); }
+
+let THEME, NODES=[], MEMBERS=[], FUND={}, SNAP={}, ANALYST={}, GAPS={}, themeMed=null, chart=null, selected=null;
+
+// growth-adjusted P/S — the cheapness metric: price-to-sales divided by revenue growth.
+// Lower = cheaper for the growth you're buying. Universal (works for profitless names).
+function gaps(t){ const f=FUND[t]; if(!f) return null; const ps=num(f.price_to_sales); const g=Math.max(num(f.revenue_growth_yoy)??0,3); return ps>0 ? ps/(g/100) : null; }
+function band(v){ if(v==null||themeMed==null) return null; if(v < 0.65*themeMed) return 'under'; if(v > 1.45*themeMed) return 'rich'; return 'fair'; }
+const BAND_LABEL = {under:'Undervalued',fair:'Fair',rich:'Rich'};
+const BAND_CLASS = {under:'badge-green',fair:'badge-yellow',rich:'badge-red'};
+const BAND_COLOR = {under:'#3fb950',fair:'#e3b341',rich:'#f85149'};
+const ICON = {materials:'🧱',eda_ip:'✏️',equipment:'🛠️',compute:'🧠',foundry:'🏭',memory:'💾',packaging:'📦',networking:'🔀',optical:'🌈',power_delivery:'🔌',systems:'🖥️',cooling:'❄️',dc_reit:'🏢',power_gen:'⚡',hyperscalers:'☁️',software_apps:'🤖'};
+const SHORT = {materials:'Materials & Inputs',eda_ip:'Chip Design & IP',equipment:'Chip-Making Equipment',compute:'AI Chips (GPUs)',foundry:'The Foundries',memory:'Memory & HBM',packaging:'Advanced Packaging',networking:'Networking',optical:'Optical & Photonics',power_delivery:'Power Delivery',systems:'AI Servers',cooling:'Cooling',dc_reit:'Data-Center REITs',power_gen:'Power Generation',hyperscalers:'The Cloud (Buyers)',software_apps:'AI Software'};
+const compBand = t => band(GAPS[t]);
+
+async function load(){
+  THEME = (await sb.from('themes').select('*').eq('slug','ai').maybeSingle()).data || {};
+  NODES = (await sb.from('theme_nodes').select('*').eq('theme_slug','ai').order('layer').order('node_key')).data || [];
+  MEMBERS = (await sb.from('theme_members').select('*').eq('theme_slug','ai')).data || [];
+  document.getElementById('theme-name').textContent = THEME.name || 'AI Value Chain';
+  document.getElementById('theme-desc').textContent = THEME.description || '';
+
+  const tickers = [...new Set(MEMBERS.filter(m=>!m.is_context).map(m=>m.ticker))];
+  const chunks = []; for(let i=0;i<tickers.length;i+=200) chunks.push(tickers.slice(i,i+200));
+
+  for(const ch of chunks){
+    const f = (await sb.from('stock_fundamentals').select('ticker,market_cap_usd,pe_ttm,pe_3yr_avg,price_to_sales,ev_to_ebitda,net_margin,revenue_growth_yoy,earnings_growth_yoy,roe').in('ticker',ch)).data||[];
+    f.forEach(r=>FUND[r.ticker]=r);
+    const a = (await sb.from('analyst_ratings').select('ticker,best_target_upside_pct,consensus,smart_score').in('ticker',ch)).data||[];
+    a.forEach(r=>ANALYST[r.ticker]=r);
+  }
+  const latest = (await sb.from('daily_stock_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
+  if(latest){ for(const ch of chunks){
+    const s = (await sb.from('daily_stock_snapshots').select('ticker,rs_rank').eq('snapshot_date',latest).in('ticker',ch)).data||[];
+    s.forEach(r=>SNAP[r.ticker]=r);
+  }}
+
+  tickers.forEach(t=>GAPS[t]=gaps(t));
+  themeMed = median(Object.values(GAPS));
+  renderMap();
+  if(NODES.length) selectNode(NODES[0].node_key);
+  renderFoot();
+}
+
+function nodeMembers(key){ return MEMBERS.filter(m=>m.node_key===key); }
+function nodeStats(key){
+  const ms = nodeMembers(key).filter(m=>!m.is_context);
+  const g = ms.map(m=>GAPS[m.ticker]).filter(x=>x!=null&&isFinite(x));
+  const med = median(g);
+  return {
+    n: nodeMembers(key).length, med,
+    band: band(med),
+    pe: median(ms.map(m=>num(FUND[m.ticker]?.pe_ttm)).filter(x=>x>0)),
+    ps: median(ms.map(m=>num(FUND[m.ticker]?.price_to_sales)).filter(x=>x>0)),
+    ev: median(ms.map(m=>num(FUND[m.ticker]?.ev_to_ebitda)).filter(x=>x>0)),
+    gr: median(ms.map(m=>num(FUND[m.ticker]?.revenue_growth_yoy))),
+    rs: median(ms.map(m=>num(SNAP[m.ticker]?.rs_rank))),
+  };
+}
+
+const LAYOUT={
+  materials:{c:1,l:0}, eda_ip:{c:1,l:3}, equipment:{c:1,l:6},
+  compute:{c:2,l:4}, foundry:{c:2,l:1},
+  memory:{c:3,l:1}, packaging:{c:3,l:4},
+  networking:{c:4,l:0}, optical:{c:4,l:1.7}, power_delivery:{c:4,l:4.3}, cooling:{c:4,l:6},
+  systems:{c:5,l:3},
+  dc_reit:{c:6,l:1.5}, power_gen:{c:6,l:4.5},
+  hyperscalers:{c:7,l:3}, software_apps:{c:8,l:3}
+};
+const DLABEL={materials:'Materials',eda_ip:'Design & IP',equipment:'Equipment',compute:'AI Chips',foundry:'Foundries',memory:'Memory/HBM',packaging:'Packaging',networking:'Networking',optical:'Optical',power_delivery:'Power',systems:'AI Servers',cooling:'Cooling',dc_reit:'Data Centers',power_gen:'Power Gen',hyperscalers:'Cloud',software_apps:'AI Software'};
+const EDGES=[['materials','foundry'],['equipment','foundry'],['eda_ip','compute'],['compute','packaging'],['foundry','packaging'],['memory','systems'],['packaging','systems'],['networking','systems'],['optical','systems'],['power_delivery','systems'],['cooling','systems'],['systems','dc_reit'],['dc_reit','hyperscalers'],['power_gen','hyperscalers'],['hyperscalers','software_apps']];
+const STAGES={1:'Inputs & Tools',2:'Make the Chip',3:'Assemble',4:'Components',5:'The Server',6:'House & Power',7:'The Cloud',8:'The Apps'};
+
+function renderMap(){
+  const COLW=165,LANEH=70,X0=30,Y0=64,NW=138,NH=52,W=1360,H=560;
+  const px=k=>X0+(LAYOUT[k].c-1)*COLW, py=k=>Y0+LAYOUT[k].l*LANEH;
+  let conns='';
+  EDGES.forEach(([a,b])=>{ if(!LAYOUT[a]||!LAYOUT[b])return;
+    const sx=px(a)+NW, sy=py(a)+NH/2, tx=px(b), ty=py(b)+NH/2;
+    conns+=`<path class="conn" d="M${sx} ${sy} C${sx+55} ${sy}, ${tx-55} ${ty}, ${tx} ${ty}"/>`; });
+  let stages='';
+  for(let c=1;c<=8;c++){ stages+=`<text x="${X0+(c-1)*COLW+NW/2}" y="26" fill="var(--text2)" font-size="9.5" font-weight="700" text-anchor="middle" letter-spacing="1">${(STAGES[c]||'').toUpperCase()}</text>`; }
+  let nodes='';
+  NODES.forEach(node=>{ const k=node.node_key; if(!LAYOUT[k])return;
+    const s=nodeStats(k), x=px(k), y=py(k);
+    const col = selected===k?'var(--accent)':(s.band?BAND_COLOR[s.band]:'#3b4351');
+    const sw = selected===k?3:2;
+    const bl = s.band?BAND_LABEL[s.band]:'no score';
+    nodes+=`<g class="dnode" onclick="selectNode('${k}')">
+      <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="9" fill="var(--bg3)" stroke="${col}" stroke-width="${sw}"/>
+      <text x="${x+13}" y="${y+31}" font-size="18">${ICON[k]||''}</text>
+      <text x="${x+40}" y="${y+22}" fill="var(--text)" font-size="12" font-weight="700">${DLABEL[k]||node.name}</text>
+      <text x="${x+40}" y="${y+38}" fill="var(--text2)" font-size="9.5">${s.n} cos · ${bl}</text>
+    </g>`; });
+  document.getElementById('map').innerHTML =
+    `<div class="cap">Follow the journey left → right: raw materials and tools become <b>AI chips</b>, get wrapped with <b>memory</b>, built into <b>servers</b> (with networking, power and cooling), housed in <b>data centers</b>, powered up, rented out by the <b>cloud</b>, and turned into the <b>AI software</b> you use. Border colour = our valuation read (<span style="color:var(--green)">green cheaper</span> · <span style="color:var(--yellow)">yellow fair</span> · <span style="color:var(--red)">red pricier</span>). Click any stage to explore its companies.</div>
+     <div class="diagram-wrap"><svg class="diagram" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${stages}${conns}${nodes}</svg></div>`;
+}
+
+function valCell(t,ctx){
+  if(ctx) return `<td class="na">—</td>`;
+  const v=GAPS[t], b=band(v);
+  if(v==null||!b) return `<td class="na">—</td>`;
+  return `<td><span class="badge ${BAND_CLASS[b]}">${BAND_LABEL[b]}</span></td>`;
+}
+
+function selectNode(key){
+  selected=key;
+  const node = NODES.find(n=>n.node_key===key); if(!node) return;
+  const s = nodeStats(key);
+  const rows = nodeMembers(key).slice().sort((a,b)=>{
+    if(a.is_context!==b.is_context) return a.is_context?1:-1;
+    const ga=GAPS[a.ticker], gb=GAPS[b.ticker];
+    return (ga==null?9e9:ga)-(gb==null?9e9:gb);
+  });
+  let tbody='';
+  rows.forEach(m=>{
+    const t=m.ticker, f=FUND[t]||{}, sn=SNAP[t]||{}, an=ANALYST[t]||{}, ctx=m.is_context;
+    const link = ctx ? t : `<a class="tk" href="deep_dive.html?ticker=${t}">${t}</a>`;
+    tbody += `<tr class="${ctx?'ctx':''}">
+      <td>${link}<div class="co">${m.note||''}</div></td>
+      <td>${ctx?na:fmtCap(f.market_cap_usd)}</td>
+      <td>${ctx?na:fx(num(f.pe_ttm)>0?f.pe_ttm:null)}</td>
+      <td>${ctx?na:fx(f.price_to_sales)}</td>
+      <td>${ctx?na:fx(f.ev_to_ebitda)}</td>
+      <td>${ctx?na:(num(f.revenue_growth_yoy)!=null?fx(f.revenue_growth_yoy,0)+'%':na)}</td>
+      <td>${ctx?na:(num(f.net_margin)!=null?fx(f.net_margin,0)+'%':na)}</td>
+      <td>${ctx?na:(num(sn.rs_rank)!=null?'#'+sn.rs_rank:na)}</td>
+      <td>${ctx?na:(num(an.best_target_upside_pct)!=null?fx(an.best_target_upside_pct,0)+'%':na)}</td>
+      ${valCell(t,ctx)}
+    </tr>`;
+  });
+  const chip = s.band?`<span class="badge ${BAND_CLASS[s.band]}">${BAND_LABEL[s.band]} vs the AI complex</span>`:'';
+  document.getElementById('detail').innerHTML = `
+    <div class="grid2">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div class="card-title">${node.name}</div>${chip}
+        </div>
+        <div class="note" style="margin-top:8px;line-height:1.5">${node.blurb||''}</div>
+        <div class="statline">
+          <span>Median P/E <b>${fx(s.pe)}</b></span>
+          <span>P/S <b>${fx(s.ps)}</b></span>
+          <span>EV/EBITDA <b>${fx(s.ev)}</b></span>
+          <span>Rev growth <b>${s.gr!=null?fx(s.gr,0)+'%':'—'}</b></span>
+          <span>Median RS <b>${s.rs!=null?'#'+Math.round(s.rs):'—'}</b></span>
+        </div>
+        <div class="tblwrap">
+        <table><thead><tr>
+          <th>Company</th><th>Mkt Cap</th><th>P/E</th><th>P/S</th><th>EV/EBITDA</th>
+          <th>Rev Gr</th><th>Net Mgn</th><th>RS</th><th>Upside</th><th>Value</th>
+        </tr></thead><tbody>${tbody}</tbody></table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Valuation vs Growth</div>
+        <div class="note" style="margin-top:4px">Cheap-and-growing sits bottom-right. Expensive-and-slowing sits top-left.</div>
+        <div style="height:340px;margin-top:10px"><canvas id="scatter"></canvas></div>
+      </div>
+    </div>`;
+  renderMap();
+  drawScatter(key);
+}
+
+function drawScatter(key){
+  const pts = {under:[],fair:[],rich:[]};
+  nodeMembers(key).filter(m=>!m.is_context).forEach(m=>{
+    const f=FUND[m.ticker]; if(!f) return;
+    const g=num(f.revenue_growth_yoy), ps=num(f.price_to_sales);
+    if(g==null||!(ps>0)) return;
+    const b=band(GAPS[m.ticker])||'fair';
+    pts[b].push({x:g,y:ps,t:m.ticker});
+  });
+  const ds = Object.keys(pts).map(b=>({
+    label:BAND_LABEL[b], data:pts[b], backgroundColor:BAND_COLOR[b],
+    pointRadius:6, pointHoverRadius:8,
+  }));
+  if(chart) chart.destroy();
+  const ctx=document.getElementById('scatter'); if(!ctx) return;
+  chart = new Chart(ctx,{type:'scatter',data:{datasets:ds},options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{labels:{color:'#8b949e',font:{size:11}}},
+      tooltip:{callbacks:{label:c=>`${c.raw.t}: growth ${c.raw.x}% , P/S ${c.raw.y}`}}},
+    scales:{
+      x:{title:{display:true,text:'Revenue growth (YoY %)',color:'#8b949e'},ticks:{color:'#8b949e'},grid:{color:'#30363d'}},
+      y:{title:{display:true,text:'Price / Sales',color:'#8b949e'},ticks:{color:'#8b949e'},grid:{color:'#30363d'}}
+    }}});
+}
+
+function renderFoot(){
+  document.getElementById('foot').innerHTML = `
+    <b>How to read the valuation.</b> Each company's band comes from a growth-adjusted
+    price-to-sales ratio (P/S ÷ revenue growth) — lower means you're paying less for the
+    growth you get. A stock (or a whole node) is flagged <span class="badge badge-green">Undervalued</span>
+    when that ratio sits well below the AI-theme median, <span class="badge badge-red">Rich</span>
+    when well above, else <span class="badge badge-yellow">Fair</span>. It's a starting screen,
+    not a verdict: a low ratio can also flag a struggling business, and profitless or foreign/private
+    names (shown greyed) carry no score. Always read the raw P/E, P/S, EV/EBITDA and margins next to it,
+    and do your own homework. Data: yfinance fundamentals + our daily relative-strength ranks. This is
+    educational commentary, not investment advice.`;
+}
+
+load().catch(e=>{ document.getElementById('map').innerHTML = '<div class="card">Failed to load: '+e.message+'</div>'; console.error(e); });
+</script>
+</body>
+</html>
