@@ -1,10 +1,12 @@
 name: Fetch TipRanks data (US)
 
 # Daily at 06:30 UTC — runs right after the yfinance ratings refresh (06:23).
-# Uses ONE batched get_assets_data MCP call to cover the entire holdings +
-# paper-trade universe (~22 tickers) for smart score, best-analyst consensus,
-# insider/hedge-fund/blogger sentiment, news sentiment, next earnings date.
-# Free TipRanks tier = 5 req/min, 25 req/day — we use exactly 1 call.
+# Batched get_assets_data MCP calls (100 tickers/call) cover the full ~1,900-name
+# scan universe for smart score, consensus, insider/hedge-fund/blogger sentiment,
+# news sentiment, and earnings dates. That's ~20 calls, spaced 15s apart to stay
+# under the free tier's 5 req/min, and ~6-7 min of wall time. It uses ~20 of the
+# 25 free-tier calls/day, so AVOID stacking manual re-runs on the same day or the
+# daily quota will be exhausted (later batches then fail).
 #
 # REQUIRES GitHub secret: TIPRANKS_API_KEY
 # Get one at https://www.tipranks.com/developer-portal (Free plan is enough).
@@ -17,7 +19,7 @@ jobs:
   fetch:
     name: Fetch TipRanks data
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
