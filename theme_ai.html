@@ -54,6 +54,7 @@
   .badge-red{background:#f8514920;color:var(--red);border:1px solid #f8514940;}
   .badge-grey{background:#8b949e20;color:var(--text2);border:1px solid #8b949e40;}
   .badge-blue{background:#58a6ff20;color:var(--blue);border:1px solid #58a6ff40;}
+  .badge-orange{background:#f0883e20;color:var(--orange);border:1px solid #f0883e40;}
   .cap{font-size:12.5px;color:var(--text2);margin:2px 2px 10px;line-height:1.55;}
   .cap b{color:var(--text);}
   .atglance{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px;}
@@ -71,6 +72,8 @@
   .band-title{font-size:15px;font-weight:800;letter-spacing:.4px;color:#fff;}
   .band-tag{font-size:12px;color:hsl(var(--h),25%,82%);line-height:1.4;flex:1 1 260px;min-width:0;}
   .valchip{margin-left:auto;flex:none;}
+  .chips-r{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+  .band.hot{box-shadow:0 0 0 1px var(--orange);}
   .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px;}
   .chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:7px;background:#0d1117cc;border:1px solid var(--cc);font-size:12px;font-weight:700;color:var(--text);}
   .chip:hover{background:#0d1117;filter:brightness(1.25);}
@@ -147,13 +150,35 @@ let THEME, NODES=[], MEMBERS=[], FUND={}, SNAP={}, ANALYST={}, GAPS={}, themeMed
 // growth-adjusted P/S — the cheapness metric: price-to-sales divided by revenue growth.
 // Lower = cheaper for the growth you're buying. Universal (works for profitless names).
 function gaps(t){ const f=FUND[t]; if(!f) return null; const ps=num(f.price_to_sales); const g=Math.max(num(f.revenue_growth_yoy)??0,3); return ps>0 ? ps/(g/100) : null; }
-function band(v){ if(v==null||themeMed==null) return null; if(v < 0.65*themeMed) return 'under'; if(v > 1.45*themeMed) return 'rich'; return 'fair'; }
+// Per-stock valuation is LIKE-FOR-LIKE: judged vs its OWN node peers (same business
+// type) and vs its OWN 3-yr P/E history — never across different industries.
+function nodeMedGaps(k){ const g=nodeMembers(k).filter(m=>!m.is_context).map(m=>GAPS[m.ticker]).filter(x=>x!=null&&isFinite(x)); return {med:median(g),n:g.length}; }
+function compBand(t,k){
+  let peerSig=null, histSig=null;
+  const ng = nodeMedGaps(k);
+  if(ng.med!=null && ng.n>=3 && GAPS[t]!=null){ const r=GAPS[t]/ng.med; peerSig = r<0.75?1 : r>1.35?-1 : 0; }
+  const pe=num(FUND[t]?.pe_ttm), pa=num(FUND[t]?.pe_3yr_avg);
+  if(pe>0 && pa>0){ const h=pe/pa; histSig = h<0.85?1 : h>1.2?-1 : 0; }
+  const sigs=[peerSig,histSig].filter(x=>x!=null);
+  if(!sigs.length) return null;
+  const a=sigs.reduce((x,y)=>x+y,0)/sigs.length;
+  return a>=0.5?'under' : a<=-0.5?'rich' : 'fair';
+}
+// Momentum = -(5-day OLS slope of RS rank). Positive = rank improving (rising).
+function momoStock(t){ const s=num(SNAP[t]?.rank_slope); return s==null?null:-s; }
+function momoChip(slope){ // slope is raw rank_slope (negative = improving)
+  if(slope==null) return '';
+  if(slope<-15) return '<span class="badge badge-green">▲ Rising fast</span>';
+  if(slope<0)   return '<span class="badge badge-green">▲ Rising</span>';
+  if(slope>15)  return '<span class="badge badge-red">▼ Fading fast</span>';
+  if(slope>0)   return '<span class="badge badge-red">▼ Fading</span>';
+  return '<span class="badge badge-grey">→ Flat</span>';
+}
 const BAND_LABEL = {under:'Undervalued',fair:'Fair',rich:'Rich'};
 const BAND_CLASS = {under:'badge-green',fair:'badge-yellow',rich:'badge-red'};
 const BAND_COLOR = {under:'#3fb950',fair:'#e3b341',rich:'#f85149'};
 const ICON = {materials:'🧱',eda_ip:'✏️',equipment:'🛠️',compute:'🧠',foundry:'🏭',memory:'💾',packaging:'📦',networking:'🔀',optical:'🌈',power_delivery:'🔌',systems:'🖥️',cooling:'❄️',dc_reit:'🏢',power_gen:'⚡',hyperscalers:'☁️',software_apps:'🤖'};
 const SHORT = {materials:'Materials & Inputs',eda_ip:'Chip Design & IP',equipment:'Chip-Making Equipment',compute:'AI Chips (GPUs)',foundry:'The Foundries',memory:'Memory & HBM',packaging:'Advanced Packaging',networking:'Networking',optical:'Optical & Photonics',power_delivery:'Power Delivery',systems:'AI Servers',cooling:'Cooling',dc_reit:'Data-Center REITs',power_gen:'Power Generation',hyperscalers:'The Cloud (Buyers)',software_apps:'AI Software'};
-const compBand = t => band(GAPS[t]);
 // Flow-view layout: node -> {column, lane}. Edges draw the supply-chain connectors.
 const LAYOUT={
   materials:{c:1,l:0}, eda_ip:{c:1,l:3}, equipment:{c:1,l:6},
@@ -186,12 +211,11 @@ async function load(){
   }
   const latest = (await sb.from('daily_stock_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
   if(latest){ for(const ch of chunks){
-    const s = (await sb.from('daily_stock_snapshots').select('ticker,rs_rank').eq('snapshot_date',latest).in('ticker',ch)).data||[];
+    const s = (await sb.from('daily_stock_snapshots').select('ticker,rs_rank,rank_slope').eq('snapshot_date',latest).in('ticker',ch)).data||[];
     s.forEach(r=>SNAP[r.ticker]=r);
   }}
 
   tickers.forEach(t=>GAPS[t]=gaps(t));
-  themeMed = median(Object.values(GAPS));
   renderMap();
   if(NODES.length) selectNode(NODES[0].node_key);
   renderFoot();
@@ -200,17 +224,27 @@ async function load(){
 function nodeMembers(key){ return MEMBERS.filter(m=>m.node_key===key); }
 function nodeStats(key){
   const ms = nodeMembers(key).filter(m=>!m.is_context);
-  const g = ms.map(m=>GAPS[m.ticker]).filter(x=>x!=null&&isFinite(x));
-  const med = median(g);
+  const med   = median(ms.map(m=>GAPS[m.ticker]).filter(x=>x!=null&&isFinite(x)));
+  const medPE = median(ms.map(m=>num(FUND[m.ticker]?.pe_ttm)).filter(x=>x>0));
+  const medPA = median(ms.map(m=>num(FUND[m.ticker]?.pe_3yr_avg)).filter(x=>x>0));
+  // Node valuation is judged vs the node's OWN 3-yr history (peer-relative nets to
+  // zero within a node, so it can't call a whole node cheap/rich vs itself).
+  let valband=null; if(medPE!=null && medPA!=null){ const hr=medPE/medPA; valband = hr<0.9?'under' : hr>1.15?'rich' : 'fair'; }
+  const slope = median(ms.map(m=>num(SNAP[m.ticker]?.rank_slope)).filter(x=>x!=null));
   return {
-    n: nodeMembers(key).length, med,
-    band: band(med),
-    pe: median(ms.map(m=>num(FUND[m.ticker]?.pe_ttm)).filter(x=>x>0)),
+    n: nodeMembers(key).length, med, valband, slope,
+    pe: medPE,
     ps: median(ms.map(m=>num(FUND[m.ticker]?.price_to_sales)).filter(x=>x>0)),
     ev: median(ms.map(m=>num(FUND[m.ticker]?.ev_to_ebitda)).filter(x=>x>0)),
     gr: median(ms.map(m=>num(FUND[m.ticker]?.revenue_growth_yoy))),
     rs: median(ms.map(m=>num(SNAP[m.ticker]?.rs_rank))),
   };
+}
+function hottestNode(){ let best=null,bs=Infinity; NODES.forEach(nd=>{ const st=nodeStats(nd.node_key); if(st.slope!=null && st.slope<bs){bs=st.slope; best=nd.node_key;} }); return best; }
+function topMomoTicker(key){
+  const ms = nodeMembers(key).filter(m=>!m.is_context && num(SNAP[m.ticker]?.rank_slope)!=null)
+    .sort((a,b)=>num(SNAP[a.ticker].rank_slope)-num(SNAP[b.ticker].rank_slope));
+  return ms[0]?.ticker;
 }
 
 let view = localStorage.getItem('theme_view') || 'stack';
@@ -224,43 +258,47 @@ function renderMap(){
 
 function renderStack(){
   const uniq = [...new Set(MEMBERS.filter(m=>!m.is_context).map(m=>m.ticker))];
-  const ns = NODES.map(n=>({n, s:nodeStats(n.node_key)})).filter(o=>o.s.med!=null);
-  const cheapest = ns.slice().sort((a,b)=>a.s.med-b.s.med)[0];
-  const richest  = ns.slice().sort((a,b)=>b.s.med-a.s.med)[0];
-  const leaders  = uniq.map(t=>({t,r:num(SNAP[t]?.rs_rank)})).filter(o=>o.r!=null)
-                       .sort((a,b)=>a.r-b.r).slice(0,5).map(o=>o.t).join(' · ');
+  const HOT = hottestNode();
+  const scored = NODES.filter(nd=>nodeStats(nd.node_key).slope!=null);
+  const rising = scored.filter(nd=>nodeStats(nd.node_key).slope<0).length;
+  const leaders = uniq.map(t=>({t,r:num(SNAP[t]?.rs_rank)})).filter(o=>o.r!=null)
+                      .sort((a,b)=>a.r-b.r).slice(0,5).map(o=>o.t).join(' · ');
   const glance = `<div class="atglance">
     <div class="gstat"><div class="l">Companies mapped</div><div class="v">${uniq.length}</div></div>
-    <div class="gstat"><div class="l">Cheapest link</div><div class="v" style="color:var(--green)">${cheapest?SHORT[cheapest.n.node_key]:'—'}</div></div>
-    <div class="gstat"><div class="l">Priciest link</div><div class="v" style="color:var(--red)">${richest?SHORT[richest.n.node_key]:'—'}</div></div>
-    <div class="gstat"><div class="l">Strongest (RS rank)</div><div class="v" style="font-size:13px">${leaders||'—'}</div></div>
+    <div class="gstat"><div class="l">🔥 Hottest link (momentum)</div><div class="v" style="color:var(--orange)">${HOT?SHORT[HOT]:'—'}</div></div>
+    <div class="gstat"><div class="l">Links rising vs fading</div><div class="v">${rising} / ${scored.length}</div></div>
+    <div class="gstat"><div class="l">Strongest now (RS rank)</div><div class="v" style="font-size:13px">${leaders||'—'}</div></div>
   </div>`;
 
   const n = NODES.length;
   let bands = '';
   NODES.forEach((node,i)=>{
     const k=node.node_key, s=nodeStats(k), hue=Math.round((i/Math.max(n-1,1))*300);
-    const chip = s.band ? `<span class="badge ${BAND_CLASS[s.band]} valchip">${BAND_LABEL[s.band]}</span>`
-                        : `<span class="badge badge-grey valchip">no score</span>`;
+    const vchip = s.valband ? `<span class="badge ${BAND_CLASS[s.valband]}">${BAND_LABEL[s.valband]} vs norm</span>` : '';
+    const mchip = momoChip(s.slope);
+    const hotb  = (k===HOT) ? `<span class="badge badge-orange">🔥 Hottest</span>` : '';
+    const top   = topMomoTicker(k);
     const ms = nodeMembers(k).slice().sort((a,b)=>{
       if(a.is_context!==b.is_context) return a.is_context?1:-1;
       return (num(SNAP[a.ticker]?.rs_rank)??9e9) - (num(SNAP[b.ticker]?.rs_rank)??9e9);
     });
     const chips = ms.map(m=>{
       const t=m.ticker, ctx=m.is_context;
-      const cc = ctx ? '#8b949e55' : (BAND_COLOR[compBand(t)] || '#8b949e55');
+      const cc = ctx ? '#8b949e55' : (BAND_COLOR[compBand(t,k)] || '#8b949e55');
       const rk = num(SNAP[t]?.rs_rank);
+      const flame = (t===top) ? '🔥 ' : '';
       const title = (m.note||'').replace(/"/g,'&quot;');
       return ctx
         ? `<span class="chip ctx" style="--cc:${cc}" title="${title}">${t}</span>`
-        : `<a class="chip" style="--cc:${cc}" title="${title}" href="deep_dive.html?ticker=${t}" onclick="event.stopPropagation()">${t}${rk!=null?` <span class="rk">#${rk}</span>`:''}</a>`;
+        : `<a class="chip" style="--cc:${cc}" title="${title}" href="deep_dive.html?ticker=${t}" onclick="event.stopPropagation()">${flame}${t}${rk!=null?` <span class="rk">#${rk}</span>`:''}</a>`;
     }).join('');
-    bands += `<div class="band ${selected===k?'sel':''}" style="--h:${hue}" onclick="selectNode('${k}')">
+    bands += `<div class="band ${selected===k?'sel':''} ${k===HOT?'hot':''}" style="--h:${hue}" onclick="selectNode('${k}')">
       <div class="band-side"><span class="ic">${ICON[k]||'▹'}</span></div>
       <div class="band-body">
         <div class="band-head">
           <span class="band-title">${(SHORT[k]||node.name).toUpperCase()}</span>
-          <span class="band-tag">${node.blurb||''}</span>${chip}
+          <span class="band-tag">${node.blurb||''}</span>
+          <span class="chips-r">${hotb}${mchip}${vchip}</span>
         </div>
         <div class="chips">${chips}</div>
       </div>
@@ -268,7 +306,7 @@ function renderStack(){
   });
 
   document.getElementById('map').innerHTML =
-    `<div class="cap">Each band is one link in the AI chain — from raw materials and chip-making at the top to the AI software you use at the bottom. On every company, the border colour is our valuation read (<span style="color:var(--green)">green = cheaper for its growth</span>, <span style="color:var(--yellow)">yellow = fair</span>, <span style="color:var(--red)">red = pricier</span>) and <b>#n</b> is its strength rank out of ~1,900 stocks. Tap a band to explore that link; tap a company to open its deep dive.</div>
+    `<div class="cap">Each band is a link in the AI chain (raw materials at the top → the AI software you use at the bottom). A company's border colour is its <b>valuation vs its own peers &amp; history</b> (<span style="color:var(--green)">green cheaper</span> · <span style="color:var(--yellow)">fair</span> · <span style="color:var(--red)">pricier</span>); the <b>▲/▼ chip</b> on each band is that link's <b>RS momentum</b>, and 🔥 flags the hottest link plus each link's top-momentum stock. <b>#n</b> = strength rank of ~1,900 stocks. Tap a band to explore it; tap a company for its deep dive.</div>
      ${glance}<div class="stack">${bands}</div>`;
 }
 
@@ -281,27 +319,32 @@ function renderFlow(){
     conns+=`<path class="conn" d="M${sx} ${sy} C${sx+55} ${sy}, ${tx-55} ${ty}, ${tx} ${ty}"/>`; });
   let stages='';
   for(let c=1;c<=8;c++){ stages+=`<text x="${X0+(c-1)*COLW+NW/2}" y="26" fill="var(--text2)" font-size="9.5" font-weight="700" text-anchor="middle" letter-spacing="1">${(STAGES[c]||'').toUpperCase()}</text>`; }
+  const HOT=hottestNode();
   let nodes='';
   NODES.forEach(node=>{ const k=node.node_key; if(!LAYOUT[k])return;
     const s=nodeStats(k), x=px(k), y=py(k);
-    const col = selected===k?'var(--accent)':(s.band?BAND_COLOR[s.band]:'#3b4351');
+    // Flow view colours nodes by MOMENTUM (green rising / red fading) — a heatmap of
+    // where the chain's strength is flowing right now.
+    const momCol = s.slope==null?'#3b4351':(s.slope<0?BAND_COLOR.under:s.slope>0?BAND_COLOR.rich:'#3b4351');
+    const col = selected===k?'var(--accent)':momCol;
     const sw = selected===k?3:2;
-    const bl = s.band?BAND_LABEL[s.band]:'no score';
+    const sub = s.slope==null?`${s.n} cos`:(s.slope<0?'▲ rising':s.slope>0?'▼ fading':`${s.n} cos`);
+    const flame = (k===HOT)?' 🔥':'';
     nodes+=`<g class="dnode" onclick="selectNode('${k}')">
       <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="9" fill="var(--bg3)" stroke="${col}" stroke-width="${sw}"/>
       <text x="${x+13}" y="${y+31}" font-size="18">${ICON[k]||''}</text>
-      <text x="${x+40}" y="${y+22}" fill="var(--text)" font-size="12" font-weight="700">${DLABEL[k]||node.name}</text>
-      <text x="${x+40}" y="${y+38}" fill="var(--text2)" font-size="9.5">${s.n} cos · ${bl}</text>
+      <text x="${x+40}" y="${y+22}" fill="var(--text)" font-size="12" font-weight="700">${DLABEL[k]||node.name}${flame}</text>
+      <text x="${x+40}" y="${y+38}" fill="var(--text2)" font-size="9.5">${sub}</text>
     </g>`; });
   document.getElementById('map').innerHTML =
-    `<div class="cap">Follow the journey left → right: raw materials and tools become <b>AI chips</b>, get wrapped with <b>memory</b>, built into <b>servers</b> (with networking, power and cooling), housed in <b>data centers</b>, powered up, rented out by the <b>cloud</b>, and turned into the <b>AI software</b> you use. Border colour = our valuation read (<span style="color:var(--green)">green cheaper</span> · <span style="color:var(--yellow)">yellow fair</span> · <span style="color:var(--red)">red pricier</span>). Click any stage to explore its companies.</div>
+    `<div class="cap">Follow the journey left → right: raw materials and tools become <b>AI chips</b>, get wrapped with <b>memory</b>, built into <b>servers</b> (with networking, power and cooling), housed in <b>data centers</b>, powered up, rented out by the <b>cloud</b>, and turned into the <b>AI software</b> you use. Node colour = <b>RS momentum</b> right now (<span style="color:var(--green)">green rising</span> · <span style="color:var(--red)">red fading</span>), and 🔥 marks the hottest link. Click any stage to explore its companies and their valuation.</div>
      <div class="diagram-wrap"><svg class="diagram" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${stages}${conns}${nodes}</svg></div>`;
 }
 
-function valCell(t,ctx){
+function valCell(t,ctx,k){
   if(ctx) return `<td class="na">—</td>`;
-  const v=GAPS[t], b=band(v);
-  if(v==null||!b) return `<td class="na">—</td>`;
+  const b=compBand(t,k);
+  if(!b) return `<td class="na">—</td>`;
   return `<td><span class="badge ${BAND_CLASS[b]}">${BAND_LABEL[b]}</span></td>`;
 }
 
@@ -314,10 +357,16 @@ function selectNode(key){
     const ga=GAPS[a.ticker], gb=GAPS[b.ticker];
     return (ga==null?9e9:ga)-(gb==null?9e9:gb);
   });
+  const top = topMomoTicker(key);
   let tbody='';
   rows.forEach(m=>{
     const t=m.ticker, f=FUND[t]||{}, sn=SNAP[t]||{}, an=ANALYST[t]||{}, ctx=m.is_context;
-    const link = ctx ? t : `<a class="tk" href="deep_dive.html?ticker=${t}">${t}</a>`;
+    const flame = (t===top)?'🔥 ':'';
+    const link = ctx ? t : `${flame}<a class="tk" href="deep_dive.html?ticker=${t}">${t}</a>`;
+    const sl = num(sn.rank_slope);
+    const momCell = (ctx||sl==null) ? na
+      : (sl<0?`<span style="color:var(--green)">▲ ${Math.round(-sl)}</span>`
+         : sl>0?`<span style="color:var(--red)">▼ ${Math.round(sl)}</span>` : '·');
     tbody += `<tr class="${ctx?'ctx':''}">
       <td>${link}<div class="co">${m.note||''}</div></td>
       <td>${ctx?na:fmtCap(f.market_cap_usd)}</td>
@@ -327,11 +376,12 @@ function selectNode(key){
       <td>${ctx?na:(num(f.revenue_growth_yoy)!=null?fx(f.revenue_growth_yoy,0)+'%':na)}</td>
       <td>${ctx?na:(num(f.net_margin)!=null?fx(f.net_margin,0)+'%':na)}</td>
       <td>${ctx?na:(num(sn.rs_rank)!=null?'#'+sn.rs_rank:na)}</td>
+      <td>${momCell}</td>
       <td>${ctx?na:(num(an.best_target_upside_pct)!=null?fx(an.best_target_upside_pct,0)+'%':na)}</td>
-      ${valCell(t,ctx)}
+      ${valCell(t,ctx,key)}
     </tr>`;
   });
-  const chip = s.band?`<span class="badge ${BAND_CLASS[s.band]}">${BAND_LABEL[s.band]} vs the AI complex</span>`:'';
+  const chip = `${momoChip(s.slope)} ${s.valband?`<span class="badge ${BAND_CLASS[s.valband]}">${BAND_LABEL[s.valband]} vs its 3-yr norm</span>`:''}`;
   document.getElementById('detail').innerHTML = `
     <div class="grid2">
       <div class="card">
@@ -345,11 +395,12 @@ function selectNode(key){
           <span>EV/EBITDA <b>${fx(s.ev)}</b></span>
           <span>Rev growth <b>${s.gr!=null?fx(s.gr,0)+'%':'—'}</b></span>
           <span>Median RS <b>${s.rs!=null?'#'+Math.round(s.rs):'—'}</b></span>
+          <span>RS momentum <b>${s.slope==null?'—':(s.slope<0?'▲ rising':s.slope>0?'▼ fading':'flat')}</b></span>
         </div>
         <div class="tblwrap">
         <table><thead><tr>
           <th>Company</th><th>Mkt Cap</th><th>P/E</th><th>P/S</th><th>EV/EBITDA</th>
-          <th>Rev Gr</th><th>Net Mgn</th><th>RS</th><th>Upside</th><th>Value</th>
+          <th>Rev Gr</th><th>Net Mgn</th><th>RS</th><th>Mom.</th><th>Upside</th><th>Value</th>
         </tr></thead><tbody>${tbody}</tbody></table>
         </div>
       </div>
@@ -369,7 +420,7 @@ function drawScatter(key){
     const f=FUND[m.ticker]; if(!f) return;
     const g=num(f.revenue_growth_yoy), ps=num(f.price_to_sales);
     if(g==null||!(ps>0)) return;
-    const b=band(GAPS[m.ticker])||'fair';
+    const b=compBand(m.ticker,key)||'fair';
     pts[b].push({x:g,y:ps,t:m.ticker});
   });
   const ds = Object.keys(pts).map(b=>({
@@ -390,15 +441,23 @@ function drawScatter(key){
 
 function renderFoot(){
   document.getElementById('foot').innerHTML = `
-    <b>How to read the valuation.</b> Each company's band comes from a growth-adjusted
-    price-to-sales ratio (P/S ÷ revenue growth) — lower means you're paying less for the
-    growth you get. A stock (or a whole node) is flagged <span class="badge badge-green">Undervalued</span>
-    when that ratio sits well below the AI-theme median, <span class="badge badge-red">Rich</span>
-    when well above, else <span class="badge badge-yellow">Fair</span>. It's a starting screen,
-    not a verdict: a low ratio can also flag a struggling business, and profitless or foreign/private
-    names (shown greyed) carry no score. Always read the raw P/E, P/S, EV/EBITDA and margins next to it,
-    and do your own homework. Data: yfinance fundamentals + our daily relative-strength ranks. This is
-    educational commentary, not investment advice.`;
+    <b>How to read valuation.</b> It's judged <b>like-for-like</b>, never across different
+    business types. A <b>company</b> is <span class="badge badge-green">Undervalued</span> /
+    <span class="badge badge-yellow">Fair</span> / <span class="badge badge-red">Rich</span>
+    based on two checks: its growth-adjusted price-to-sales <b>vs the other companies in its own
+    link</b> (e.g. Memory vs Memory), and its current P/E <b>vs its own 3-year average</b>. A whole
+    <b>link</b> is judged only against its <b>own 3-year history</b> (comparing links to each other
+    would just measure business model, not cheapness). Profitless or foreign/private names (greyed)
+    carry no score.<br><br>
+    <b>How to read momentum.</b> The ▲/▼ chip and the 🔥 come from each stock's <b>RS-rank slope</b>
+    (how fast its strength rank is rising over the last week). 🔥 marks the link with the strongest
+    momentum and, inside a link, its top-momentum stock; the <b>Mom.</b> column shows each name's trend.
+    <br><br>
+    <b>Upside</b> is separate and external: TipRanks' <b>top-analyst 12-month price target vs the current
+    price</b> — Wall Street's view, not ours. It's a starting screen, not a verdict; a cheap ratio can
+    also flag a struggling business. Read the raw P/E, P/S, EV/EBITDA and margins, and do your own
+    homework. Data: yfinance fundamentals + our daily relative-strength ranks + TipRanks. Educational
+    commentary, not investment advice.`;
 }
 
 load().catch(e=>{ document.getElementById('map').innerHTML = '<div class="card">Failed to load: '+e.message+'</div>'; console.error(e); });
