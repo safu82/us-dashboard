@@ -179,26 +179,23 @@ function momoChip(slope){ // slope is raw rank_slope (negative = improving)
 const BAND_LABEL = {under:'Undervalued',fair:'Fair',rich:'Rich'};
 const BAND_CLASS = {under:'badge-green',fair:'badge-yellow',rich:'badge-red'};
 const BAND_COLOR = {under:'#3fb950',fair:'#e3b341',rich:'#f85149'};
-const ICON = {materials:'🧱',eda_ip:'✏️',equipment:'🛠️',compute:'🧠',foundry:'🏭',memory:'💾',packaging:'📦',networking:'🔀',optical:'🌈',power_delivery:'🔌',systems:'🖥️',cooling:'❄️',dc_reit:'🏢',power_gen:'⚡',hyperscalers:'☁️',software_apps:'🤖'};
-const SHORT = {materials:'Materials & Inputs',eda_ip:'Chip Design & IP',equipment:'Chip-Making Equipment',compute:'AI Chips (GPUs)',foundry:'The Foundries',memory:'Memory & HBM',packaging:'Advanced Packaging',networking:'Networking',optical:'Optical & Photonics',power_delivery:'Power Delivery',systems:'AI Servers',cooling:'Cooling',dc_reit:'Data-Center REITs',power_gen:'Power Generation',hyperscalers:'The Cloud (Buyers)',software_apps:'AI Software'};
-// Flow-view layout: node -> {column, lane}. Edges draw the supply-chain connectors.
-const LAYOUT={
-  materials:{c:1,l:0}, eda_ip:{c:1,l:3}, equipment:{c:1,l:6},
-  compute:{c:2,l:4}, foundry:{c:2,l:1},
-  memory:{c:3,l:1}, packaging:{c:3,l:4},
-  networking:{c:4,l:0}, optical:{c:4,l:1.7}, power_delivery:{c:4,l:4.3}, cooling:{c:4,l:6},
-  systems:{c:5,l:3},
-  dc_reit:{c:6,l:1.5}, power_gen:{c:6,l:4.5},
-  hyperscalers:{c:7,l:3}, software_apps:{c:8,l:3}
-};
-const DLABEL={materials:'Materials',eda_ip:'Design & IP',equipment:'Equipment',compute:'AI Chips',foundry:'Foundries',memory:'Memory/HBM',packaging:'Packaging',networking:'Networking',optical:'Optical',power_delivery:'Power',systems:'AI Servers',cooling:'Cooling',dc_reit:'Data Centers',power_gen:'Power Gen',hyperscalers:'Cloud',software_apps:'AI Software'};
-const EDGES=[['materials','foundry'],['equipment','foundry'],['eda_ip','compute'],['compute','packaging'],['foundry','packaging'],['memory','systems'],['packaging','systems'],['networking','systems'],['optical','systems'],['power_delivery','systems'],['cooling','systems'],['systems','dc_reit'],['dc_reit','hyperscalers'],['power_gen','hyperscalers'],['hyperscalers','software_apps']];
-const STAGES={1:'Inputs & Tools',2:'Make the Chip',3:'Assemble',4:'Components',5:'The Server',6:'House & Power',7:'The Cloud',8:'The Apps'};
+// Per-theme visual config (icons, short labels, flow layout, edges, stages) loads
+// from the DB, so this one page renders ANY theme via ?theme=<slug>.
+const SLUG = (new URLSearchParams(location.search).get('theme') || 'ai').toLowerCase();
+let ICON = {}, SHORT = {}, LAYOUT = {}, EDGES = [], STAGES = {};
 
 async function load(){
-  THEME = (await sb.from('themes').select('*').eq('slug','ai').maybeSingle()).data || {};
-  NODES = (await sb.from('theme_nodes').select('*').eq('theme_slug','ai').order('layer').order('node_key')).data || [];
-  MEMBERS = (await sb.from('theme_members').select('*').eq('theme_slug','ai')).data || [];
+  THEME = (await sb.from('themes').select('*').eq('slug',SLUG).maybeSingle()).data || {};
+  NODES = (await sb.from('theme_nodes').select('*').eq('theme_slug',SLUG).order('layer').order('node_key')).data || [];
+  MEMBERS = (await sb.from('theme_members').select('*').eq('theme_slug',SLUG)).data || [];
+  const edges = (await sb.from('theme_edges').select('*').eq('theme_slug',SLUG)).data || [];
+  NODES.forEach(n=>{ ICON[n.node_key]=n.icon||''; SHORT[n.node_key]=n.short_label||n.name;
+    if(n.flow_col!=null && n.flow_lane!=null) LAYOUT[n.node_key]={c:+n.flow_col,l:+n.flow_lane}; });
+  EDGES = edges.map(e=>[e.src,e.dst]);
+  STAGES = THEME.flow_stages || {};
+  if(THEME.name) document.title = THEME.name + ' — Sector Research';
+  const bf=document.getElementById('v-flow');
+  if(bf && !Object.keys(LAYOUT).length){ bf.style.display='none'; if(view==='flow') view='stack'; }
   document.getElementById('theme-name').textContent = THEME.name || 'AI Value Chain';
   document.getElementById('theme-desc').textContent = THEME.description || '';
 
@@ -311,19 +308,22 @@ function renderStack(){
   });
 
   document.getElementById('map').innerHTML =
-    `<div class="cap">Each band is a link in the AI chain (raw materials at the top → the AI software you use at the bottom). A company's border colour is its <b>valuation vs its own peers &amp; history</b> (<span style="color:var(--green)">green cheaper</span> · <span style="color:var(--yellow)">fair</span> · <span style="color:var(--red)">pricier</span>); the <b>▲/▼ chip</b> on each band is that link's <b>RS momentum</b>, and 🔥 flags the hottest link plus each link's top-momentum stock. <b>#n</b> = strength rank of ~1,900 stocks. Tap a band to explore it; tap a company for its deep dive.</div>
+    `<div class="cap">Each band is a link in the chain, upstream (top) to downstream (bottom). A company's border colour is its <b>valuation vs its own peers &amp; history</b> (<span style="color:var(--green)">green cheaper</span> · <span style="color:var(--yellow)">fair</span> · <span style="color:var(--red)">pricier</span>); the <b>▲/▼ chip</b> on each band is that link's <b>RS momentum</b>, and 🔥 flags the hottest link plus each link's top-momentum stock. <b>#n</b> = strength rank of ~1,900 stocks. Tap a band to explore it; tap a company for its deep dive.</div>
      ${glance}<div class="stack">${bands}</div>`;
 }
 
 function renderFlow(){
-  const COLW=165,LANEH=70,X0=30,Y0=64,NW=138,NH=52,W=1360,H=560;
+  const COLW=165,LANEH=70,X0=30,Y0=64,NW=138,NH=52;
+  const cols = Math.max(1, ...Object.values(LAYOUT).map(v=>v.c));
+  const lanes = Math.max(0, ...Object.values(LAYOUT).map(v=>v.l));
+  const W = X0*2 + (cols-1)*COLW + NW, H = Y0 + lanes*LANEH + NH + 16;
   const px=k=>X0+(LAYOUT[k].c-1)*COLW, py=k=>Y0+LAYOUT[k].l*LANEH;
   let conns='';
   EDGES.forEach(([a,b])=>{ if(!LAYOUT[a]||!LAYOUT[b])return;
     const sx=px(a)+NW, sy=py(a)+NH/2, tx=px(b), ty=py(b)+NH/2;
     conns+=`<path class="conn" d="M${sx} ${sy} C${sx+55} ${sy}, ${tx-55} ${ty}, ${tx} ${ty}"/>`; });
   let stages='';
-  for(let c=1;c<=8;c++){ stages+=`<text x="${X0+(c-1)*COLW+NW/2}" y="26" fill="var(--text2)" font-size="9.5" font-weight="700" text-anchor="middle" letter-spacing="1">${(STAGES[c]||'').toUpperCase()}</text>`; }
+  for(let c=1;c<=cols;c++){ stages+=`<text x="${X0+(c-1)*COLW+NW/2}" y="26" fill="var(--text2)" font-size="9.5" font-weight="700" text-anchor="middle" letter-spacing="1">${(STAGES[c]||'').toUpperCase()}</text>`; }
   const HOT=hottestNode();
   let nodes='';
   NODES.forEach(node=>{ const k=node.node_key; if(!LAYOUT[k])return;
@@ -338,11 +338,11 @@ function renderFlow(){
     nodes+=`<g class="dnode" onclick="selectNode('${k}')">
       <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="9" fill="var(--bg3)" stroke="${col}" stroke-width="${sw}"/>
       <text x="${x+13}" y="${y+31}" font-size="18">${ICON[k]||''}</text>
-      <text x="${x+40}" y="${y+22}" fill="var(--text)" font-size="12" font-weight="700">${DLABEL[k]||node.name}${flame}</text>
+      <text x="${x+40}" y="${y+22}" fill="var(--text)" font-size="12" font-weight="700">${SHORT[k]||node.name}${flame}</text>
       <text x="${x+40}" y="${y+38}" fill="var(--text2)" font-size="9.5">${sub}</text>
     </g>`; });
   document.getElementById('map').innerHTML =
-    `<div class="cap">Follow the journey left → right: raw materials and tools become <b>AI chips</b>, get wrapped with <b>memory</b>, built into <b>servers</b> (with networking, power and cooling), housed in <b>data centers</b>, powered up, rented out by the <b>cloud</b>, and turned into the <b>AI software</b> you use. Node colour = <b>RS momentum</b> right now (<span style="color:var(--green)">green rising</span> · <span style="color:var(--red)">red fading</span>), and 🔥 marks the hottest link. Click any stage to explore its companies and their valuation.</div>
+    `<div class="cap">Follow the chain left → right, upstream to downstream — each stage feeds the next. Node colour = <b>RS momentum</b> right now (<span style="color:var(--green)">green rising</span> · <span style="color:var(--red)">red fading</span>), and 🔥 marks the hottest link. Click any stage to explore its companies and their valuation.</div>
      <div class="diagram-wrap"><svg class="diagram" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${stages}${conns}${nodes}</svg></div>`;
 }
 

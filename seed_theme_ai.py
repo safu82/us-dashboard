@@ -200,6 +200,14 @@ MEMBERS = {
 }
 
 
+ICON = {'materials':'🧱','eda_ip':'✏️','equipment':'🛠️','compute':'🧠','foundry':'🏭','memory':'💾','packaging':'📦','networking':'🔀','optical':'🌈','power_delivery':'🔌','systems':'🖥️','cooling':'❄️','dc_reit':'🏢','power_gen':'⚡','hyperscalers':'☁️','software_apps':'🤖'}
+SHORT = {'materials':'Materials','eda_ip':'Design & IP','equipment':'Chip Equipment','compute':'AI Chips','foundry':'Foundries','memory':'Memory & HBM','packaging':'Packaging','networking':'Networking','optical':'Optical','power_delivery':'Power Delivery','systems':'AI Servers','cooling':'Cooling','dc_reit':'Data Centers','power_gen':'Power Gen','hyperscalers':'Cloud','software_apps':'AI Software'}
+# node_key -> (flow_col, flow_lane): position in the left→right flow diagram
+FLOW = {'materials':(1,0),'eda_ip':(1,3),'equipment':(1,6),'compute':(2,4),'foundry':(2,1),'memory':(3,1),'packaging':(3,4),'networking':(4,0),'optical':(4,1.7),'power_delivery':(4,4.3),'cooling':(4,6),'systems':(5,3),'dc_reit':(6,1.5),'power_gen':(6,4.5),'hyperscalers':(7,3),'software_apps':(8,3)}
+EDGES = [('materials','foundry'),('equipment','foundry'),('eda_ip','compute'),('compute','packaging'),('foundry','packaging'),('memory','systems'),('packaging','systems'),('networking','systems'),('optical','systems'),('power_delivery','systems'),('cooling','systems'),('systems','dc_reit'),('dc_reit','hyperscalers'),('power_gen','hyperscalers'),('hyperscalers','software_apps')]
+STAGES = {'1':'Inputs & Tools','2':'Make the Chip','3':'Assemble','4':'Components','5':'The Server','6':'House & Power','7':'The Cloud','8':'The Apps'}
+
+
 def main():
     print('=' * 60)
     print('SEED THEME: AI value chain ',
@@ -217,10 +225,17 @@ def main():
             break
         frm += 1000
 
-    sb.table('themes').upsert(THEME, on_conflict='slug').execute()
-    node_rows = [{'theme_slug': 'ai', 'node_key': k, 'name': n, 'layer': l, 'blurb': b}
+    sb.table('themes').upsert({**THEME, 'flow_stages': STAGES}, on_conflict='slug').execute()
+    node_rows = [{'theme_slug': 'ai', 'node_key': k, 'name': n, 'layer': l, 'blurb': b,
+                  'icon': ICON.get(k), 'short_label': SHORT.get(k),
+                  'flow_col': FLOW.get(k, (None, None))[0],
+                  'flow_lane': FLOW.get(k, (None, None))[1]}
                  for (l, k, n, b) in NODES]
     sb.table('theme_nodes').upsert(node_rows, on_conflict='theme_slug,node_key').execute()
+    sb.table('theme_edges').delete().eq('theme_slug', 'ai').execute()
+    sb.table('theme_edges').upsert(
+        [{'theme_slug': 'ai', 'src': a, 'dst': b} for (a, b) in EDGES],
+        on_conflict='theme_slug,src,dst').execute()
 
     member_rows, missing, n_members, n_context = [], [], 0, 0
     for (_, node_key, _, _) in NODES:
