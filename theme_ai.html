@@ -76,6 +76,17 @@
   .chip:hover{background:#0d1117;filter:brightness(1.25);}
   .chip .rk{font-size:10px;color:var(--text2);font-weight:600;}
   .chip.ctx{opacity:.5;font-weight:600;}
+  .diagram-wrap{overflow-x:auto;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px 8px;}
+  .diagram{display:block;width:100%;min-width:1120px;height:auto;}
+  .conn{fill:none;stroke:#3b4351;stroke-width:1.6;stroke-dasharray:5 6;animation:flow 1.1s linear infinite;opacity:.8;}
+  @keyframes flow{to{stroke-dashoffset:-11;}}
+  .dnode{cursor:pointer;}
+  .dnode rect{transition:filter .15s;}
+  .dnode:hover rect{filter:brightness(1.5);}
+  .dnode text{pointer-events:none;user-select:none;}
+  .viewtoggle{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+  .viewtoggle button{background:var(--bg2);color:var(--text2);border:none;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;}
+  .viewtoggle button.on{background:var(--accent);color:#fff;}
   .card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px 20px;}
   .card-title{font-size:15px;font-weight:700;}
   table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:12px;}
@@ -110,6 +121,10 @@
   </div>
 </div>
 <div class="page">
+  <div style="display:flex;justify-content:flex-end"><div class="viewtoggle">
+    <button id="v-stack" onclick="setView('stack')">▤ Stack view</button>
+    <button id="v-flow" onclick="setView('flow')">↗ Flow view</button>
+  </div></div>
   <div id="map"></div>
   <div id="detail"></div>
   <div class="foot" id="foot"></div>
@@ -139,6 +154,19 @@ const BAND_COLOR = {under:'#3fb950',fair:'#e3b341',rich:'#f85149'};
 const ICON = {materials:'🧱',eda_ip:'✏️',equipment:'🛠️',compute:'🧠',foundry:'🏭',memory:'💾',packaging:'📦',networking:'🔀',optical:'🌈',power_delivery:'🔌',systems:'🖥️',cooling:'❄️',dc_reit:'🏢',power_gen:'⚡',hyperscalers:'☁️',software_apps:'🤖'};
 const SHORT = {materials:'Materials & Inputs',eda_ip:'Chip Design & IP',equipment:'Chip-Making Equipment',compute:'AI Chips (GPUs)',foundry:'The Foundries',memory:'Memory & HBM',packaging:'Advanced Packaging',networking:'Networking',optical:'Optical & Photonics',power_delivery:'Power Delivery',systems:'AI Servers',cooling:'Cooling',dc_reit:'Data-Center REITs',power_gen:'Power Generation',hyperscalers:'The Cloud (Buyers)',software_apps:'AI Software'};
 const compBand = t => band(GAPS[t]);
+// Flow-view layout: node -> {column, lane}. Edges draw the supply-chain connectors.
+const LAYOUT={
+  materials:{c:1,l:0}, eda_ip:{c:1,l:3}, equipment:{c:1,l:6},
+  compute:{c:2,l:4}, foundry:{c:2,l:1},
+  memory:{c:3,l:1}, packaging:{c:3,l:4},
+  networking:{c:4,l:0}, optical:{c:4,l:1.7}, power_delivery:{c:4,l:4.3}, cooling:{c:4,l:6},
+  systems:{c:5,l:3},
+  dc_reit:{c:6,l:1.5}, power_gen:{c:6,l:4.5},
+  hyperscalers:{c:7,l:3}, software_apps:{c:8,l:3}
+};
+const DLABEL={materials:'Materials',eda_ip:'Design & IP',equipment:'Equipment',compute:'AI Chips',foundry:'Foundries',memory:'Memory/HBM',packaging:'Packaging',networking:'Networking',optical:'Optical',power_delivery:'Power',systems:'AI Servers',cooling:'Cooling',dc_reit:'Data Centers',power_gen:'Power Gen',hyperscalers:'Cloud',software_apps:'AI Software'};
+const EDGES=[['materials','foundry'],['equipment','foundry'],['eda_ip','compute'],['compute','packaging'],['foundry','packaging'],['memory','systems'],['packaging','systems'],['networking','systems'],['optical','systems'],['power_delivery','systems'],['cooling','systems'],['systems','dc_reit'],['dc_reit','hyperscalers'],['power_gen','hyperscalers'],['hyperscalers','software_apps']];
+const STAGES={1:'Inputs & Tools',2:'Make the Chip',3:'Assemble',4:'Components',5:'The Server',6:'House & Power',7:'The Cloud',8:'The Apps'};
 
 async function load(){
   THEME = (await sb.from('themes').select('*').eq('slug','ai').maybeSingle()).data || {};
@@ -185,7 +213,16 @@ function nodeStats(key){
   };
 }
 
+let view = localStorage.getItem('theme_view') || 'stack';
+function setView(v){ view=v; localStorage.setItem('theme_view',v); renderMap(); }
 function renderMap(){
+  const bs=document.getElementById('v-stack'), bf=document.getElementById('v-flow');
+  if(bs) bs.classList.toggle('on', view==='stack');
+  if(bf) bf.classList.toggle('on', view==='flow');
+  (view==='flow' ? renderFlow : renderStack)();
+}
+
+function renderStack(){
   const uniq = [...new Set(MEMBERS.filter(m=>!m.is_context).map(m=>m.ticker))];
   const ns = NODES.map(n=>({n, s:nodeStats(n.node_key)})).filter(o=>o.s.med!=null);
   const cheapest = ns.slice().sort((a,b)=>a.s.med-b.s.med)[0];
@@ -233,6 +270,32 @@ function renderMap(){
   document.getElementById('map').innerHTML =
     `<div class="cap">Each band is one link in the AI chain — from raw materials and chip-making at the top to the AI software you use at the bottom. On every company, the border colour is our valuation read (<span style="color:var(--green)">green = cheaper for its growth</span>, <span style="color:var(--yellow)">yellow = fair</span>, <span style="color:var(--red)">red = pricier</span>) and <b>#n</b> is its strength rank out of ~1,900 stocks. Tap a band to explore that link; tap a company to open its deep dive.</div>
      ${glance}<div class="stack">${bands}</div>`;
+}
+
+function renderFlow(){
+  const COLW=165,LANEH=70,X0=30,Y0=64,NW=138,NH=52,W=1360,H=560;
+  const px=k=>X0+(LAYOUT[k].c-1)*COLW, py=k=>Y0+LAYOUT[k].l*LANEH;
+  let conns='';
+  EDGES.forEach(([a,b])=>{ if(!LAYOUT[a]||!LAYOUT[b])return;
+    const sx=px(a)+NW, sy=py(a)+NH/2, tx=px(b), ty=py(b)+NH/2;
+    conns+=`<path class="conn" d="M${sx} ${sy} C${sx+55} ${sy}, ${tx-55} ${ty}, ${tx} ${ty}"/>`; });
+  let stages='';
+  for(let c=1;c<=8;c++){ stages+=`<text x="${X0+(c-1)*COLW+NW/2}" y="26" fill="var(--text2)" font-size="9.5" font-weight="700" text-anchor="middle" letter-spacing="1">${(STAGES[c]||'').toUpperCase()}</text>`; }
+  let nodes='';
+  NODES.forEach(node=>{ const k=node.node_key; if(!LAYOUT[k])return;
+    const s=nodeStats(k), x=px(k), y=py(k);
+    const col = selected===k?'var(--accent)':(s.band?BAND_COLOR[s.band]:'#3b4351');
+    const sw = selected===k?3:2;
+    const bl = s.band?BAND_LABEL[s.band]:'no score';
+    nodes+=`<g class="dnode" onclick="selectNode('${k}')">
+      <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="9" fill="var(--bg3)" stroke="${col}" stroke-width="${sw}"/>
+      <text x="${x+13}" y="${y+31}" font-size="18">${ICON[k]||''}</text>
+      <text x="${x+40}" y="${y+22}" fill="var(--text)" font-size="12" font-weight="700">${DLABEL[k]||node.name}</text>
+      <text x="${x+40}" y="${y+38}" fill="var(--text2)" font-size="9.5">${s.n} cos · ${bl}</text>
+    </g>`; });
+  document.getElementById('map').innerHTML =
+    `<div class="cap">Follow the journey left → right: raw materials and tools become <b>AI chips</b>, get wrapped with <b>memory</b>, built into <b>servers</b> (with networking, power and cooling), housed in <b>data centers</b>, powered up, rented out by the <b>cloud</b>, and turned into the <b>AI software</b> you use. Border colour = our valuation read (<span style="color:var(--green)">green cheaper</span> · <span style="color:var(--yellow)">yellow fair</span> · <span style="color:var(--red)">red pricier</span>). Click any stage to explore its companies.</div>
+     <div class="diagram-wrap"><svg class="diagram" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${stages}${conns}${nodes}</svg></div>`;
 }
 
 function valCell(t,ctx){
