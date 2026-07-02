@@ -97,12 +97,22 @@ def _compute_price_metrics(highs, closes):
     ytd = (round((today_price - float(ytd_slice.iloc[0])) / float(ytd_slice.iloc[0]) * 100, 2)
            if len(ytd_slice) > 1 else None)
 
+    # Average close per calendar year (last 4y), paired with annual EPS in main()
+    # to derive pe_3yr_avg. Prices are split/div-adjusted (auto_adjust) — a small
+    # bias for heavy dividend payers, acceptable for a "normal multiple" reference.
+    yr_close = {}
+    for yr in range(date.today().year - 3, date.today().year + 1):
+        s = closes[(closes.index >= f'{yr}-01-01') & (closes.index <= f'{yr}-12-31')]
+        if len(s) >= 20:
+            yr_close[yr] = round(float(s.mean()), 4)
+
     return {
         'ath_price': round(ath_price, 2),
         'ath_date': ath_date,
         'return_1w': ret(5), 'return_1m': ret(21), 'return_3m': ret(63),
         'return_6m': ret(126), 'return_ytd': ytd, 'return_1y': ret(252),
         'return_3y': ret(756), 'return_5y': ret(1260),
+        '_yr_close': yr_close,
     }
 
 
@@ -207,6 +217,49 @@ def fetch_quarterly_batch(batch):
     return results
 
 
+def fetch_annual_eps_batch(batch):
+    """Diluted EPS per fiscal year (last ~4y) from the annual income statement —
+    paired with each year's average price in main() to derive pe_3yr_avg."""
+    EPS_ALIASES = ['Diluted EPS', 'Basic EPS']
+    NI_ALIASES  = ['Net Income', 'Net Income Common Stockholders',
+                   'Net Income From Continuing Operations']
+    SH_ALIASES  = ['Diluted Average Shares', 'Basic Average Shares']
+    results = {}
+    try:
+        tks = yf.Tickers(' '.join(batch))
+        for ticker in batch:
+            try:
+                df = tks.tickers[ticker].income_stmt
+                if df is None or df.empty:
+                    continue
+
+                def _row(aliases):
+                    for a in aliases:
+                        if a in df.index:
+                            return df.loc[a]
+                    return None
+
+                eps_row = _row(EPS_ALIASES)
+                ni_row  = _row(NI_ALIASES)
+                sh_row  = _row(SH_ALIASES)
+                out = {}
+                for col in df.columns:
+                    yr = col.year if hasattr(col, 'year') else int(str(col)[:4])
+                    eps = _safe(eps_row.get(col)) if eps_row is not None else None
+                    if eps is None and ni_row is not None and sh_row is not None:
+                        ni, sh = _safe(ni_row.get(col)), _safe(sh_row.get(col))
+                        eps = round(ni / sh, 4) if (ni is not None and sh) else None
+                    if eps is not None:
+                        out[yr] = eps
+                if out:
+                    results[ticker] = out
+            except Exception:
+                pass
+    except Exception as e:
+        print(f'    annual eps batch error: {e}')
+    return results
+
+
 def fetch_metadata_batch(batch):
     results = {}
     try:
@@ -275,6 +328,7 @@ def main():
     price_metrics = run_pass('price', batches, fetch_price_metrics_batch)
     metadata = run_pass('metadata', batches, fetch_metadata_batch)
     quarterly = run_pass('quarterly', batches, fetch_quarterly_batch)
+    annual_eps = run_pass('annual-eps', batches, fetch_annual_eps_batch)
 
     records = []
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -283,11 +337,23 @@ def main():
         qf = quarterly.get(ticker)
         if not pm and not md and not qf:
             continue
+        yr_close = pm.pop('_yr_close', {}) if isinstance(pm, dict) else {}
         rec = {'ticker': ticker, 'last_updated': now_iso, 'source_yfinance': True}
         rec.update(pm)
         rec.update(md)
         if qf:
             rec['quarterly_financials'] = qf
+        # 3-yr average P/E: mean of (year's avg price / year's diluted EPS) over the
+        # last 3 fiscal years with positive EPS.
+        eps_by_yr = annual_eps.get(ticker, {})
+        if yr_close and eps_by_yr:
+            pes = []
+            for yr in sorted(set(yr_close) & set(eps_by_yr), reverse=True)[:3]:
+                e, p = eps_by_yr[yr], yr_close.get(yr)
+                if e and e > 0 and p:
+                    pes.append(p / e)
+            if pes:
+                rec['pe_3yr_avg'] = round(sum(pes) / len(pes), 4)
         records.append(rec)
 
     success = 0

@@ -72,8 +72,10 @@
   .band-title{font-size:15px;font-weight:800;letter-spacing:.4px;color:#fff;}
   .band-tag{font-size:12px;color:hsl(var(--h),25%,82%);line-height:1.4;flex:1 1 260px;min-width:0;}
   .valchip{margin-left:auto;flex:none;}
-  .chips-r{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+  .chips-r{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
   .band.hot{box-shadow:0 0 0 1px var(--orange);}
+  .mom-wrap{display:inline-flex;flex-direction:column;align-items:center;gap:2px;}
+  .mom-avg{font-size:10px;font-weight:700;}
   .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px;}
   .chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:7px;background:#0d1117cc;border:1px solid var(--cc);font-size:12px;font-weight:700;color:var(--text);}
   .chip:hover{background:#0d1117;filter:brightness(1.25);}
@@ -276,6 +278,9 @@ function renderStack(){
     const k=node.node_key, s=nodeStats(k), hue=Math.round((i/Math.max(n-1,1))*300);
     const vchip = s.valband ? `<span class="badge ${BAND_CLASS[s.valband]}">${BAND_LABEL[s.valband]} vs norm</span>` : '';
     const mchip = momoChip(s.slope);
+    const momScore = s.slope==null ? null : Math.round(-s.slope);   // + = rising
+    const momWrap = `<span class="mom-wrap">${mchip}${momScore==null?'':
+      `<span class="mom-avg" style="color:${momScore>0?'var(--green)':momScore<0?'var(--red)':'var(--text2)'}" title="This link's average RS-rank momentum (positive = rising)">avg ${momScore>0?'+':''}${momScore}</span>`}</span>`;
     const hotb  = (k===HOT) ? `<span class="badge badge-orange">🔥 Hottest</span>` : '';
     const top   = topMomoTicker(k);
     const ms = nodeMembers(k).slice().sort((a,b)=>{
@@ -298,7 +303,7 @@ function renderStack(){
         <div class="band-head">
           <span class="band-title">${(SHORT[k]||node.name).toUpperCase()}</span>
           <span class="band-tag">${node.blurb||''}</span>
-          <span class="chips-r">${hotb}${mchip}${vchip}</span>
+          <span class="chips-r">${hotb}${momWrap}${vchip}</span>
         </div>
         <div class="chips">${chips}</div>
       </div>
@@ -328,7 +333,7 @@ function renderFlow(){
     const momCol = s.slope==null?'#3b4351':(s.slope<0?BAND_COLOR.under:s.slope>0?BAND_COLOR.rich:'#3b4351');
     const col = selected===k?'var(--accent)':momCol;
     const sw = selected===k?3:2;
-    const sub = s.slope==null?`${s.n} cos`:(s.slope<0?'▲ rising':s.slope>0?'▼ fading':`${s.n} cos`);
+    const sub = s.slope==null?`${s.n} cos`:(s.slope<0?`▲ +${Math.round(-s.slope)}`:s.slope>0?`▼ ${Math.round(s.slope)}`:`${s.n} cos`);
     const flame = (k===HOT)?' 🔥':'';
     nodes+=`<g class="dnode" onclick="selectNode('${k}')">
       <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="9" fill="var(--bg3)" stroke="${col}" stroke-width="${sw}"/>
