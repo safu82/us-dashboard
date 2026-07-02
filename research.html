@@ -68,23 +68,42 @@ const SB_URL='https://jblrurlpyplbquqibphh.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpibHJ1cmxweXBsYnF1cWlicGhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzNDY1NzAsImV4cCI6MjA5NDkyMjU3MH0.oYZarIlHqxpZY6ZWA0KRD9HoxYyv80otXKVNkpuNLRo';
 const sb = supabase.createClient(SB_URL, SB_KEY);
 
+function med(a){ const s=a.filter(x=>x!=null&&isFinite(x)).map(Number).sort((x,y)=>x-y); if(!s.length)return null; const m=Math.floor(s.length/2); return s.length%2?s[m]:(s[m-1]+s[m])/2; }
 async function load(){
   const themes  = (await sb.from('themes').select('*').order('display_order')).data || [];
   const nodes   = (await sb.from('theme_nodes').select('theme_slug')).data || [];
-  const members = (await sb.from('theme_members').select('theme_slug,is_context')).data || [];
+  const members = (await sb.from('theme_members').select('theme_slug,is_context,ticker')).data || [];
   const nNodes={}, nMembers={};
   nodes.forEach(n=>nNodes[n.theme_slug]=(nNodes[n.theme_slug]||0)+1);
   members.forEach(m=>{ if(!m.is_context) nMembers[m.theme_slug]=(nMembers[m.theme_slug]||0)+1; });
   if(!themes.length){ document.getElementById('grid').textContent='No themes yet.'; return; }
-  document.getElementById('grid').innerHTML = themes.map(t=>`
+
+  // Overall theme momentum = -(median rank_slope of its in-universe members). + = rising.
+  const latest = (await sb.from('daily_stock_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
+  const memTk = [...new Set(members.filter(m=>!m.is_context).map(m=>m.ticker))];
+  const slope = {};
+  if(latest){ for(let i=0;i<memTk.length;i+=200){ const ch=memTk.slice(i,i+200);
+    const s=(await sb.from('daily_stock_snapshots').select('ticker,rank_slope').eq('snapshot_date',latest).in('ticker',ch)).data||[];
+    s.forEach(r=>slope[r.ticker]=r.rank_slope); } }
+  const momo={};
+  themes.forEach(t=>{ const md=med(members.filter(m=>m.theme_slug===t.slug&&!m.is_context).map(m=>slope[m.ticker]).filter(x=>x!=null)); momo[t.slug]=md==null?null:Math.round(-md); });
+  themes.sort((a,b)=>(momo[b.slug]??-1e9)-(momo[a.slug]??-1e9));   // hottest theme first
+
+  document.getElementById('grid').innerHTML = themes.map(t=>{
+    const mm=momo[t.slug];
+    const mchip = mm==null ? '' :
+      `<span style="color:${mm>0?'var(--green)':mm<0?'var(--red)':'var(--text2)'};font-weight:800">${mm>0?'▲ +':mm<0?'▼ ':'→ '}${mm}</span> <span style="color:var(--text2)">theme momentum</span>`;
+    return `
     <a class="tcard" href="theme.html?theme=${t.slug}">
       <div class="tname">${t.name}</div>
       <div class="tdesc">${t.description||''}</div>
+      <div class="tstat">${mchip}</div>
       <div class="tstat"><b>${nNodes[t.slug]||0}</b> links · <b>${nMembers[t.slug]||0}</b> companies</div>
       <div class="texp">Explore the map →</div>
-    </a>`).join('');
+    </a>`;}).join('');
   document.getElementById('foot').innerHTML =
-    'Each theme maps a real-world value chain to public US-listed companies from our ~1,900-stock universe. '
+    'Themes are sorted by overall momentum (▲ = member stocks are rising in our relative-strength ranks on average). '
+    + 'Each theme maps a real-world value chain to public US-listed companies from our ~1,900-stock universe. '
     + 'Valuation and momentum are relative, educational screens — not investment advice.';
 }
 load().catch(e=>{ document.getElementById('grid').textContent='Failed to load: '+e.message; });

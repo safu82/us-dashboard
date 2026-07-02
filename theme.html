@@ -114,7 +114,7 @@
 </head>
 <body>
 <div class="header">
-  <div class="h-title">🧭 <span id="theme-name">AI Value Chain</span></div>
+  <div class="h-title">🧭 <span id="theme-name">AI Value Chain</span> <span id="theme-momo" style="font-size:13px;font-weight:600;vertical-align:middle"></span></div>
   <div class="h-desc" id="theme-desc"></div>
   <div class="legend" style="margin-top:12px">
     <span>Valuation (relative, growth-adjusted):</span>
@@ -215,6 +215,12 @@ async function load(){
   }}
 
   tickers.forEach(t=>GAPS[t]=gaps(t));
+  // Overall theme momentum = -(median rank_slope of all in-universe members). + = rising.
+  const tSlopes = tickers.map(t=>num(SNAP[t]?.rank_slope)).filter(x=>x!=null);
+  const tMed = median(tSlopes), tScore = tMed==null?null:Math.round(-tMed);
+  const mel = document.getElementById('theme-momo');
+  if(mel) mel.innerHTML = tScore==null ? '' :
+    `<span class="badge ${tScore>0?'badge-green':tScore<0?'badge-red':'badge-grey'}">Theme momentum ${tScore>0?'+':''}${tScore}</span>`;
   renderMap();
   if(NODES.length) selectNode(NODES[0].node_key);
   renderFoot();
