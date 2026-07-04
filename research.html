@@ -109,12 +109,12 @@ async function load(){
   // ---- shared data: latest RS-rank slope + fundamentals + sector for all in-universe members ----
   const latest = (await sb.from('daily_stock_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
   const memTk = [...new Set(members.filter(m=>!m.is_context).map(m=>m.ticker))];
-  const slope={}, ps={}, gr={}, sector={}, cname={};
+  const slope={}, rsr={}, ps={}, gr={}, nm={}, sector={}, cname={};
   for(let i=0;i<memTk.length;i+=200){ const ch=memTk.slice(i,i+200);
-    if(latest){ const s=(await sb.from('daily_stock_snapshots').select('ticker,rank_slope').eq('snapshot_date',latest).in('ticker',ch)).data||[];
-      s.forEach(r=>slope[r.ticker]=r.rank_slope); }
-    const f=(await sb.from('stock_fundamentals').select('ticker,price_to_sales,revenue_growth_yoy').in('ticker',ch)).data||[];
-    f.forEach(r=>{ ps[r.ticker]=r.price_to_sales; gr[r.ticker]=r.revenue_growth_yoy; });
+    if(latest){ const s=(await sb.from('daily_stock_snapshots').select('ticker,rank_slope,rs_rank').eq('snapshot_date',latest).in('ticker',ch)).data||[];
+      s.forEach(r=>{ slope[r.ticker]=r.rank_slope; rsr[r.ticker]=r.rs_rank; }); }
+    const f=(await sb.from('stock_fundamentals').select('ticker,price_to_sales,revenue_growth_yoy,net_margin').in('ticker',ch)).data||[];
+    f.forEach(r=>{ ps[r.ticker]=r.price_to_sales; gr[r.ticker]=r.revenue_growth_yoy; nm[r.ticker]=r.net_margin; });
     const u=(await sb.from('us_stock_sectors').select('ticker,sector,company_name').in('ticker',ch)).data||[];
     u.forEach(r=>{ sector[r.ticker]=r.sector; cname[r.ticker]=r.company_name; });
   }
@@ -126,12 +126,16 @@ async function load(){
   themes.forEach(t=>{ const md=med(members.filter(m=>m.theme_slug===t.slug&&!m.is_context).map(m=>slope[m.ticker]).filter(x=>x!=null)); momo[t.slug]=md==null?null:Math.round(-md); });
 
   // ---- cross-theme leaderboard: blend of momentum + like-for-like value (no conviction) ----
-  // momentum: percentile of rank_slope (more negative = better) across all members.
-  const momPct = pctMap(memTk.filter(tk=>slope[tk]!=null).map(tk=>({k:tk,v:slope[tk]})));
+  // momentum: percentile of RS-RANK (durable relative strength; higher=better). NOT rank_slope —
+  // the 5-day slope is gamed by a dead-cat bounce off a 52w low (a downtrend name spikes to ~99).
+  const momPct = pctMap(memTk.filter(tk=>rsr[tk]!=null).map(tk=>({k:tk,v:-rsr[tk]})));
   // value: growth-adjusted P/S (lower=cheaper), percentile WITHIN each GICS sector (>=5 scored) — like-for-like.
   const gaps={}; memTk.forEach(tk=>{ const p=ps[tk]; if(p>0){ gaps[tk]= p/(Math.max(gr[tk]??0,3)/100); } });
   const bySector={}; memTk.forEach(tk=>{ const s=sector[tk], g=gaps[tk]; if(s&&g!=null&&isFinite(g)){ (bySector[s]=bySector[s]||[]).push({k:tk,v:g}); } });
   const valPct={}; Object.values(bySector).forEach(list=>{ if(list.length>=5) Object.assign(valPct, pctMap(list)); });
+  // value-trap guard: a deeply loss-making firm (net margin < -50%) isn't "cheap" no matter how low its
+  // P/S — neutralise its value leg so cash-incinerators can't ride a low P/S into the top ranks.
+  memTk.forEach(tk=>{ if(valPct[tk]!=null && nm[tk]!=null && nm[tk]<-50) valPct[tk]=Math.min(valPct[tk],0.5); });
   const board=[];
   memTk.forEach(tk=>{ if(momPct[tk]!=null && valPct[tk]!=null){ const b=0.5*momPct[tk]+0.5*valPct[tk];
     board.push({tk, nm:cname[tk]||'', th:[...(themesByTk[tk]||[])].join(', '), mom:Math.round(momPct[tk]*100), val:Math.round(valPct[tk]*100), blend:+(b*100).toFixed(1)}); } });
@@ -140,7 +144,7 @@ async function load(){
   document.getElementById('board').innerHTML = !top.length ? '' :
     `<div class="board">
       <div class="btitle">🏆 Top 10 across all themes</div>
-      <div class="bsub">Ranked by a 50/50 blend of <b>momentum</b> (relative-strength trend) and <b>value</b> (growth-adjusted price-to-sales vs GICS-sector peers). Deliberately excludes fundamentals/analyst-heavy conviction so newer names compete fairly. Click a row for the deep dive.</div>
+      <div class="bsub">Ranked by a 50/50 blend of <b>momentum</b> (relative-strength rank) and <b>value</b> (growth-adjusted price-to-sales vs GICS-sector peers, with deeply loss-making names neutralised). Deliberately excludes fundamentals/analyst-heavy conviction so newer names compete fairly. Click a row for the deep dive.</div>
       <div class="bhead"><div></div><div>Company</div><div class="r">Mom</div><div class="r">Val</div><div class="r">Blend</div></div>
       ${top.map((r,i)=>`
         <a class="lbrow" href="deep_dive.html?ticker=${r.tk}">
