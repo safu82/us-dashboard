@@ -10,6 +10,10 @@ Run after fetch_ohlc.py. For every snapshot_date in the rolling window:
   - peer_composite_pct   — composite percentile = mean(rs_pct, near-52WH pct) within peer_group
 Per-ticker (across dates):
   - rank_slope           — 5-day OLS slope of rs_rank (negative = improving rank)
+  - momentum_score       — 0-100 multi-factor technical momentum composite: mean cross-sectional
+                           percentile of 5 factors (RS level, RS improvement ~20d, EMA-9 slope
+                           ~10d, EMA-20 slope ~20d, price vs EMA-50). Robust vs the 5-day
+                           rank_slope, which a dead-cat bounce off a 52w low can spike.
 
 Sector + industry mapping comes from us_stock_sectors.
 """
@@ -64,7 +68,8 @@ print('Pulling snapshots ...')
 # OHLC included only so the upsert payload satisfies NOT NULL constraints;
 # the INSERT-side validation fires before ON CONFLICT resolves to UPDATE.
 snap = pull_all('daily_stock_snapshots',
-                'ticker, snapshot_date, alkalyme_rs, open, high, low, close, high_52w',
+                'ticker, snapshot_date, alkalyme_rs, open, high, low, close, high_52w, '
+                'ema_9, ema_20, ema_50',
                 ['snapshot_date', 'ticker'])
 print(f'  {len(snap)} rows')
 
@@ -102,6 +107,8 @@ if df.empty:
 df['alkalyme_rs'] = pd.to_numeric(df['alkalyme_rs'], errors='coerce')
 df['close'] = pd.to_numeric(df['close'], errors='coerce')
 df['high_52w'] = pd.to_numeric(df['high_52w'], errors='coerce')
+for _c in ('ema_9', 'ema_20', 'ema_50'):
+    df[_c] = pd.to_numeric(df[_c], errors='coerce')
 df['sector'] = df['ticker'].map(sec_map).fillna('Unknown')
 df['peer_group'] = df['ticker'].map(peer_map).fillna('Unknown')
 # Distance from 52WH as a "near-high" strength score (0 = at high, large = far below)
@@ -145,6 +152,32 @@ df['rank_slope'] = (df.groupby('ticker')['rs_rank']
                       .rolling(window=5, min_periods=5).apply(_slope, raw=False)
                       .reset_index(level=0, drop=True))
 
+# ── momentum_score: multi-factor technical momentum composite (0-100) ───────
+# df is sorted by (ticker, snapshot_date) above, so per-ticker shift(n) reaches
+# n trading days back. Five factors, each higher = stronger momentum:
+#   f_level   RS strength level (rs_rank, 1=best -> negate)
+#   f_improve RS improving: rs_rank ~20d ago minus now (rank climbing = positive)
+#   f_e9      EMA-9 slope over ~10d       f_e20  EMA-20 slope over ~20d
+#   f_px      price vs EMA-50 (uptrend structure)
+# Each factor -> cross-sectional percentile per snapshot_date; score = mean(pct)*100.
+print('Computing momentum_score ...')
+g = df.groupby('ticker', group_keys=False)
+rs_rank_20 = g['rs_rank'].shift(20).astype('float')
+ema9_10 = g['ema_9'].shift(10)
+ema20_20 = g['ema_20'].shift(20)
+factors = pd.DataFrame({
+    'f_level':   -df['rs_rank'].astype('float'),
+    'f_improve': rs_rank_20 - df['rs_rank'].astype('float'),
+    'f_e9':      df['ema_9'] / ema9_10 - 1,
+    'f_e20':     df['ema_20'] / ema20_20 - 1,
+    'f_px':      df['close'] / df['ema_50'] - 1,
+})
+pct = pd.DataFrame({c: factors[c].groupby(df['snapshot_date']).rank(pct=True) for c in factors})
+present = pct.notna().sum(axis=1)
+mom = (pct.mean(axis=1) * 100).round()          # mean over available factors (skipna)
+mom[present < 3] = np.nan                        # need >=3 of 5 factors
+df['momentum_score'] = mom.astype('Int64')
+
 # ── Push back (UPDATE per row, batched) ────────────────────────────────────
 print('Pushing updates ...')
 
@@ -172,6 +205,7 @@ for _, r in df.iterrows():
         'peer_percentile': _f(r['peer_percentile']),
         'peer_composite_pct': _f(r['peer_composite_pct']),
         'rank_slope': _f(r['rank_slope']),
+        'momentum_score': _f(r['momentum_score']),
     })
 
 # upsert (PK = ticker + snapshot_date) so we update existing rows in place

@@ -166,14 +166,16 @@ function compBand(t,k){
   const a=sigs.reduce((x,y)=>x+y,0)/sigs.length;
   return a>=0.5?'under' : a<=-0.5?'rich' : 'fair';
 }
-// Momentum = -(5-day OLS slope of RS rank). Positive = rank improving (rising).
-function momoStock(t){ const s=num(SNAP[t]?.rank_slope); return s==null?null:-s; }
-function momoChip(slope){ // slope is raw rank_slope (negative = improving)
-  if(slope==null) return '';
-  if(slope<-15) return '<span class="badge badge-green">▲ Rising fast</span>';
-  if(slope<0)   return '<span class="badge badge-green">▲ Rising</span>';
-  if(slope>15)  return '<span class="badge badge-red">▼ Fading fast</span>';
-  if(slope>0)   return '<span class="badge badge-red">▼ Fading</span>';
+// Momentum = precomputed 0-100 multi-factor composite (momentum_score). Higher = stronger:
+// RS-rank level + RS improvement (~20d) + EMA-9/20 slopes + price vs EMA-50. Robust vs the raw
+// 5-day rank_slope, which a dead-cat bounce off a 52w low can spike.
+function momoStock(t){ return num(SNAP[t]?.momentum_score); }
+function momoChip(m){ // m is momentum_score (0-100, 50 = median)
+  if(m==null) return '';
+  if(m>=70) return '<span class="badge badge-green">▲ Rising fast</span>';
+  if(m>=55) return '<span class="badge badge-green">▲ Rising</span>';
+  if(m<=30) return '<span class="badge badge-red">▼ Fading fast</span>';
+  if(m<=45) return '<span class="badge badge-red">▼ Fading</span>';
   return '<span class="badge badge-grey">→ Flat</span>';
 }
 const BAND_LABEL = {under:'Undervalued',fair:'Fair',rich:'Rich'};
@@ -210,17 +212,17 @@ async function load(){
   }
   const latest = (await sb.from('daily_stock_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
   if(latest){ for(const ch of chunks){
-    const s = (await sb.from('daily_stock_snapshots').select('ticker,rs_rank,rank_slope').eq('snapshot_date',latest).in('ticker',ch)).data||[];
+    const s = (await sb.from('daily_stock_snapshots').select('ticker,rs_rank,rank_slope,momentum_score').eq('snapshot_date',latest).in('ticker',ch)).data||[];
     s.forEach(r=>SNAP[r.ticker]=r);
   }}
 
   tickers.forEach(t=>GAPS[t]=gaps(t));
-  // Overall theme momentum = -(median rank_slope of all in-universe members). + = rising.
-  const tSlopes = tickers.map(t=>num(SNAP[t]?.rank_slope)).filter(x=>x!=null);
-  const tMed = median(tSlopes), tScore = tMed==null?null:Math.round(-tMed);
+  // Overall theme momentum = median momentum_score of all in-universe members (0-100, 50 = neutral).
+  const tScores = tickers.map(t=>num(SNAP[t]?.momentum_score)).filter(x=>x!=null);
+  const tMed = median(tScores), tScore = tMed==null?null:Math.round(tMed);
   const mel = document.getElementById('theme-momo');
   if(mel) mel.innerHTML = tScore==null ? '' :
-    `<span class="badge ${tScore>0?'badge-green':tScore<0?'badge-red':'badge-grey'}">Theme momentum ${tScore>0?'+':''}${tScore}</span>`;
+    `<span class="badge ${tScore>55?'badge-green':tScore<45?'badge-red':'badge-grey'}">Theme momentum ${tScore}/100</span>`;
   renderMap();
   if(NODES.length) selectNode(NODES[0].node_key);
   renderFoot();
@@ -235,9 +237,9 @@ function nodeStats(key){
   // Node valuation is judged vs the node's OWN 3-yr history (peer-relative nets to
   // zero within a node, so it can't call a whole node cheap/rich vs itself).
   let valband=null; if(medPE!=null && medPA!=null){ const hr=medPE/medPA; valband = hr<0.9?'under' : hr>1.15?'rich' : 'fair'; }
-  const slope = median(ms.map(m=>num(SNAP[m.ticker]?.rank_slope)).filter(x=>x!=null));
+  const mom = median(ms.map(m=>num(SNAP[m.ticker]?.momentum_score)).filter(x=>x!=null));
   return {
-    n: nodeMembers(key).length, med, valband, slope,
+    n: nodeMembers(key).length, med, valband, mom,
     pe: medPE,
     ps: median(ms.map(m=>num(FUND[m.ticker]?.price_to_sales)).filter(x=>x>0)),
     ev: median(ms.map(m=>num(FUND[m.ticker]?.ev_to_ebitda)).filter(x=>x>0)),
@@ -245,10 +247,10 @@ function nodeStats(key){
     rs: median(ms.map(m=>num(SNAP[m.ticker]?.rs_rank))),
   };
 }
-function hottestNode(){ let best=null,bs=Infinity; NODES.forEach(nd=>{ const st=nodeStats(nd.node_key); if(st.slope!=null && st.slope<bs){bs=st.slope; best=nd.node_key;} }); return best; }
+function hottestNode(){ let best=null,bs=-Infinity; NODES.forEach(nd=>{ const st=nodeStats(nd.node_key); if(st.mom!=null && st.mom>bs){bs=st.mom; best=nd.node_key;} }); return best; }
 function topMomoTicker(key){
-  const ms = nodeMembers(key).filter(m=>!m.is_context && num(SNAP[m.ticker]?.rank_slope)!=null)
-    .sort((a,b)=>num(SNAP[a.ticker].rank_slope)-num(SNAP[b.ticker].rank_slope));
+  const ms = nodeMembers(key).filter(m=>!m.is_context && num(SNAP[m.ticker]?.momentum_score)!=null)
+    .sort((a,b)=>num(SNAP[b.ticker].momentum_score)-num(SNAP[a.ticker].momentum_score));
   return ms[0]?.ticker;
 }
 
@@ -264,8 +266,8 @@ function renderMap(){
 function renderStack(){
   const uniq = [...new Set(MEMBERS.filter(m=>!m.is_context).map(m=>m.ticker))];
   const HOT = hottestNode();
-  const scored = NODES.filter(nd=>nodeStats(nd.node_key).slope!=null);
-  const rising = scored.filter(nd=>nodeStats(nd.node_key).slope<0).length;
+  const scored = NODES.filter(nd=>nodeStats(nd.node_key).mom!=null);
+  const rising = scored.filter(nd=>nodeStats(nd.node_key).mom>50).length;
   const leaders = uniq.map(t=>({t,r:num(SNAP[t]?.rs_rank)})).filter(o=>o.r!=null)
                       .sort((a,b)=>a.r-b.r).slice(0,5).map(o=>o.t).join(' · ');
   const glance = `<div class="atglance">
@@ -280,10 +282,10 @@ function renderStack(){
   NODES.forEach((node,i)=>{
     const k=node.node_key, s=nodeStats(k), hue=Math.round((i/Math.max(n-1,1))*300);
     const vchip = s.valband ? `<span class="badge ${BAND_CLASS[s.valband]}">${BAND_LABEL[s.valband]} vs norm</span>` : '';
-    const mchip = momoChip(s.slope);
-    const momScore = s.slope==null ? null : Math.round(-s.slope);   // + = rising
+    const mchip = momoChip(s.mom);
+    const momScore = s.mom==null ? null : Math.round(s.mom);   // 0-100, 50 = neutral
     const momWrap = `<span class="mom-wrap">${mchip}${momScore==null?'':
-      `<span class="mom-avg" style="color:${momScore>0?'var(--green)':momScore<0?'var(--red)':'var(--text2)'}" title="This link's average RS-rank momentum (positive = rising)">avg ${momScore>0?'+':''}${momScore}</span>`}</span>`;
+      `<span class="mom-avg" style="color:${momScore>55?'var(--green)':momScore<45?'var(--red)':'var(--text2)'}" title="This link's median momentum score (0-100, higher = stronger)">${momScore}/100</span>`}</span>`;
     const hotb  = (k===HOT) ? `<span class="badge badge-orange">🔥 Hottest</span>` : '';
     const top   = topMomoTicker(k);
     const ms = nodeMembers(k).slice().sort((a,b)=>{
@@ -336,10 +338,10 @@ function renderFlow(){
     const s=nodeStats(k), x=px(k), y=py(k);
     // Flow view colours nodes by MOMENTUM (green rising / red fading) — a heatmap of
     // where the chain's strength is flowing right now.
-    const momCol = s.slope==null?'#3b4351':(s.slope<0?BAND_COLOR.under:s.slope>0?BAND_COLOR.rich:'#3b4351');
+    const momCol = s.mom==null?'#3b4351':(s.mom>55?BAND_COLOR.under:s.mom<45?BAND_COLOR.rich:'#3b4351');
     const col = selected===k?'var(--accent)':momCol;
     const sw = selected===k?3:2;
-    const sub = s.slope==null?`${s.n} cos`:(s.slope<0?`▲ +${Math.round(-s.slope)}`:s.slope>0?`▼ ${Math.round(s.slope)}`:`${s.n} cos`);
+    const sub = s.mom==null?`${s.n} cos`:(s.mom>55?`▲ ${Math.round(s.mom)}`:s.mom<45?`▼ ${Math.round(s.mom)}`:`${Math.round(s.mom)}`);
     const flame = (k===HOT)?' 🔥':'';
     nodes+=`<g class="dnode" onclick="selectNode('${k}')">
       <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="9" fill="var(--bg3)" stroke="${col}" stroke-width="${sw}"/>
@@ -374,10 +376,10 @@ function selectNode(key){
     const t=m.ticker, f=FUND[t]||{}, sn=SNAP[t]||{}, an=ANALYST[t]||{}, ctx=m.is_context;
     const flame = (t===top)?'🔥 ':'';
     const link = ctx ? t : `${flame}<a class="tk" href="deep_dive.html?ticker=${t}">${t}</a>`;
-    const sl = num(sn.rank_slope);
-    const momCell = (ctx||sl==null) ? na
-      : (sl<0?`<span style="color:var(--green)">▲ ${Math.round(-sl)}</span>`
-         : sl>0?`<span style="color:var(--red)">▼ ${Math.round(sl)}</span>` : '·');
+    const mo = num(sn.momentum_score);
+    const momCell = (ctx||mo==null) ? na
+      : (mo>=55?`<span style="color:var(--green)">▲ ${mo}</span>`
+         : mo<=45?`<span style="color:var(--red)">▼ ${mo}</span>` : `· ${mo}`);
     tbody += `<tr class="${ctx?'ctx':''}">
       <td>${link}<div class="co">${m.note||''}</div></td>
       <td>${ctx?na:fmtCap(f.market_cap_usd)}</td>
@@ -392,7 +394,7 @@ function selectNode(key){
       ${valCell(t,ctx,key)}
     </tr>`;
   });
-  const chip = `${momoChip(s.slope)} ${s.valband?`<span class="badge ${BAND_CLASS[s.valband]}">${BAND_LABEL[s.valband]} vs its 3-yr norm</span>`:''}`;
+  const chip = `${momoChip(s.mom)} ${s.valband?`<span class="badge ${BAND_CLASS[s.valband]}">${BAND_LABEL[s.valband]} vs its 3-yr norm</span>`:''}`;
   document.getElementById('detail').innerHTML = `
     <div class="grid2">
       <div class="card">
@@ -406,7 +408,7 @@ function selectNode(key){
           <span>EV/EBITDA <b>${fx(s.ev)}</b></span>
           <span>Rev growth <b>${s.gr!=null?fx(s.gr,0)+'%':'—'}</b></span>
           <span>Median RS <b>${s.rs!=null?'#'+Math.round(s.rs):'—'}</b></span>
-          <span>RS momentum <b>${s.slope==null?'—':(s.slope<0?'▲ rising':s.slope>0?'▼ fading':'flat')}</b></span>
+          <span>Momentum <b>${s.mom==null?'—':Math.round(s.mom)+'/100'}</b></span>
         </div>
         <div class="tblwrap">
         <table><thead><tr>
@@ -460,9 +462,11 @@ function renderFoot(){
     <b>link</b> is judged only against its <b>own 3-year history</b> (comparing links to each other
     would just measure business model, not cheapness). Profitless or foreign/private names (greyed)
     carry no score.<br><br>
-    <b>How to read momentum.</b> The ▲/▼ chip and the 🔥 come from each stock's <b>RS-rank slope</b>
-    (how fast its strength rank is rising over the last week). 🔥 marks the link with the strongest
-    momentum and, inside a link, its top-momentum stock; the <b>Mom.</b> column shows each name's trend.
+    <b>How to read momentum.</b> Each stock has a <b>0-100 momentum score</b> — a blend of its
+    relative-strength level &amp; trend, its 9- and 20-day EMA slopes, and its price vs the 50-day EMA
+    (higher = stronger; 50 = middle of the pack). It's robust to short-lived bounces off a low. 🔥 marks
+    the link with the strongest momentum and, inside a link, its top-momentum stock; the <b>Mom.</b>
+    column shows each name's score.
     <br><br>
     <b>Upside</b> is separate and external: TipRanks' <b>top-analyst 12-month price target vs the current
     price</b> — Wall Street's view, not ours. It's a starting screen, not a verdict; a cheap ratio can
