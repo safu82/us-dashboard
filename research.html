@@ -43,7 +43,6 @@
   .h-title{font-size:26px;font-weight:800;letter-spacing:-0.5px;}
   .h-desc{font-size:13px;color:var(--text2);margin-top:6px;max-width:820px;line-height:1.55;}
   .page{max-width:1100px;margin:0 auto;padding:24px;}
-  /* umbrella category headers */
   .catrow{display:flex;align-items:baseline;gap:12px;margin:30px 0 14px;}
   .catrow:first-child{margin-top:6px;}
   .cname{font-size:17px;font-weight:800;letter-spacing:-0.3px;white-space:nowrap;}
@@ -57,7 +56,6 @@
   .tstat{font-size:12px;color:var(--text2);}
   .tstat b{color:var(--text);}
   .texp{color:var(--accent);font-weight:700;font-size:13px;margin-top:2px;}
-  /* cross-theme leaderboard */
   .board{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:6px 8px;}
   .btitle{font-size:16px;font-weight:800;padding:12px 10px 2px;}
   .bsub{font-size:12px;color:var(--text2);padding:0 10px 10px;line-height:1.5;}
@@ -93,8 +91,8 @@ const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZ
 const sb = supabase.createClient(SB_URL, SB_KEY);
 
 function med(a){ const s=a.filter(x=>x!=null&&isFinite(x)).map(Number).sort((x,y)=>x-y); if(!s.length)return null; const m=Math.floor(s.length/2); return s.length%2?s[m]:(s[m-1]+s[m])/2; }
-// Percentile map over [{k,v}] where LOWER v = better; best -> 1, worst -> 0.
-function pctMap(items){ const a=items.filter(x=>x.v!=null&&isFinite(x.v)).sort((x,y)=>x.v-y.v); const n=a.length,m={}; a.forEach((x,i)=>{ m[x.k]= n<=1?1:(n-1-i)/(n-1); }); return m; }
+// Percentile map over [{k,v}] where HIGHER v = better; best -> 1, worst -> 0.
+function prank(items){ const a=items.filter(x=>x.v!=null&&isFinite(x.v)).sort((x,y)=>x.v-y.v); const n=a.length,m={}; a.forEach((x,i)=>{ m[x.k]= n<=1?1:i/(n-1); }); return m; }
 
 async function load(){
   const themes  = (await sb.from('themes').select('*').order('display_order')).data || [];
@@ -105,36 +103,54 @@ async function load(){
   members.forEach(m=>{ if(!m.is_context) nMembers[m.theme_slug]=(nMembers[m.theme_slug]||0)+1; });
   if(!themes.length){ document.getElementById('cats').textContent='No themes yet.'; return; }
   const slugName={}; themes.forEach(t=>slugName[t.slug]=t.name);
-
-  // ---- shared data: latest RS-rank slope + fundamentals + sector for all in-universe members ----
-  const latest = (await sb.from('daily_stock_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
   const memTk = [...new Set(members.filter(m=>!m.is_context).map(m=>m.ticker))];
-  const slope={}, rsr={}, ps={}, gr={}, nm={}, sector={}, cname={};
+  const themesByTk={}; members.forEach(m=>{ if(!m.is_context){ (themesByTk[m.ticker]=themesByTk[m.ticker]||new Set()).add(slugName[m.theme_slug]||m.theme_slug); } });
+
+  // Trading-date sequence (use a full-history universe ticker as the calendar): d0=today, ~d10, ~d20.
+  const dseq = (await sb.from('daily_stock_snapshots').select('snapshot_date').eq('ticker','NVDA').order('snapshot_date',{ascending:false}).limit(21)).data || [];
+  const d0=dseq[0]?.snapshot_date, d10=(dseq[10]||dseq[dseq.length-1])?.snapshot_date, d20=(dseq[20]||dseq[dseq.length-1])?.snapshot_date;
+
+  // ---- batched pulls for all in-universe members ----
+  const slope={}, rsr={}, close0={}, e9_0={}, e20_0={}, e50_0={}, e9_10={}, rr20={}, e20_20={},
+        ps={}, gr={}, nm={}, sector={}, cname={};
   for(let i=0;i<memTk.length;i+=200){ const ch=memTk.slice(i,i+200);
-    if(latest){ const s=(await sb.from('daily_stock_snapshots').select('ticker,rank_slope,rs_rank').eq('snapshot_date',latest).in('ticker',ch)).data||[];
-      s.forEach(r=>{ slope[r.ticker]=r.rank_slope; rsr[r.ticker]=r.rs_rank; }); }
+    if(d0){ const s=(await sb.from('daily_stock_snapshots').select('ticker,rank_slope,rs_rank,close,ema_9,ema_20,ema_50').eq('snapshot_date',d0).in('ticker',ch)).data||[];
+      s.forEach(r=>{ slope[r.ticker]=r.rank_slope; rsr[r.ticker]=r.rs_rank; close0[r.ticker]=r.close; e9_0[r.ticker]=r.ema_9; e20_0[r.ticker]=r.ema_20; e50_0[r.ticker]=r.ema_50; }); }
+    if(d10){ const s=(await sb.from('daily_stock_snapshots').select('ticker,ema_9').eq('snapshot_date',d10).in('ticker',ch)).data||[];
+      s.forEach(r=>e9_10[r.ticker]=r.ema_9); }
+    if(d20){ const s=(await sb.from('daily_stock_snapshots').select('ticker,rs_rank,ema_20').eq('snapshot_date',d20).in('ticker',ch)).data||[];
+      s.forEach(r=>{ rr20[r.ticker]=r.rs_rank; e20_20[r.ticker]=r.ema_20; }); }
     const f=(await sb.from('stock_fundamentals').select('ticker,price_to_sales,revenue_growth_yoy,net_margin').in('ticker',ch)).data||[];
     f.forEach(r=>{ ps[r.ticker]=r.price_to_sales; gr[r.ticker]=r.revenue_growth_yoy; nm[r.ticker]=r.net_margin; });
     const u=(await sb.from('us_stock_sectors').select('ticker,sector,company_name').in('ticker',ch)).data||[];
     u.forEach(r=>{ sector[r.ticker]=r.sector; cname[r.ticker]=r.company_name; });
   }
-  // themes each ticker belongs to (for the leaderboard label)
-  const themesByTk={}; members.forEach(m=>{ if(!m.is_context){ (themesByTk[m.ticker]=themesByTk[m.ticker]||new Set()).add(slugName[m.theme_slug]||m.theme_slug); } });
 
-  // ---- theme momentum = -(median member rank_slope); + = rising ----
+  // ---- theme momentum = -(median member rank_slope); + = rising (heating up). Unchanged. ----
   const momo={};
   themes.forEach(t=>{ const md=med(members.filter(m=>m.theme_slug===t.slug&&!m.is_context).map(m=>slope[m.ticker]).filter(x=>x!=null)); momo[t.slug]=md==null?null:Math.round(-md); });
 
-  // ---- cross-theme leaderboard: blend of momentum + like-for-like value (no conviction) ----
-  // momentum: percentile of RS-RANK (durable relative strength; higher=better). NOT rank_slope —
-  // the 5-day slope is gamed by a dead-cat bounce off a 52w low (a downtrend name spikes to ~99).
-  const momPct = pctMap(memTk.filter(tk=>rsr[tk]!=null).map(tk=>({k:tk,v:-rsr[tk]})));
-  // value: growth-adjusted P/S (lower=cheaper), percentile WITHIN each GICS sector (>=5 scored) — like-for-like.
+  // ---- cross-theme Top-10: blend of a multi-factor MOMENTUM composite + like-for-like VALUE (no conviction) ----
+  // MOMENTUM = average percentile of 5 technical factors (higher=stronger):
+  //   1 RS strength level (rs_rank, 1=best)  2 RS improving (~20d change in rs_rank, climbing=better)
+  //   3 EMA-9 slope (~10d)  4 EMA-20 slope (~20d)  5 price vs EMA-50 (uptrend structure).
+  // Deliberately NOT the raw 5-day rank_slope — that spikes on a dead-cat bounce off a 52w low.
+  const cL=[],cI=[],c9=[],c20=[],cP=[];
+  memTk.forEach(tk=>{
+    if(rsr[tk]!=null) cL.push({k:tk,v:-rsr[tk]});
+    if(rr20[tk]!=null&&rsr[tk]!=null) cI.push({k:tk,v:rr20[tk]-rsr[tk]});
+    if(e9_0[tk]!=null&&e9_10[tk]) c9.push({k:tk,v:e9_0[tk]/e9_10[tk]-1});
+    if(e20_0[tk]!=null&&e20_20[tk]) c20.push({k:tk,v:e20_0[tk]/e20_20[tk]-1});
+    if(close0[tk]!=null&&e50_0[tk]) cP.push({k:tk,v:close0[tk]/e50_0[tk]-1});
+  });
+  const PR=[prank(cL),prank(cI),prank(c9),prank(c20),prank(cP)];
+  const momPct={};
+  memTk.forEach(tk=>{ const v=PR.map(p=>p[tk]).filter(x=>x!=null); if(v.length>=4) momPct[tk]=v.reduce((a,b)=>a+b,0)/v.length; });
+  // VALUE = growth-adjusted P/S (lower=cheaper) percentile WITHIN GICS sector (>=5 scored) — like-for-like.
   const gaps={}; memTk.forEach(tk=>{ const p=ps[tk]; if(p>0){ gaps[tk]= p/(Math.max(gr[tk]??0,3)/100); } });
-  const bySector={}; memTk.forEach(tk=>{ const s=sector[tk], g=gaps[tk]; if(s&&g!=null&&isFinite(g)){ (bySector[s]=bySector[s]||[]).push({k:tk,v:g}); } });
-  const valPct={}; Object.values(bySector).forEach(list=>{ if(list.length>=5) Object.assign(valPct, pctMap(list)); });
-  // value-trap guard: a deeply loss-making firm (net margin < -50%) isn't "cheap" no matter how low its
-  // P/S — neutralise its value leg so cash-incinerators can't ride a low P/S into the top ranks.
+  const bySector={}; memTk.forEach(tk=>{ const s=sector[tk], g=gaps[tk]; if(s&&g!=null&&isFinite(g)){ (bySector[s]=bySector[s]||[]).push({k:tk,v:-g}); } });
+  const valPct={}; Object.values(bySector).forEach(list=>{ if(list.length>=5) Object.assign(valPct, prank(list)); });
+  // value-trap guard: a deeply loss-making firm (net margin < -50%) isn't "cheap" — neutralise its value leg.
   memTk.forEach(tk=>{ if(valPct[tk]!=null && nm[tk]!=null && nm[tk]<-50) valPct[tk]=Math.min(valPct[tk],0.5); });
   const board=[];
   memTk.forEach(tk=>{ if(momPct[tk]!=null && valPct[tk]!=null){ const b=0.5*momPct[tk]+0.5*valPct[tk];
@@ -144,7 +160,7 @@ async function load(){
   document.getElementById('board').innerHTML = !top.length ? '' :
     `<div class="board">
       <div class="btitle">🏆 Top 10 across all themes</div>
-      <div class="bsub">Ranked by a 50/50 blend of <b>momentum</b> (relative-strength rank) and <b>value</b> (growth-adjusted price-to-sales vs GICS-sector peers, with deeply loss-making names neutralised). Deliberately excludes fundamentals/analyst-heavy conviction so newer names compete fairly. Click a row for the deep dive.</div>
+      <div class="bsub">Ranked by a 50/50 blend of <b>momentum</b> (a multi-factor technical composite — relative-strength level &amp; trend, EMA-9/20 slopes and price-vs-EMA-50) and <b>value</b> (growth-adjusted price-to-sales vs GICS-sector peers, deep-loss names neutralised). Deliberately excludes fundamentals/analyst-heavy conviction so newer names compete fairly. Click a row for the deep dive.</div>
       <div class="bhead"><div></div><div>Company</div><div class="r">Mom</div><div class="r">Val</div><div class="r">Blend</div></div>
       ${top.map((r,i)=>`
         <a class="lbrow" href="deep_dive.html?ticker=${r.tk}">
@@ -156,10 +172,10 @@ async function load(){
         </a>`).join('')}
     </div>`;
 
-  // ---- theme cards, grouped by umbrella category (category_order), hottest theme first within each ----
+  // ---- theme cards grouped by umbrella category (category_order), hottest theme first within each ----
   const cats=[]; const seen={};
   themes.slice().sort((a,b)=>(a.category_order??99)-(b.category_order??99))
-        .forEach(t=>{ const c=t.category||'Other'; if(!seen[c]){ seen[c]=1; cats.push({name:c, order:t.category_order??99}); } });
+        .forEach(t=>{ const c=t.category||'Other'; if(!seen[c]){ seen[c]=1; cats.push({name:c}); } });
   const card=t=>{ const mm=momo[t.slug];
     const mchip = mm==null ? '' :
       `<span style="color:${mm>0?'var(--green)':mm<0?'var(--red)':'var(--text2)'};font-weight:800">${mm>0?'▲ +':mm<0?'▼ ':'→ '}${mm}</span> <span style="color:var(--text2)">theme momentum</span>`;
@@ -179,10 +195,10 @@ async function load(){
   }).join('');
 
   document.getElementById('foot').innerHTML =
-    'Themes are grouped into umbrella categories; within each, they are sorted by overall momentum (▲ = member stocks are rising in our relative-strength ranks on average). '
-    + 'The Top-10 leaderboard blends momentum and like-for-like value across every theme. '
+    'Themes are grouped into umbrella categories; within each, sorted by overall momentum (median member relative-strength trend). '
+    + 'The Top-10 leaderboard blends a multi-factor momentum composite with like-for-like value across every theme. '
     + 'Each theme maps a real-world value chain to public US-listed companies from our ~1,900-stock universe. '
-    + 'Valuation and momentum are relative, educational screens — not investment advice.';
+    + 'Screens are relative and educational — not investment advice.';
 }
 load().catch(e=>{ document.getElementById('cats').textContent='Failed to load: '+e.message; });
 </script>
