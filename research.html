@@ -132,10 +132,18 @@ async function load(){
   // momentum_score (0-100) is computed nightly in compute_cross_sectional.py from 5 technical factors
   // (RS level, RS improvement ~20d, EMA-9/20 slopes, price vs EMA-50) — robust vs 5-day bounces.
   const momPct={}; memTk.forEach(tk=>{ if(mscore[tk]!=null) momPct[tk]=mscore[tk]/100; });
-  // VALUE = growth-adjusted P/S (lower=cheaper) percentile WITHIN GICS sector (>=5 scored) — like-for-like.
-  const gaps={}; memTk.forEach(tk=>{ const p=ps[tk]; if(p>0){ gaps[tk]= p/(Math.max(gr[tk]??0,3)/100); } });
-  const bySector={}; memTk.forEach(tk=>{ const s=sector[tk], g=gaps[tk]; if(s&&g!=null&&isFinite(g)){ (bySector[s]=bySector[s]||[]).push({k:tk,v:-g}); } });
-  const valPct={}; Object.values(bySector).forEach(list=>{ if(list.length>=5) Object.assign(valPct, prank(list)); });
+  // VALUE = how cheap a stock is vs its GICS-SECTOR peers (like-for-like), as a CONTINUOUS distance
+  // from the sector's median growth-adjusted P/S, then percentile-ranked ONCE globally. A plain
+  // within-sector percentile saturated at 100 for each sector's cheapest name; measuring the distance
+  // and ranking it once de-saturates the column and orders it correctly. Sector-relative also strips
+  // out the sector-wide price move, so value stays independent of momentum — a clean 2nd signal.
+  // Requires POSITIVE revenue growth (a shrinking-revenue name isn't value) and P/S > 0.
+  const gaps={}; memTk.forEach(tk=>{ const p=ps[tk], g=gr[tk]; if(p>0 && g!=null && g>0){ gaps[tk]= p/(Math.max(g,3)/100); } });
+  const bySec={}; memTk.forEach(tk=>{ const s=sector[tk], v=gaps[tk]; if(s&&v!=null){ (bySec[s]=bySec[s]||[]).push(v); } });
+  const secMed={}; Object.entries(bySec).forEach(([s,arr])=>{ if(arr.length>=5) secMed[s]=med(arr); });
+  const globMed = med(Object.values(gaps));   // fallback for thin sectors (<5 scored members)
+  const cheap={}; memTk.forEach(tk=>{ const v=gaps[tk]; if(v>0){ const ref=secMed[sector[tk]]??globMed; if(ref!=null) cheap[tk]=ref/v; } });  // >1 = cheaper than peers
+  const valPct = prank(memTk.filter(tk=>cheap[tk]!=null).map(tk=>({k:tk,v:cheap[tk]})));
   // value-trap guard: a deeply loss-making firm (net margin < -50%) isn't "cheap" — neutralise its value leg.
   memTk.forEach(tk=>{ if(valPct[tk]!=null && nm[tk]!=null && nm[tk]<-50) valPct[tk]=Math.min(valPct[tk],0.5); });
   const rows=[];
@@ -143,17 +151,17 @@ async function load(){
     rows.push({tk, nm:cname[tk]||'', th:[...(themesByTk[tk]||[])].join(', '),
       mom: mp==null?null:Math.round(mp*100),
       val: vp==null?null:Math.round(vp*100),
-      gaps: gaps[tk]??null,
+      valRaw: vp==null?null:vp,
       blend: (mp!=null&&vp!=null)?+((0.5*mp+0.5*vp)*100).toFixed(1):null }); });
   // three views: rank by momentum alone, value alone, or the 50/50 blend.
   window.setBoard = function(mode){
     const key = mode==='mom'?'mom':mode==='val'?'val':'blend';
-    // Tiebreaks: value ties (many sector-cheapest = 100) break by raw growth-adjusted P/S
-    // (lower = genuinely cheaper); momentum ties break by value; blend ties by momentum.
+    // Sort by the continuous underlying score to avoid display-rounding ties: value by its raw
+    // sector-relative cheapness; momentum ties break by value; blend ties by momentum.
     const cmp = ({
       blend:(a,b)=> (b.blend-a.blend) || ((b.mom??-1)-(a.mom??-1)),
-      mom:  (a,b)=> (b.mom-a.mom)     || ((b.val??-1)-(a.val??-1)),
-      val:  (a,b)=> (b.val-a.val)     || ((a.gaps??1e9)-(b.gaps??1e9)),
+      mom:  (a,b)=> (b.mom-a.mom)     || ((b.valRaw??-1)-(a.valRaw??-1)),
+      val:  (a,b)=> (b.valRaw-a.valRaw),
     })[mode];
     const list = rows.filter(r=>r[key]!=null).sort(cmp).slice(0,10);
     document.querySelectorAll('.btoggle button').forEach(b=>b.classList.toggle('on', b.dataset.mode===mode));
@@ -169,7 +177,7 @@ async function load(){
   document.getElementById('board').innerHTML = !rows.length ? '' :
     `<div class="board">
       <div class="btitle">🏆 Top 10 across all themes</div>
-      <div class="bsub"><b>Momentum</b> = a multi-factor technical composite (relative-strength level &amp; trend, EMA-9/20 slopes, price-vs-EMA-50). <b>Value</b> = growth-adjusted price-to-sales vs GICS-sector peers (deep-loss names neutralised). <b>Combined</b> = 50/50 blend. Excludes fundamentals/analyst-heavy conviction so newer names compete fairly. Click a row for the deep dive.</div>
+      <div class="bsub"><b>Momentum</b> = a multi-factor technical composite (relative-strength level &amp; trend, EMA-9/20 slopes, price-vs-EMA-50). <b>Value</b> = how cheap vs its GICS-sector peers on growth-adjusted price-to-sales (shrinking-revenue &amp; deep-loss names excluded). <b>Combined</b> = 50/50 blend. Excludes fundamentals/analyst-heavy conviction so newer names compete fairly. Click a row for the deep dive.</div>
       <div class="btoggle">
         <button data-mode="blend" onclick="setBoard('blend')">Momentum + Value</button>
         <button data-mode="mom" onclick="setBoard('mom')">Momentum</button>
