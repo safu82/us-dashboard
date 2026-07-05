@@ -147,7 +147,7 @@ async function fetchAll(ticker) {
     const [lR, sR, fR, sigR, presR, hR, ahR, srR, secR, indR, ptR, alR, cvR] = await Promise.all([
         safe(sb.from('live_prices').select('*').eq('ticker', ticker).maybeSingle(), 'live_prices'),
         safe(sb.from('daily_stock_snapshots')
-            .select('snapshot_date,open,high,low,close,volume,ema_9,ema_20,ema_50,ema_200,atr_14,rsi_14,rsi_ema_9,weekly_rsi_14,weekly_rsi_ema_9,high_52w,alkalyme_rs,rs_rank,vol_ratio,sector_percentile,sector_composite_pct,peer_percentile,peer_composite_pct,peer_group,bz_streak,gc_crossover_date,macd_line,macd_signal,macd_hist,adx_14')
+            .select('snapshot_date,open,high,low,close,volume,ema_9,ema_20,ema_50,ema_200,atr_14,rsi_14,rsi_ema_9,weekly_rsi_14,weekly_rsi_ema_9,high_52w,alkalyme_rs,rs_rank,vol_ratio,sector_percentile,sector_composite_pct,peer_percentile,peer_composite_pct,peer_group,bz_streak,gc_crossover_date,macd_line,macd_signal,macd_hist,adx_14,momentum_score')
             .eq('ticker', ticker).order('snapshot_date', { ascending: false }).limit(380), 'snapshots'),
         safe(sb.from('stock_fundamentals').select('*').eq('ticker', ticker).maybeSingle(), 'fundamentals'),
         safe(sb.from('entry_signals').select('pattern,signal_strength,alert_date,close,metadata').eq('ticker', ticker).order('alert_date', { ascending: false }).limit(40), 'entry_signals'),
@@ -379,6 +379,7 @@ async function render(ticker, d) {
                 <div class="card-title">🏆 RS Rank</div>
                 <div class="card-value blue">${latest.rs_rank ? '#' + latest.rs_rank : '<span class="na">—</span>'}</div>
                 <div class="card-sub">Top ${latest.rs_rank ? Math.round(latest.rs_rank / 5.18) : '—'}% of universe</div>
+                ${latest.momentum_score != null ? `<div style="margin-top:6px;font-size:11px;color:var(--text2)" title="0-100 multi-factor momentum composite: RS-rank level & trend, EMA-9/20 slopes, price vs EMA-50 (50 = middle of the universe)">Momentum score: <b class="${latest.momentum_score >= 55 ? 'green' : latest.momentum_score <= 45 ? 'red' : ''}">${latest.momentum_score}/100</b></div>` : ''}
                 ${latest.peer_percentile != null ? `<div style="margin-top:6px;font-size:11px;color:var(--text2)">In peer group: <span style="color:var(--text);font-weight:600">${latest.peer_percentile}th pct</span></div>` : ''}
             </div>
             <div class="card">
