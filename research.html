@@ -72,6 +72,11 @@
   .lb-m{font-size:13px;text-align:right;color:var(--text2);}
   .lb-m b{color:var(--text);font-size:13px;}
   .lb-blend{font-weight:800;color:var(--orange);text-align:right;font-size:15px;}
+  .btoggle{display:flex;gap:6px;padding:2px 10px 12px;flex-wrap:wrap;}
+  .btoggle button{background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-size:12px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;}
+  .btoggle button:hover{border-color:var(--accent);}
+  .btoggle button.on{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .lb-m.hi b{color:var(--orange);}
   .foot{color:var(--text2);font-size:11px;margin-top:24px;line-height:1.6;}
 </style>
 </head>
@@ -133,25 +138,39 @@ async function load(){
   const valPct={}; Object.values(bySector).forEach(list=>{ if(list.length>=5) Object.assign(valPct, prank(list)); });
   // value-trap guard: a deeply loss-making firm (net margin < -50%) isn't "cheap" — neutralise its value leg.
   memTk.forEach(tk=>{ if(valPct[tk]!=null && nm[tk]!=null && nm[tk]<-50) valPct[tk]=Math.min(valPct[tk],0.5); });
-  const board=[];
-  memTk.forEach(tk=>{ if(momPct[tk]!=null && valPct[tk]!=null){ const b=0.5*momPct[tk]+0.5*valPct[tk];
-    board.push({tk, nm:cname[tk]||'', th:[...(themesByTk[tk]||[])].join(', '), mom:Math.round(momPct[tk]*100), val:Math.round(valPct[tk]*100), blend:+(b*100).toFixed(1)}); } });
-  board.sort((a,b)=>b.blend-a.blend);
-  const top=board.slice(0,10);
-  document.getElementById('board').innerHTML = !top.length ? '' :
+  const rows=[];
+  memTk.forEach(tk=>{ const mp=momPct[tk], vp=valPct[tk]; if(mp==null && vp==null) return;
+    rows.push({tk, nm:cname[tk]||'', th:[...(themesByTk[tk]||[])].join(', '),
+      mom: mp==null?null:Math.round(mp*100),
+      val: vp==null?null:Math.round(vp*100),
+      blend: (mp!=null&&vp!=null)?+((0.5*mp+0.5*vp)*100).toFixed(1):null }); });
+  // three views: rank by momentum alone, value alone, or the 50/50 blend.
+  window.setBoard = function(mode){
+    const key = mode==='mom'?'mom':mode==='val'?'val':'blend';
+    const list = rows.filter(r=>r[key]!=null).sort((a,b)=>b[key]-a[key]).slice(0,10);
+    document.querySelectorAll('.btoggle button').forEach(b=>b.classList.toggle('on', b.dataset.mode===mode));
+    document.getElementById('lbrows').innerHTML = list.map((r,i)=>`
+      <a class="lbrow" href="deep_dive.html?ticker=${r.tk}">
+        <div class="lb-rank">${i+1}</div>
+        <div><span class="lb-tk">${r.tk}</span><span class="lb-nm">${r.nm}</span><div class="lb-theme">${r.th}</div></div>
+        <div class="lb-m${key==='mom'?' hi':''}"><b>${r.mom==null?'–':r.mom}</b></div>
+        <div class="lb-m${key==='val'?' hi':''}"><b>${r.val==null?'–':r.val}</b></div>
+        <div class="lb-blend" style="${key==='blend'?'':'opacity:.55'}">${r.blend==null?'–':r.blend}</div>
+      </a>`).join('');
+  };
+  document.getElementById('board').innerHTML = !rows.length ? '' :
     `<div class="board">
       <div class="btitle">🏆 Top 10 across all themes</div>
-      <div class="bsub">Ranked by a 50/50 blend of <b>momentum</b> (a multi-factor technical composite — relative-strength level &amp; trend, EMA-9/20 slopes and price-vs-EMA-50) and <b>value</b> (growth-adjusted price-to-sales vs GICS-sector peers, deep-loss names neutralised). Deliberately excludes fundamentals/analyst-heavy conviction so newer names compete fairly. Click a row for the deep dive.</div>
+      <div class="bsub"><b>Momentum</b> = a multi-factor technical composite (relative-strength level &amp; trend, EMA-9/20 slopes, price-vs-EMA-50). <b>Value</b> = growth-adjusted price-to-sales vs GICS-sector peers (deep-loss names neutralised). <b>Combined</b> = 50/50 blend. Excludes fundamentals/analyst-heavy conviction so newer names compete fairly. Click a row for the deep dive.</div>
+      <div class="btoggle">
+        <button data-mode="blend" onclick="setBoard('blend')">Momentum + Value</button>
+        <button data-mode="mom" onclick="setBoard('mom')">Momentum</button>
+        <button data-mode="val" onclick="setBoard('val')">Value</button>
+      </div>
       <div class="bhead"><div></div><div>Company</div><div class="r">Mom</div><div class="r">Val</div><div class="r">Blend</div></div>
-      ${top.map((r,i)=>`
-        <a class="lbrow" href="deep_dive.html?ticker=${r.tk}">
-          <div class="lb-rank">${i+1}</div>
-          <div><span class="lb-tk">${r.tk}</span><span class="lb-nm">${r.nm}</span><div class="lb-theme">${r.th}</div></div>
-          <div class="lb-m"><b>${r.mom}</b></div>
-          <div class="lb-m"><b>${r.val}</b></div>
-          <div class="lb-blend">${r.blend}</div>
-        </a>`).join('')}
+      <div id="lbrows"></div>
     </div>`;
+  if(rows.length) setBoard('blend');
 
   // ---- theme cards grouped by umbrella category (category_order), hottest theme first within each ----
   const cats=[]; const seen={};
