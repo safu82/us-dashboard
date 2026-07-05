@@ -143,11 +143,19 @@ async function load(){
     rows.push({tk, nm:cname[tk]||'', th:[...(themesByTk[tk]||[])].join(', '),
       mom: mp==null?null:Math.round(mp*100),
       val: vp==null?null:Math.round(vp*100),
+      gaps: gaps[tk]??null,
       blend: (mp!=null&&vp!=null)?+((0.5*mp+0.5*vp)*100).toFixed(1):null }); });
   // three views: rank by momentum alone, value alone, or the 50/50 blend.
   window.setBoard = function(mode){
     const key = mode==='mom'?'mom':mode==='val'?'val':'blend';
-    const list = rows.filter(r=>r[key]!=null).sort((a,b)=>b[key]-a[key]).slice(0,10);
+    // Tiebreaks: value ties (many sector-cheapest = 100) break by raw growth-adjusted P/S
+    // (lower = genuinely cheaper); momentum ties break by value; blend ties by momentum.
+    const cmp = ({
+      blend:(a,b)=> (b.blend-a.blend) || ((b.mom??-1)-(a.mom??-1)),
+      mom:  (a,b)=> (b.mom-a.mom)     || ((b.val??-1)-(a.val??-1)),
+      val:  (a,b)=> (b.val-a.val)     || ((a.gaps??1e9)-(b.gaps??1e9)),
+    })[mode];
+    const list = rows.filter(r=>r[key]!=null).sort(cmp).slice(0,10);
     document.querySelectorAll('.btoggle button').forEach(b=>b.classList.toggle('on', b.dataset.mode===mode));
     document.getElementById('lbrows').innerHTML = list.map((r,i)=>`
       <a class="lbrow" href="deep_dive.html?ticker=${r.tk}">
