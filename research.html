@@ -94,9 +94,9 @@
   <div class="h-desc">Pick a theme to see its whole value chain as a map — the companies in each link, how their momentum is trending, and who looks cheap or pricey versus their peers. Built for first-time investors. Educational, not advice.</div>
 </div>
 <div class="page">
+  <div id="cats">Loading…</div>
   <div id="board"></div>
   <div id="hubs"></div>
-  <div id="cats">Loading…</div>
   <div class="foot" id="foot"></div>
 </div>
 <script>
@@ -185,7 +185,7 @@ async function load(){
       </a>`).join('');
   };
   document.getElementById('board').innerHTML = !rows.length ? '' :
-    `<div class="board">
+    `<div class="board" style="margin-top:22px">
       <div class="btitle">🏆 Top 10 across all themes</div>
       <div class="bsub"><b>Momentum</b> = a multi-factor technical composite (relative-strength level &amp; trend, EMA-9/20 slopes, price-vs-EMA-50). <b>Value</b> = how cheap vs its GICS-sector peers on growth-adjusted price-to-sales (shrinking-revenue &amp; deep-loss names excluded). <b>Combined</b> = 50/50 blend. Excludes fundamentals/analyst-heavy conviction so newer names compete fairly. Click a row for the deep dive.</div>
       <div class="btoggle">
