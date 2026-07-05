@@ -68,6 +68,14 @@ def num(v):
         return None
 
 
+def _median(xs):
+    xs = sorted(v for v in xs if v is not None)
+    if not xs:
+        return None
+    n, m = len(xs), len(xs) // 2
+    return xs[m] if n % 2 else (xs[m - 1] + xs[m]) / 2
+
+
 def previous_week_close(dates):
     """Last trading day of the most recent EARLIER ISO week — the week-over-week
     baseline for a weekly report (holiday- and weekday-robust)."""
@@ -302,6 +310,112 @@ def rates_macro_section(latest):
     return (["\n## Rates & Macro Data"] + L) if L else []
 
 
+def theme_of_week_section(latest, week_ago, meta):
+    """Rotating 'Theme of the Week' — the raw material for the section-5 teaching
+    deep-dive, pulled from the sector platform (themes / theme_nodes / theme_members).
+    One theme per week, chosen deterministically by ISO week number (cycles through
+    all themes, never back-to-back), overridable via NEWSLETTER_THEME=<slug>.
+    Emits the value chain (each link's companies + median 0-100 momentum_score, hottest
+    link flagged), theme momentum vs a week ago, and one/two standout names. It is a
+    curated EDUCATIONAL spotlight — the themes cover only part of the ~1,900 universe
+    and this is NOT a sector-rotation read. Returns [] if the theme tables are empty."""
+    themes = paginate('themes', 'slug, name, description, display_order', ['display_order'])
+    if not themes:
+        return []
+    override = os.environ.get('NEWSLETTER_THEME', '').strip().lower()
+    t = next((x for x in themes if x['slug'] == override), None) if override else None
+    if t is None:
+        wk = date.fromisoformat(latest).isocalendar()[1]        # ISO week number
+        t = themes[wk % len(themes)]
+    slug = t['slug']
+
+    nodes = paginate('theme_nodes', 'node_key, name, short_label, layer', ['layer', 'node_key'],
+                     filters=[lambda q: q.eq('theme_slug', slug)])
+    members = paginate('theme_members', 'node_key, ticker, is_context', ['node_key'],
+                       filters=[lambda q: q.eq('theme_slug', slug)])
+    core = [m for m in members if not m.get('is_context')]
+    tickers = sorted({m['ticker'] for m in core})
+    if not tickers:
+        return []
+
+    srows = (sb.table('daily_stock_snapshots')
+             .select('ticker, snapshot_date, rs_rank, momentum_score')
+             .in_('ticker', tickers).in_('snapshot_date', [latest, week_ago]).execute().data or [])
+    mom_now, mom_prev, rank = {}, {}, {}
+    for r in srows:
+        if r['snapshot_date'] == latest:
+            mom_now[r['ticker']] = num(r.get('momentum_score'))
+            rank[r['ticker']] = r.get('rs_rank')
+        else:
+            mom_prev[r['ticker']] = num(r.get('momentum_score'))
+
+    frows = (sb.table('stock_fundamentals')
+             .select('ticker, price_to_sales, revenue_growth_yoy')
+             .in_('ticker', tickers).execute().data or [])
+    fund = {r['ticker']: r for r in frows}
+    gaps = {}
+    for r in frows:                                   # growth-adjusted P/S; needs positive growth
+        ps, g = num(r.get('price_to_sales')), num(r.get('revenue_growth_yoy'))
+        if ps and ps > 0 and g is not None and g > 0:
+            gaps[r['ticker']] = ps / (max(g, 3) / 100)
+
+    theme_now = _median([mom_now.get(m['ticker']) for m in core])
+    theme_prev = _median([mom_prev.get(m['ticker']) for m in core])
+    node_tks = {nd['node_key']: [m['ticker'] for m in core if m['node_key'] == nd['node_key']]
+                for nd in nodes}
+    node_mom = {k: _median([mom_now.get(x) for x in tks]) for k, tks in node_tks.items()}
+    hottest = max((k for k in node_mom if node_mom[k] is not None),
+                  key=lambda k: node_mom[k], default=None)
+    top_tk = max((x for x in tickers if mom_now.get(x) is not None),
+                 key=lambda x: mom_now[x], default=None)
+    val_tk = min(gaps, key=lambda x: gaps[x], default=None)
+
+    def nm(tk):
+        return (meta.get(tk) or {}).get('company_name', tk)
+
+    trend = 'steady'
+    if theme_now is not None and theme_prev is not None:
+        d = theme_now - theme_prev
+        trend = 'heating up' if d >= 3 else 'cooling' if d <= -3 else 'steady'
+
+    L = [f"\n## Theme of the Week — {t['name']}",
+         f"_{t.get('description', '')}_",
+         "_Rotating educational spotlight for the section-5 teaching deep-dive. The platform maps "
+         "value-chain themes covering only PART of the ~1,900 universe — this is this week's lesson, "
+         "NOT a coverage claim and NOT a sector-rotation call (sector rotation is the broad-market "
+         "read elsewhere; keep them distinct)._\n"]
+    if theme_now is not None:
+        prev_txt = f"{theme_prev:.0f}" if theme_prev is not None else "n/a"
+        L.append(f"**Theme momentum (median member momentum score, 0-100):** {theme_now:.0f} now vs "
+                 f"{prev_txt} a week ago — {trend}. (The momentum score blends RS-rank level & trend, "
+                 f"EMA-9/20 slopes and price vs the 50-day; 50 = middle of the universe.)")
+    L.append("\n**The value chain — where money is flowing (link → companies → node momentum); "
+             "🔥 marks the hottest link:**")
+    L.append("| Link | Companies | Node momentum |\n|---|---|---|")
+    for nd in nodes:
+        tks = node_tks.get(nd['node_key'], [])
+        if not tks:
+            continue
+        shown = ", ".join(tks[:6]) + (" …" if len(tks) > 6 else "")
+        mm = node_mom.get(nd['node_key'])
+        flag = " 🔥" if nd['node_key'] == hottest else ""
+        L.append(f"| {(nd.get('short_label') or nd['name'])}{flag} | {shown} | "
+                 f"{('%.0f/100' % mm) if mm is not None else '—'} |")
+    stand = []
+    if top_tk is not None:
+        stand.append(f"- Strongest momentum now: {top_tk} ({nm(top_tk)}) — momentum {mom_now[top_tk]:.0f}/100"
+                     + (f", RS #{rank[top_tk]}" if rank.get(top_tk) else "") + ".")
+    if val_tk is not None:
+        ps, g = num(fund[val_tk].get('price_to_sales')), num(fund[val_tk].get('revenue_growth_yoy'))
+        stand.append(f"- Cheapest on growth-adjusted sales (a screen, not advice): {val_tk} ({nm(val_tk)}) "
+                     f"— P/S {ps:.1f}, revenue growth {g:.0f}% YoY.")
+    if stand:
+        L.append("\n**Standouts:**")
+        L += stand
+    L.append(f"\n_Theme rotates weekly by ISO week ({t['name']}); override with NEWSLETTER_THEME=<slug>._")
+    return L
+
+
 def main():
     # Dates from market_health (one row per date — cheap).
     mh = sorted(paginate('market_health', '*', ['snapshot_date']),
@@ -441,6 +555,9 @@ def main():
                      f"| {w['rank']} (+{w['delta']}) | {w['grade'] or '—'} | +{w['stretch']:.1f}% |")
     else:
         L.append("_No names passed all four filters this week._")
+
+    # Theme of the Week — rotating educational deep-dive from the sector platform
+    L += theme_of_week_section(latest, week_ago, meta)
 
     # Rates & macro data (+ next-week economic calendar)
     L += rates_macro_section(latest)

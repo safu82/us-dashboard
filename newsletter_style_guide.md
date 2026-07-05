@@ -105,8 +105,17 @@ Then numbered sections. Adapt to the week, but this is the canonical spine:
    just reported. Use the macro news for the "what happened," the rankings for
    "what our data shows," and your judgment for "what it means."
    - Where a prior call can be graded, grade it here (A+/F + one honest line).
-5. **A teaching deep-dive** — one theme explained via analogy (e.g. why a sector
-   rotated, what a supply chain chokepoint means).
+5. **A teaching deep-dive — "Theme of the Week."** If the data pack has a "Theme of
+   the Week" block, this is its home: walk the reader through that theme's value chain
+   in plain English (the "money flows to the chokepoint" style of analogy), show where
+   money is concentrating in the chain right now (the hottest link) and one or two
+   standout names, and teach how a supply-chain or demand chain actually works. Frame
+   it as a curated educational spotlight — the platform maps value-chain themes that
+   cover only PART of the ~1,900 universe, so this is this week's lesson, NOT a
+   coverage claim and NOT a sector-rotation call. Keep it distinct from the
+   broad-market sector rotation in the macro/movers sections so the two don't repeat
+   each other. If there's no Theme block, explain whatever rotation or chokepoint the
+   week's data suggests instead.
 6. **Where the money is going** — the constructive half. Use RS Movers: the Top 20
    strongest and the Top 20 weekly climbers. Call out the sector clusters.
 7. **A few names worth looking at** — the watchlist. Present the names that pass the
@@ -129,6 +138,14 @@ End with a 2–3 sentence close that restates the thesis and signs off
 
 - **Data pack** (Where We Stand, RS Movers, watchlist) → sections 6, 7, 8. Use the
   numbers verbatim; don't invent ranks or prices.
+- **Theme of the Week** → the data pack may include one rotating value-chain theme:
+  its chain of links, each link's companies and a 0-100 "node momentum" (higher =
+  stronger), the hottest link, theme momentum vs a week ago, and one or two standouts.
+  This is the raw material for the section-5 teaching deep-dive — teach the value chain
+  and where money is concentrating within it. Do NOT render it as a rotation table or
+  imply the themes cover the whole market; it's a curated spotlight, distinct from the
+  sector-rotation read. "Node momentum" and the "momentum score" are the platform's
+  0-100 composite (RS level & trend + EMA slopes + price vs the 50-day), not a rank.
 - **Market events** (ranked by impact) → pick the lead story and section themes
   from the top of this list; it tells you what actually moved.
 - **Macro news** (ranked themes + headlines) → the macro/geopolitics sections.
