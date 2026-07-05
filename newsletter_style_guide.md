@@ -159,6 +159,14 @@ End with a 2–3 sentence close that restates the thesis and signs off
   price move as an "earnings reaction"** — an after-hours or intraday wobble is not
   an earnings report. Use `earnings_upcoming` events (companies due to report next
   week) in the Key Events section.
+- **Last week's issue** (if provided) → **close the loop.** Near the top, grade any due
+  predictions AND follow up on the items you flagged in last week's "Key events next
+  week": every earnings report or data print you told the reader to watch and that has
+  since happened gets a one-line "what happened," using only this week's inputs for any
+  figures. If a flagged report's numbers aren't in this week's inputs, say it reported
+  and cite what our board shows (its rank / rank move) — don't invent the print. This
+  continuity is a core trust-builder: a reader told "Nike reports Monday" expects to
+  hear how it went. Match the voice; don't restate last week's analysis.
 - **This is a weekly report.** Every comparison — ranks, prices, breadth — is
   measured from the **last trading day of the previous week to the last trading day
   of this week** (the inputs already use that baseline). Say "this week" / "on the

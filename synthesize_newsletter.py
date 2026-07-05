@@ -66,6 +66,17 @@ def main():
 
     issue_date = events.get('latest_date') or datetime.now(timezone.utc).strftime('%Y-%m-%d')
 
+    # Continuity: if no hand-curated previous_issue.md was provided, fall back to the most
+    # recent PRIOR draft so the writer can always close the loop on last week (grade calls,
+    # follow up on the events it flagged). ISO-dated filenames sort chronologically.
+    if not prev_issue:
+        import glob
+        prior = sorted(os.path.basename(p) for p in glob.glob(os.path.join(BASE, 'newsletter_draft_*.md')))
+        prior = [f for f in prior if f < f'newsletter_draft_{issue_date}.md']
+        if prior:
+            prev_issue = open(os.path.join(BASE, prior[-1]), encoding='utf-8').read()
+            print(f'[continuity: no previous_issue.md — using {prior[-1]} as last week]')
+
     # Assemble the week's inputs. Keep the high-impact head, but generously — the
     # earnings + earnings_upcoming events score lower than sector/breadth moves and
     # must still reach the model for the earnings section and next-week calendar.
@@ -85,7 +96,14 @@ def main():
                   json.dumps({'by_ticker': ticker['by_ticker'],
                               'sector_news': ticker.get('sector_news', {})}, indent=2)]
     if prev_issue:
-        parts += ["\n\n===== LAST WEEK'S ISSUE (for continuity + voice; do not repeat it) =====\n", prev_issue]
+        parts += ["\n\n===== LAST WEEK'S ISSUE (CLOSE THE LOOP — do not otherwise repeat it) =====\n"
+                  "Near the top of this issue, follow up on last week: (a) grade any due predictions "
+                  "(listed below, if any); and (b) revisit last week's 'Key events next week' — for every "
+                  "company or data release flagged there that has since occurred (earnings, jobs prints, "
+                  "etc.), tell the reader what happened. Use ONLY this week's inputs for any figures; if a "
+                  "flagged report's numbers aren't in this week's inputs, say it reported and cite what our "
+                  "board shows (its rank / rank move), and don't invent the print. Match the voice, but do "
+                  "not restate last week's analysis.\n\n", prev_issue]
     # Only grade predictions that are actually DUE (made in a prior issue and past
     # their resolve_after) — this issue's freshly-seeded calls wait for next week.
     if predictions:
