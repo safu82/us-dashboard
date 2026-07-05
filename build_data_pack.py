@@ -403,8 +403,18 @@ def theme_of_week_section(latest, week_ago, meta):
                  f"{('%.0f/100' % mm) if mm is not None else '—'} |")
     stand = []
     if top_tk is not None:
-        stand.append(f"- Strongest momentum now: {top_tk} ({nm(top_tk)}) — momentum {mom_now[top_tk]:.0f}/100"
-                     + (f", RS #{rank[top_tk]}" if rank.get(top_tk) else "") + ".")
+        ms = mom_now[top_tk]
+        rs_txt = f", RS #{rank[top_tk]} of ~1,900" if rank.get(top_tk) else ""
+        # Honest framing: only crown a "strongest" if it's actually strong. In a weak theme the
+        # top member is a relative leader only — say so (a #1,700 name is not "strongest").
+        if ms >= 55:
+            stand.append(f"- Strongest momentum: {top_tk} ({nm(top_tk)}) — momentum {ms:.0f}/100{rs_txt}.")
+        elif ms <= 45:
+            stand.append(f"- Relative leader only — the whole chain is weak: {top_tk} ({nm(top_tk)}) — "
+                         f"momentum {ms:.0f}/100{rs_txt}; no member is in a genuine uptrend.")
+        else:
+            stand.append(f"- Leads the theme (middling at best): {top_tk} ({nm(top_tk)}) — "
+                         f"momentum {ms:.0f}/100{rs_txt}.")
     if val_tk is not None:
         ps, g = num(fund[val_tk].get('price_to_sales')), num(fund[val_tk].get('revenue_growth_yoy'))
         stand.append(f"- Cheapest on growth-adjusted sales (a screen, not advice): {val_tk} ({nm(val_tk)}) "
