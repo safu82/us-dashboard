@@ -77,6 +77,14 @@
   .btoggle button:hover{border-color:var(--accent);}
   .btoggle button.on{background:var(--accent);border-color:var(--accent);color:#fff;}
   .lb-m.hi b{color:var(--orange);}
+  .hubhead,.hubrow{display:grid;grid-template-columns:26px 1fr 54px 54px;gap:10px;align-items:center;}
+  .hubhead{padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);}
+  .hubhead .r{text-align:right;}
+  .hubrow{padding:9px 10px;border-radius:8px;}
+  .hubrow:hover{background:var(--bg3);}
+  .hubrow+.hubrow{border-top:1px solid var(--border);}
+  .hub-n{text-align:right;font-weight:800;color:var(--blue);font-size:15px;}
+  .hub-th{font-size:11px;color:var(--text2);margin-top:2px;}
   .foot{color:var(--text2);font-size:11px;margin-top:24px;line-height:1.6;}
 </style>
 </head>
@@ -87,6 +95,7 @@
 </div>
 <div class="page">
   <div id="board"></div>
+  <div id="hubs"></div>
   <div id="cats">Loading…</div>
   <div class="foot" id="foot"></div>
 </div>
@@ -110,6 +119,7 @@ async function load(){
   const slugName={}; themes.forEach(t=>slugName[t.slug]=t.name);
   const memTk = [...new Set(members.filter(m=>!m.is_context).map(m=>m.ticker))];
   const themesByTk={}; members.forEach(m=>{ if(!m.is_context){ (themesByTk[m.ticker]=themesByTk[m.ticker]||new Set()).add(slugName[m.theme_slug]||m.theme_slug); } });
+  const slugsByTk={}; members.forEach(m=>{ if(!m.is_context){ (slugsByTk[m.ticker]=slugsByTk[m.ticker]||new Set()).add(m.theme_slug); } });
 
   const latest = (await sb.from('daily_stock_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
 
@@ -187,6 +197,25 @@ async function load(){
       <div id="lbrows"></div>
     </div>`;
   if(rows.length) setBoard('blend');
+
+  // ---- connective tissue: stocks that sit in multiple themes at once (structural hubs) ----
+  const hubs = memTk.map(tk=>({tk, nm:cname[tk]||'', th:[...(slugsByTk[tk]||[])].sort(), mom:mscore[tk]}))
+    .filter(h=>h.th.length>=2)
+    .sort((a,b)=> (b.th.length-a.th.length) || ((b.mom??-1)-(a.mom??-1)))
+    .slice(0,12);
+  document.getElementById('hubs').innerHTML = !hubs.length ? '' :
+    `<div class="board" style="margin-top:16px">
+      <div class="btitle">🔗 Cross-theme hubs</div>
+      <div class="bsub">Stocks sitting in several themes at once — one name catching multiple megatrends, and structurally central to the map. More themes = more secular tailwinds converging on it. <b>Mom</b> = 0-100 momentum score.</div>
+      <div class="hubhead"><div></div><div>Company · themes</div><div class="r">Themes</div><div class="r">Mom</div></div>
+      ${hubs.map((h,i)=>`
+        <a class="hubrow" href="deep_dive.html?ticker=${h.tk}">
+          <div class="lb-rank">${i+1}</div>
+          <div><span class="lb-tk">${h.tk}</span><span class="lb-nm">${h.nm}</span><div class="hub-th">${h.th.join(' · ')}</div></div>
+          <div class="hub-n">${h.th.length}</div>
+          <div class="lb-m"><b>${h.mom==null?'–':h.mom}</b></div>
+        </a>`).join('')}
+    </div>`;
 
   // ---- theme cards grouped by umbrella category (category_order), hottest theme first within each ----
   const cats=[]; const seen={};
