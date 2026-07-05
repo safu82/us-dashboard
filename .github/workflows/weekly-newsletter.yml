@@ -39,10 +39,13 @@ jobs:
       - name: 1/10 compute_market_health.py
         run: python compute_market_health.py
       - name: 2/10 fetch_credit_spreads.py
+        continue-on-error: true          # optional enrichment; FRED outage must not fail the run
         run: python fetch_credit_spreads.py
       - name: 3/10 fetch_macro_data.py
+        continue-on-error: true          # FRED->AV fallback; if both fail, rates stay (honestly) stale
         run: python fetch_macro_data.py
       - name: 4/10 fetch_earnings_dates.py
+        continue-on-error: true          # yfinance calendar; partial/failed pull must not block the issue
         run: python fetch_earnings_dates.py
 
       # 2. Deterministic data pack + event detection (pure DB). The data pack also
@@ -55,8 +58,10 @@ jobs:
 
       # 3. News retrieval (macro keyless GDELT; ticker via Alpha Vantage).
       - name: 7/10 fetch_macro_news.py
+        continue-on-error: true          # GDELT (keyless, rate-limits); optional colour
         run: python fetch_macro_news.py
       - name: 8/10 fetch_ticker_news.py
+        continue-on-error: true          # Alpha Vantage (needs ALPHAVANTAGE_API_KEY, 25/day); optional
         run: python fetch_ticker_news.py
 
       # 4. Synthesize the draft, humanize it (strip AI tells), then render .docx.

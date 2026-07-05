@@ -83,9 +83,17 @@ def main():
           datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'))
     print('=' * 60)
 
-    series = fetch_fred_series()
+    # Credit spreads are an OPTIONAL enrichment — the newsletter handles a missing
+    # reading honestly ("credit spreads: n/a"). A FRED outage must NOT fail the whole
+    # weekly run, so degrade gracefully (exit 0) instead of raising.
+    try:
+        series = fetch_fred_series()
+    except Exception as e:
+        print(f'WARN: FRED unreachable — skipping credit spreads, leaving them n/a. {str(e)[:80]}')
+        return
     if not series:
-        sys.exit('No FRED data parsed')
+        print('WARN: no FRED data parsed — skipping credit spreads (left n/a).')
+        return
     print(f'FRED {SERIES}: {len(series)} obs, latest {series[-1][0]} = {series[-1][1]}%')
 
     dates = [r['snapshot_date'] for r in
