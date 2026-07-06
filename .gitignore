@@ -226,6 +226,7 @@ newsletter_data_pack.md
 market_events.json
 macro_news.json
 ticker_news.json
+global_news.json
 newsletter_draft_*.md
 previous_issue.md
 *.docx

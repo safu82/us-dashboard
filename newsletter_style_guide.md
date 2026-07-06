@@ -204,19 +204,31 @@ End with a 2–3 sentence close that restates the thesis and signs off
   `earnings_upcoming` events) populate Key Events, each with its "real tell."
 - **Global Tape** → the data pack's "Global Tape" block carries how the rest of the
   world traded into the US week: Asian equity indices (Taiwan/TAIEX, KOSPI, Nikkei,
-  Hang Seng), the US dollar index and USD/JPY, copper and Brent crude, and Bitcoin —
-  each with its week-over-week % move and a fixed note on why it leads or co-moves with
-  US stocks. Use it as macro backdrop, woven into the Fed/geopolitics/rotation sections,
-  never as a standalone table dump. The linkages that matter most: **Taiwan + Korea are
-  the semiconductor tell** (strong → the US AI/chip trade has support; weak → a warning
-  for NVDA/AMD/MU and growth); **Nikkei + USD/JPY are the risk / carry-trade tell** (a
-  sharp Nikkei drop or fast yen strength precedes US risk-off); **Hang Seng + copper are
-  the China-demand / materials tell** (and copper ties straight into the Theme of the
-  Week when a metals theme is up); **a rising dollar** is a headwind for US multinationals
-  and commodities; **Brent** is the direct gauge behind any Middle-East headline (cite it
-  rather than inferring calm only from the VIX). Lead with whatever actually moved — one
-  or two standouts interpreted, not all nine listed. Read direction from the numbers in
-  the block; don't attach a move that isn't there.
+  Hang Seng), the US dollar index and USD/JPY, copper and Brent crude, and Bitcoin.
+  This is where you **earn the reader's money — analyse, don't report.** A line like
+  "the KOSPI fell 3.8%" is worthless on its own; the job is *what it means for the US*.
+  Rules:
+  - **Read BOTH columns, and the path.** "Wk %" is the move over the same week as the US
+    numbers; "Since US close" is the move in foreign sessions the US hasn't priced yet
+    (e.g. an Asian Friday during a US holiday). A backward weekly figure can hide a
+    sharp reversal — if a market dumped mid-week then bounced hard after the US close,
+    the **bounce is the story**, not the stale weekly number. Treat a "Since US close"
+    move as the forward tell for the *next* US session and say so ("Korea rallied 5.8%
+    Friday while we were shut — that lands on Monday's open").
+  - **Translate every move into a US read.** **Taiwan + Korea = the semiconductor tell**
+    (TSMC → US AI names NVDA/AMD/AVGO; Samsung + SK Hynix → US memory, i.e. Micron/MU).
+    A KOSPI memory-cycle plunge *is* a Micron read — write it that way. **Nikkei + USD/JPY
+    = the risk / carry-trade tell** (a sharp Nikkei drop or fast yen strength precedes US
+    risk-off). **Hang Seng + copper = the China-demand / materials tell** (copper ties
+    into the Theme of the Week when a metals theme runs). **A rising dollar** pressures US
+    multinationals and commodities. **Brent** is the direct gauge behind any Middle-East
+    headline — cite it rather than inferring calm only from the VIX.
+  - **Explain WHY with the Global News input.** Notable movers (flagged ⚠) come with
+    headlines in the Global News input. Use them to give the *cause* (a memory-price cut,
+    an export-control headline, a BOJ signal), then your read on the US implication. Use
+    the direction and substance of the headlines, never a fabricated number.
+  - Lead with whatever actually moved — one or two standouts, interpreted with a genuine
+    "so what," not all nine listed. Don't attach a move that isn't in the block.
 - **Never fabricate.** If the data doesn't support a claim, don't make it. If a
   number isn't in the inputs, don't cite it. Missing data ("credit spreads: n/a")
   is stated honestly, not invented.

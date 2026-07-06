@@ -61,6 +61,7 @@ def main():
     events = read_json('market_events.json')                  # detect_market_events.py
     macro = read_json('macro_news.json')                      # fetch_macro_news.py
     ticker = read_json('ticker_news.json', required=False)    # fetch_ticker_news.py (optional)
+    global_news = read_json('global_news.json', required=False)        # fetch_global_indices.py (optional)
     prev_issue = read_text('previous_issue.md', required=False)        # last week's final, optional
     predictions = read_json('open_predictions.json', required=False)   # ledger, optional
 
@@ -95,6 +96,13 @@ def main():
         parts += ["\n\n===== TICKER NEWS (why specific moved names moved, with sentiment) =====\n",
                   json.dumps({'by_ticker': ticker['by_ticker'],
                               'sector_news': ticker.get('sector_news', {})}, indent=2)]
+    if global_news and global_news.get('movers'):
+        parts += ["\n\n===== GLOBAL NEWS (why the flagged foreign markets moved — EXPLAIN the "
+                  "notable Global-Tape movers and translate each into what it means for the US "
+                  "group named in 'us_linkage', e.g. a KOSPI memory-cycle plunge is a read on "
+                  "Micron/US memory. Use the direction/substance of these headlines, not fabricated "
+                  "figures; 'since the US close' moves are the forward tell for the next US session) =====\n",
+                  json.dumps(global_news['movers'], indent=2)]
     if prev_issue:
         parts += ["\n\n===== LAST WEEK'S ISSUE (CLOSE THE LOOP — do not otherwise repeat it) =====\n"
                   "Near the top of this issue, follow up on last week: (a) grade any due predictions "

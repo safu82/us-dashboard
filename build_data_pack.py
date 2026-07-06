@@ -302,10 +302,11 @@ def _fmt_level(v):
 
 def global_tape_section(latest):
     """The global cross-asset tape (from global_indices): Asian equity indices + FX +
-    commodities + BTC, each with its week-over-week move and a fixed note on why it
-    leads/co-moves with US markets. Context for the macro sections — the writer reads
-    the direction from the actual moves; this is NOT a US rank/rotation read. Uses the
-    most recent global_indices snapshot (foreign calendars can lag the US date).
+    commodities + BTC. TWO windows per market so the path isn't hidden: (1) the move over
+    the SAME week as the US numbers (comparable), and (2) the move SINCE the US last close
+    — sessions the US hasn't priced yet (e.g. an Asian Friday on a US holiday), the forward
+    tell for the next US session. Notable movers are flagged and get explanatory headlines
+    in global_news.json. Context for the macro sections — NOT a US rank/rotation read.
     Returns [] if the table is empty."""
     snaps = (sb.table('global_indices').select('snapshot_date')
              .order('snapshot_date', desc=True).limit(1).execute().data)
@@ -317,27 +318,50 @@ def global_tape_section(latest):
     if not rows:
         return []
 
+    any_gap = any((r.get('since_us_days') or 0) > 0 for r in rows)
     L = ["\n## Global Tape (overnight / cross-asset)",
          "_How the rest of the world traded into the US week. Asia closes before the US "
-         "opens, so these lead; FX and commodities set the backdrop. Read the direction "
-         "from the weekly move — this is macro context, NOT a US-ranking or rotation read. "
-         "Weave the standouts into the macro narrative; do not dump the whole table._\n"]
-    stale = snap != latest
-    if stale:
-        L.append(f"_(Global tape as of {snap}; foreign markets/holidays can lag the US "
-                 f"session dated {latest}.)_\n")
+         "opens, so these lead; FX and commodities set the backdrop. Two columns: **Wk %** "
+         "is the move over the SAME week as our US numbers (comparable); **Since US close** "
+         "is the move in sessions that traded AFTER the US last print — un-priced into this "
+         "issue, so it's the forward tell for the next US session (blank when there were "
+         "none). Read the path, not just the endpoint, and weave the standouts into the "
+         "macro narrative — do not dump the whole table._\n"]
+    if any_gap:
+        L.append(f"_(The US last traded {snap}; foreign markets that kept trading after it "
+                 f"show a 'Since US close' move — treat that as the lead into the next US "
+                 f"session, not stale history.)_\n")
 
     last_cat = None
-    L.append("| Market | Last | 1-wk % | Why it matters for US stocks |\n|---|---|---|---|")
+    L.append("| Market | Last | Wk % (US-aligned) | Since US close | Why it matters for US stocks |"
+             "\n|---|---|---|---|---|")
     for r in rows:
         cat = r.get('category')
         if cat != last_cat:
-            L.append(f"| **{CATEGORY_LABEL.get(cat, cat)}** | | | |")
+            L.append(f"| **{CATEGORY_LABEL.get(cat, cat)}** | | | | |")
             last_cat = cat
-        pct = num(r.get('pct_chg_wk'))
-        pct_txt = f'{pct:+.1f}%' if pct is not None else 'n/a'
+        wk = num(r.get('pct_chg_wk'))
+        wk_txt = f'{wk:+.1f}%' if wk is not None else 'n/a'
+        su, sud = num(r.get('since_us_pct')), (r.get('since_us_days') or 0)
+        su_txt = f'{su:+.1f}% ({sud}d)' if (su is not None and sud > 0) else '—'
+        flag = ' ⚠' if r.get('is_notable') else ''
         tell = GLOBAL_TELL.get(r['symbol'], '')
-        L.append(f"| {r['name']} | {_fmt_level(num(r.get('last_close')))} | {pct_txt} | {tell} |")
+        L.append(f"| {r['name']}{flag} | {_fmt_level(num(r.get('last_close')))} | {wk_txt} "
+                 f"| {su_txt} | {tell} |")
+
+    movers = [r for r in rows if r.get('is_notable')]
+    if movers:
+        L.append("\n**Notable moves this week (⚠ — explanatory headlines are in the Global News "
+                 "input; say WHAT moved, WHY, and what it means for the US group named):**")
+        for r in movers:
+            wk = num(r.get('pct_chg_wk'))
+            su, sud = num(r.get('since_us_pct')), (r.get('since_us_days') or 0)
+            parts = []
+            if wk is not None:
+                parts.append(f"{wk:+.1f}% on the US week")
+            if su is not None and sud > 0:
+                parts.append(f"{su:+.1f}% in {sud} session(s) since the US close")
+            L.append(f"- **{r['name']}**: {', '.join(parts)}. {GLOBAL_TELL.get(r['symbol'], '')}")
     return L
 
 
