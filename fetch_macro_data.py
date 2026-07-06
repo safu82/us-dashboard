@@ -150,7 +150,13 @@ def gather_av():
         cpi=av_series('CPI', interval='monthly'),
         core=[],                              # AV has no core CPI series
         unrate=av_series('UNEMPLOYMENT'),
-        payems=av_series('NONFARM_PAYROLL'),
+        # AV's NONFARM_PAYROLL is the NON-seasonally-adjusted level: its month-over-month
+        # diff is dominated by seasonal swings (~-2.6M every January, big spring ramps) and
+        # is NOT the headline seasonally-adjusted jobs number markets react to. Deriving NFP
+        # from it produces plausible-looking but wrong figures (e.g. +432k, +962k). Only FRED
+        # PAYEMS (seasonally adjusted) is trustworthy here — on the AV fallback, leave payrolls
+        # empty so the change renders n/a rather than a seasonal artifact.
+        payems=[],
         fed=av_series('FEDERAL_FUNDS_RATE', interval='monthly'))
 
 
