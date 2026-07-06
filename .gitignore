@@ -229,3 +229,8 @@ ticker_news.json
 newsletter_draft_*.md
 previous_issue.md
 *.docx
+
+# Published issues live in newsletters/ as the single source of truth — keep them tracked
+# (overrides the *.docx ignore above for this folder only).
+!newsletters/*.md
+!newsletters/*.docx
