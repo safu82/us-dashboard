@@ -37,41 +37,44 @@ jobs:
           pip install yfinance pandas numpy supabase python-dotenv requests anthropic python-docx lxml
 
       # 1. Refresh the regime rollup, credit spreads + rates/macro (FRED is
-      #    reachable here) and the yfinance earnings calendar.
-      - name: 1/10 compute_market_health.py
+      #    reachable here), the global cross-asset tape, and the yfinance earnings calendar.
+      - name: 1/12 compute_market_health.py
         run: python compute_market_health.py
-      - name: 2/10 fetch_credit_spreads.py
+      - name: 2/12 fetch_credit_spreads.py
         continue-on-error: true          # optional enrichment; FRED outage must not fail the run
         run: python fetch_credit_spreads.py
-      - name: 3/10 fetch_macro_data.py
+      - name: 3/12 fetch_macro_data.py
         continue-on-error: true          # FRED->AV fallback; if both fail, rates stay (honestly) stale
         run: python fetch_macro_data.py
-      - name: 4/10 fetch_earnings_dates.py
+      - name: 4/12 fetch_global_indices.py
+        continue-on-error: true          # yfinance global tape; a network/Yahoo outage must not block
+        run: python fetch_global_indices.py
+      - name: 5/12 fetch_earnings_dates.py
         continue-on-error: true          # yfinance calendar; partial/failed pull must not block the issue
         run: python fetch_earnings_dates.py
 
       # 2. Deterministic data pack + event detection (pure DB). The data pack also
       #    reads analyst_ratings (maintained by the daily analyst job) for the
       #    Analyst Moves block — no extra fetch needed here.
-      - name: 5/10 build_data_pack.py
+      - name: 6/12 build_data_pack.py
         run: python build_data_pack.py
-      - name: 6/10 detect_market_events.py
+      - name: 7/12 detect_market_events.py
         run: python detect_market_events.py
 
       # 3. News retrieval (macro keyless GDELT; ticker via Alpha Vantage).
-      - name: 7/10 fetch_macro_news.py
+      - name: 8/12 fetch_macro_news.py
         continue-on-error: true          # GDELT (keyless, rate-limits); optional colour
         run: python fetch_macro_news.py
-      - name: 8/10 fetch_ticker_news.py
+      - name: 9/12 fetch_ticker_news.py
         continue-on-error: true          # Alpha Vantage (needs ALPHAVANTAGE_API_KEY, 25/day); optional
         run: python fetch_ticker_news.py
 
       # 4. Synthesize the draft, humanize it (strip AI tells), then render .docx.
-      - name: 9/11 synthesize_newsletter.py
+      - name: 10/12 synthesize_newsletter.py
         run: python synthesize_newsletter.py
-      - name: 10/11 humanize_newsletter.py
+      - name: 11/12 humanize_newsletter.py
         run: python humanize_newsletter.py
-      - name: 11/11 make_docx.py
+      - name: 12/12 make_docx.py
         run: python make_docx.py
 
       # Publish to newsletters/ as the single source of truth (stable path, in git,

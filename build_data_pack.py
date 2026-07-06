@@ -270,6 +270,77 @@ def econ_calendar(latest):
     return out
 
 
+# Fixed "why we watch it" context per symbol — a descriptor of the linkage to US
+# markets, NOT a market call. Gives the writer the mechanism; the direction/read
+# comes from the week's actual % move.
+GLOBAL_TELL = {
+    '^TWII':    'TSMC & the AI / semiconductor supply chain — the lead tell for US chips',
+    '^KS11':    'Samsung + SK Hynix — the global memory cycle (leads MU and the semis)',
+    '^N225':    'global risk appetite + the yen carry trade (a sharp drop precedes US risk-off)',
+    '^HSI':     'China demand — materials, industrials, copper, US multinationals\' China revenue',
+    'DX-Y.NYB': 'the US dollar — a rising dollar is a headwind for US multinationals & commodities',
+    'JPY=X':    'USD/JPY, the carry-trade gauge — fast yen strength = a carry unwind = global risk-off',
+    'HG=F':     '"Dr. Copper", the global-growth barometer (ties to the copper theme when it runs)',
+    'BZ=F':     'Brent crude — the direct oil / supply-shock gauge behind any Middle-East headline',
+    'BTC-USD':  '24/7 risk-sentiment proxy — trades through the weekend when equities are shut',
+}
+CATEGORY_LABEL = {'asia_equity': 'Asian equities (they trade before the US opens)',
+                  'fx': 'Currencies', 'commodity': 'Commodities', 'crypto': 'Crypto'}
+
+
+def _fmt_level(v):
+    """Price/level formatting by magnitude: big indices no decimals, FX/commodities 2dp."""
+    if v is None:
+        return '—'
+    av = abs(v)
+    if av >= 1000:
+        return f'{v:,.0f}'
+    if av >= 100:
+        return f'{v:,.1f}'
+    return f'{v:,.2f}'
+
+
+def global_tape_section(latest):
+    """The global cross-asset tape (from global_indices): Asian equity indices + FX +
+    commodities + BTC, each with its week-over-week move and a fixed note on why it
+    leads/co-moves with US markets. Context for the macro sections — the writer reads
+    the direction from the actual moves; this is NOT a US rank/rotation read. Uses the
+    most recent global_indices snapshot (foreign calendars can lag the US date).
+    Returns [] if the table is empty."""
+    snaps = (sb.table('global_indices').select('snapshot_date')
+             .order('snapshot_date', desc=True).limit(1).execute().data)
+    if not snaps:
+        return []
+    snap = snaps[0]['snapshot_date']
+    rows = (sb.table('global_indices').select('*')
+            .eq('snapshot_date', snap).order('display_order').execute().data or [])
+    if not rows:
+        return []
+
+    L = ["\n## Global Tape (overnight / cross-asset)",
+         "_How the rest of the world traded into the US week. Asia closes before the US "
+         "opens, so these lead; FX and commodities set the backdrop. Read the direction "
+         "from the weekly move — this is macro context, NOT a US-ranking or rotation read. "
+         "Weave the standouts into the macro narrative; do not dump the whole table._\n"]
+    stale = snap != latest
+    if stale:
+        L.append(f"_(Global tape as of {snap}; foreign markets/holidays can lag the US "
+                 f"session dated {latest}.)_\n")
+
+    last_cat = None
+    L.append("| Market | Last | 1-wk % | Why it matters for US stocks |\n|---|---|---|---|")
+    for r in rows:
+        cat = r.get('category')
+        if cat != last_cat:
+            L.append(f"| **{CATEGORY_LABEL.get(cat, cat)}** | | | |")
+            last_cat = cat
+        pct = num(r.get('pct_chg_wk'))
+        pct_txt = f'{pct:+.1f}%' if pct is not None else 'n/a'
+        tell = GLOBAL_TELL.get(r['symbol'], '')
+        L.append(f"| {r['name']} | {_fmt_level(num(r.get('last_close')))} | {pct_txt} | {tell} |")
+    return L
+
+
 def rates_macro_section(latest):
     """Treasury yields + 2s10s + inflation/jobs/Fed prints (from macro_indicators),
     plus next week's recurring economic calendar. Each part renders only if present."""
@@ -293,7 +364,12 @@ def rates_macro_section(latest):
             L.append(f"- **Inflation:** CPI {m['cpi_yoy']}% YoY"
                      + (f", core {core}% YoY." if core is not None else "."))
         if m.get('unemployment') is not None:
-            nf = m.get('nonfarm_chg_k')
+            nf = num(m.get('nonfarm_chg_k'))
+            # Defensive: suppress an implausible payrolls print (>|600k| monthly) even if a
+            # stale bad row survives in the DB — mirrors the gate in fetch_macro_data.py so a
+            # data glitch (e.g. an AV +741k) never reaches the reader as a "hot" number.
+            if nf is not None and abs(nf) > 600:
+                nf = None
             L.append(f"- **Jobs:** unemployment {m['unemployment']}%; last nonfarm payrolls "
                      f"{('%+d k' % int(nf)) if nf is not None else 'n/a'}.")
         if m.get('fed_funds') is not None:
@@ -568,6 +644,9 @@ def main():
 
     # Theme of the Week — rotating educational deep-dive from the sector platform
     L += theme_of_week_section(latest, week_ago, meta)
+
+    # Global tape — overnight/cross-asset context (Asian indices, FX, commodities, BTC)
+    L += global_tape_section(latest)
 
     # Rates & macro data (+ next-week economic calendar)
     L += rates_macro_section(latest)

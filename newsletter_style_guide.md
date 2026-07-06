@@ -101,9 +101,10 @@ Then numbered sections. Adapt to the week, but this is the canonical spine:
 1. **The lead story** — the single biggest market-moving event (from the top of
    the events + macro inputs). What happened, what it means for your money.
 2–4. **Macro / thematic** — 2–3 sections on the dominant macro threads (Fed, oil,
-   geopolitics, inflation) and any big thematic rotation, each interpreted, not
-   just reported. Use the macro news for the "what happened," the rankings for
-   "what our data shows," and your judgment for "what it means."
+   geopolitics, inflation, the global/overnight tape) and any big thematic rotation,
+   each interpreted, not just reported. Use the macro news for the "what happened,"
+   the rankings for "what our data shows," the global tape for the overseas backdrop,
+   and your judgment for "what it means."
    - Where a prior call can be graded, grade it here (A+/F + one honest line).
 5. **A teaching deep-dive — "Theme of the Week."** If the data pack has a "Theme of
    the Week" block, this is its home: walk the reader through that theme's value chain
@@ -117,7 +118,12 @@ Then numbered sections. Adapt to the week, but this is the canonical spine:
    each other. If there's no Theme block, explain whatever rotation or chokepoint the
    week's data suggests instead.
 6. **Where the money is going** — the constructive half. Use RS Movers: the Top 20
-   strongest and the Top 20 weekly climbers. Call out the sector clusters.
+   strongest and the Top 20 weekly climbers. Call out the sector clusters. If you
+   show a "strongest" table, list a **contiguous block from the top of the pack** —
+   the top 10 in order (#1, #2, #3 … #10), not a cherry-picked subset that makes the
+   rank column skip numbers (a reader who sees "#1, #2, #5, #14" assumes it's broken).
+   Name any standout you dropped in the prose instead. The climbers table is already a
+   ranked list — keep it in order.
 7. **A few names worth looking at** — the watchlist. Present the names that pass the
    four filters (strong sector, climbing rank, genuine uptrend, not stretched),
    with the explicit caveat to do their own work. Explain how to read it.
@@ -196,6 +202,21 @@ End with a 2–3 sentence close that restates the thesis and signs off
   financial conditions and pressure long-duration names (chips, growth); falling
   yields do the opposite. The "Scheduled next week" releases (plus any
   `earnings_upcoming` events) populate Key Events, each with its "real tell."
+- **Global Tape** → the data pack's "Global Tape" block carries how the rest of the
+  world traded into the US week: Asian equity indices (Taiwan/TAIEX, KOSPI, Nikkei,
+  Hang Seng), the US dollar index and USD/JPY, copper and Brent crude, and Bitcoin —
+  each with its week-over-week % move and a fixed note on why it leads or co-moves with
+  US stocks. Use it as macro backdrop, woven into the Fed/geopolitics/rotation sections,
+  never as a standalone table dump. The linkages that matter most: **Taiwan + Korea are
+  the semiconductor tell** (strong → the US AI/chip trade has support; weak → a warning
+  for NVDA/AMD/MU and growth); **Nikkei + USD/JPY are the risk / carry-trade tell** (a
+  sharp Nikkei drop or fast yen strength precedes US risk-off); **Hang Seng + copper are
+  the China-demand / materials tell** (and copper ties straight into the Theme of the
+  Week when a metals theme is up); **a rising dollar** is a headwind for US multinationals
+  and commodities; **Brent** is the direct gauge behind any Middle-East headline (cite it
+  rather than inferring calm only from the VIX). Lead with whatever actually moved — one
+  or two standouts interpreted, not all nine listed. Read direction from the numbers in
+  the block; don't attach a move that isn't there.
 - **Never fabricate.** If the data doesn't support a claim, don't make it. If a
   number isn't in the inputs, don't cite it. Missing data ("credit spreads: n/a")
   is stated honestly, not invented.
@@ -255,5 +276,12 @@ invented or estimated. Round-number guesses are fabrication.
 - Don't invent ranks, prices, targets, percentages, or events not present in the inputs.
 - Don't give buy/sell advice or price targets as recommendations.
 - Don't cheerlead, and don't doom-monger. Both sides, always.
+- **Don't restate the week's thesis in every section.** State the core read (e.g.
+  "money moved out of metals and builders into payments, health care and software")
+  once in the cold open and once in the close. In the body, each section must *add* —
+  new names, numbers, a mechanism, a caveat — not re-say the thesis in fresh words.
+  If a sentence would just re-assert what an earlier section already established, cut
+  it. By the time the reader reaches Where We Stand they own the rotation; don't
+  narrate it a fifth time.
 - Don't bury the lead. Open each section with the point.
 - Don't use emoji or hype punctuation in the prose.

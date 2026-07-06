@@ -44,6 +44,13 @@ if not URL or not KEY:
 
 sb = create_client(URL, KEY)
 
+# A single month's nonfarm-payrolls change beyond this (in thousands) is, outside a
+# COVID-scale dislocation, almost always a data glitch — most often Alpha Vantage's
+# NONFARM_PAYROLL month-diff landing on a partial/misaligned month (it once returned
+# +741k). We'd rather publish "n/a" than a hot number a macro-literate reader will
+# instantly distrust. Normal monthly NFP runs ~100–300k; even blowout prints ~500k.
+NFP_PLAUSIBLE_ABS_K = 600
+
 AV_KEY = os.environ.get('ALPHAVANTAGE_API_KEY')
 AV_URL = 'https://www.alphavantage.co/query'
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -159,6 +166,10 @@ def compute_row(ten, two, cpi, core, unrate, payems, fed):
     cpi_yoy = yoy(cpi)
     core_yoy = yoy(core)
     nf = (payems[-1][1] - payems[-2][1]) if len(payems) >= 2 else None
+    if nf is not None and abs(nf) > NFP_PLAUSIBLE_ABS_K:
+        print(f"  WARNING: nonfarm-payrolls month change {nf:+.0f}k exceeds the plausible "
+              f"band (+/-{NFP_PLAUSIBLE_ABS_K}k) — treating as a data glitch, storing n/a.")
+        nf = None
     return {
         'snapshot_date': snap,
         'ust_10y': round(t10, 2),
