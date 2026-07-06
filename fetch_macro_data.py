@@ -6,10 +6,16 @@ Pulls the policy/rates data the newsletter was missing — Treasury yields and t
 week-over-week change + year-over-year inflation, and writes a single latest row to
 macro_indicators.
 
-Source order:
+Source order (yields / inflation / unemployment / fed funds):
   1. FRED public CSV (keyless, unlimited) — preferred.
-  2. Alpha Vantage economic indicators — fallback when FRED is unreachable (some
-     sandboxes block FRED egress). Needs ALPHAVANTAGE_API_KEY.
+  2. Alpha Vantage economic indicators — fallback when FRED is unreachable (FRED egress
+     is routinely blocked, in this sandbox AND in CI). Needs ALPHAVANTAGE_API_KEY.
+
+Payrolls are handled separately and authoritatively via the BLS public API
+(CES0000000001, Total Nonfarm, SEASONALLY ADJUSTED) — the headline number the market
+reacts to. FRED PAYEMS is also SA but unreachable; Alpha Vantage's NONFARM_PAYROLL is
+the NON-adjusted level (seasonal-swing garbage, e.g. a fake "+432k") and is never used
+for the jobs number. BLS lives on api.bls.gov (a different host) and is reliable.
 
 FRED series / AV functions:
   10y/2y yields   DGS10 / DGS2          TREASURY_YIELD(maturity=10year/2year)
@@ -141,6 +147,42 @@ def av_series(function, pause=13, **extra):
     return out
 
 
+# ── BLS (authoritative, seasonally-adjusted payrolls) ────────────────────────
+def bls_nonfarm_change():
+    """Headline nonfarm-payrolls change (thousands, SEASONALLY ADJUSTED) from the BLS
+    public API — series CES0000000001 (Total Nonfarm, All Employees). This is the number
+    the market reacts to. Used because FRED PAYEMS (also SA) is routinely unreachable from
+    CI, and Alpha Vantage's NONFARM_PAYROLL is the NON-adjusted level (seasonal-swing
+    garbage). BLS lives on a different host (api.bls.gov) and the keyless v1 API is reliable.
+    Returns {'change': float_k, 'month': 'YYYY-MM'} or None (caller degrades to n/a)."""
+    yr = datetime.now(timezone.utc).year
+    url = 'https://api.bls.gov/publicAPI/v1/timeseries/data/CES0000000001'
+    for a in range(1, 4):
+        try:
+            r = requests.get(url, params={'startyear': str(yr - 1), 'endyear': str(yr)},
+                             headers={'User-Agent': UA}, timeout=30)
+            r.raise_for_status()
+            j = r.json()
+            if j.get('status') != 'REQUEST_SUCCEEDED':
+                raise RuntimeError(str(j.get('message'))[:80])
+            data = j['Results']['series'][0]['data']
+            pts = []
+            for d in data:
+                if d.get('period', '').startswith('M'):        # monthly points only
+                    v = str(d.get('value', '')).replace(',', '').strip()
+                    if v and v != '-':
+                        pts.append((f"{d['year']}-{d['period'][1:]}", float(v)))
+            pts.sort()
+            if len(pts) >= 2:
+                return {'change': pts[-1][1] - pts[-2][1], 'month': pts[-1][0]}
+            return None
+        except Exception as e:
+            print(f'  BLS attempt {a} failed: {str(e)[:60]}; retrying ...')
+            time.sleep(3 * a)
+    print('  BLS unreachable — payrolls will be n/a')
+    return None
+
+
 def gather_av():
     if not AV_KEY:
         raise RuntimeError('ALPHAVANTAGE_API_KEY not set — cannot fall back')
@@ -206,6 +248,24 @@ def main():
         source = 'AlphaVantage'
 
     row = compute_row(**series)
+
+    # Payrolls: BLS (CES0000000001, seasonally adjusted) is the authoritative headline
+    # source and reachable where FRED isn't. Use it as primary; fall back to whatever the
+    # FRED path put in the row (also SA); never Alpha Vantage (NSA). Sanity-gate as backstop.
+    bls = bls_nonfarm_change()
+    if bls is not None:
+        nf = bls['change']
+        if abs(nf) > NFP_PLAUSIBLE_ABS_K:
+            print(f"  WARNING: BLS payrolls change {nf:+.0f}k exceeds the plausible band — n/a.")
+            row['nonfarm_chg_k'] = None
+        else:
+            row['nonfarm_chg_k'] = round(nf, 0)
+            print(f"  payrolls (BLS SA, {bls['month']}): {nf:+.0f}k")
+    elif row.get('nonfarm_chg_k') is not None:
+        print(f"  payrolls (FRED PAYEMS SA): {row['nonfarm_chg_k']:+.0f}k")
+    else:
+        print("  payrolls: n/a (no seasonally-adjusted source reachable)")
+
     sb.table('macro_indicators').upsert(row, on_conflict='snapshot_date').execute()
 
     sp = row['spread_10y_2y']
