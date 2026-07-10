@@ -35,19 +35,31 @@ EXPIRY_DAYS = 5
 
 
 # ── Data pull (paginated) ──────────────────────────────────────────────────
-def pull_all(table, columns, order_cols, page=1000):
-    rows, frm = [], 0
+def pull_all(table, columns, order_cols=None, page=1000, key_col='id'):
+    """Keyset-paginate on the primary key instead of OFFSET/.range().
+
+    OFFSET pagination re-runs the full sort+scan for every page and discards
+    the skipped rows (O(n^2)); once daily_stock_snapshots grew to ~122k rows
+    that pushed the pull past the 8s statement_timeout (57014). Keyset
+    (WHERE key_col > last ORDER BY key_col LIMIT n) reads only each page's own
+    slice via the PK index — a single pass. order_cols is kept for call-site
+    compatibility but ignored: DB order is irrelevant here (the caller re-sorts
+    per-ticker in pandas); we order by the PK purely as a stable cursor.
+    """
+    sel_cols = [c.strip() for c in columns.split(',')]
+    sel = columns if key_col in sel_cols else f'{columns}, {key_col}'
+    rows, last = [], None
     while True:
-        q = sb.table(table).select(columns)
-        for c in order_cols:
-            q = q.order(c)
-        res = q.range(frm, frm + page - 1).execute()
+        q = sb.table(table).select(sel).order(key_col).limit(page)
+        if last is not None:
+            q = q.gt(key_col, last)
+        res = q.execute()
         if not res.data:
             break
         rows.extend(res.data)
+        last = res.data[-1][key_col]
         if len(res.data) < page:
             break
-        frm += page
     return rows
 
 
