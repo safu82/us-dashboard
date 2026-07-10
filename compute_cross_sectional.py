@@ -47,20 +47,33 @@ print('CROSS-SECTIONAL POST-PASS  ', datetime.now(timezone.utc).strftime('%Y-%m-
 print('=' * 70)
 
 
-# ── Pull every snapshot row (paginated, stable ORDER for correct pagination) ──
-def pull_all(table, columns, order_cols):
-    rows, page, frm = [], 1000, 0
+# ── Pull every row via keyset pagination on the primary key ────────────────
+def pull_all(table, columns, key_col='id'):
+    """Fetch every row of `table`, keyset-paginated on a unique, ordered key.
+
+    Keyset (WHERE key_col > last ORDER BY key_col LIMIT n) instead of
+    OFFSET/`.range()`: each page reads only its own slice through the key_col
+    index, so the total cost is a single pass. OFFSET pagination re-runs the
+    full sort+scan for every page and discards the skipped rows — O(n^2) work
+    that pushed this query past the 8s statement_timeout once the universe grew
+    to ~1,970 tickers (~122k snapshot rows). DB order is irrelevant to
+    correctness here (the caller re-sorts in pandas), so we order by the PK
+    purely to get a stable pagination cursor.
+    """
+    sel_cols = [c.strip() for c in columns.split(',')]
+    sel = columns if key_col in sel_cols else f'{columns}, {key_col}'
+    rows, page, last = [], 1000, None
     while True:
-        q = sb.table(table).select(columns)
-        for c in order_cols:
-            q = q.order(c)
-        res = q.range(frm, frm + page - 1).execute()
+        q = sb.table(table).select(sel).order(key_col).limit(page)
+        if last is not None:
+            q = q.gt(key_col, last)
+        res = q.execute()
         if not res.data:
             break
         rows.extend(res.data)
+        last = res.data[-1][key_col]
         if len(res.data) < page:
             break
-        frm += page
     return rows
 
 
@@ -69,12 +82,11 @@ print('Pulling snapshots ...')
 # the INSERT-side validation fires before ON CONFLICT resolves to UPDATE.
 snap = pull_all('daily_stock_snapshots',
                 'ticker, snapshot_date, alkalyme_rs, open, high, low, close, high_52w, '
-                'ema_9, ema_20, ema_50',
-                ['snapshot_date', 'ticker'])
+                'ema_9, ema_20, ema_50')
 print(f'  {len(snap)} rows')
 
 print('Pulling sector + industry map ...')
-sectors = pull_all('us_stock_sectors', 'ticker, sector, industry', ['ticker'])
+sectors = pull_all('us_stock_sectors', 'ticker, sector, industry')
 sec_map = {r['ticker']: r['sector'] for r in sectors if r.get('sector')}
 ind_map = {r['ticker']: r['industry'] for r in sectors if r.get('industry')}
 print(f'  {len(sec_map)} ticker->sector entries, {len(ind_map)} ticker->industry entries')
