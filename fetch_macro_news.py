@@ -41,6 +41,15 @@ MACRO_TOPICS = [
     ('Geopolitics',        'Iran OR Israel OR "Strait of Hormuz" OR Ukraine OR "Middle East" OR sanctions'),
     ('Rates & dollar',     '"Treasury yields" OR "10-year Treasury" OR "US dollar" OR "bond market"'),
     ('The tape',           '"stock market" OR "S&P 500" OR Nasdaq OR "Wall Street" OR "market selloff"'),
+    # Out-of-universe corporate events. The RS board only sees the ~1,900 names it
+    # ranks and only fires on rank moves, so a giant IPO (a foreign listing), big M&A,
+    # or a mega-cap news story that barely moves rank is invisible to it. These two
+    # buckets are the net for that blind spot — e.g. a record memory-chip IPO or a
+    # mega-cap lawsuit — so the writer can carry a major story the board can't surface.
+    ('IPOs & M&A',         '"initial public offering" OR IPO OR "goes public" OR "market debut" '
+                           'OR "stock market debut" OR merger OR "to acquire" OR acquisition OR takeover OR buyout'),
+    ('Big Tech & AI',      '"artificial intelligence" OR "data center" OR "AI chips" OR Nvidia '
+                           'OR "Apple" OR "Meta" OR Microsoft OR OpenAI OR "cloud computing" OR hyperscaler'),
 ]
 
 MAX_ARTICLES = 75

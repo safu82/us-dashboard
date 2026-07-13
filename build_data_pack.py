@@ -36,6 +36,10 @@ sb = create_client(URL, KEY)
 
 NON_STOCKS = {'^GSPC', '^VIX', 'QQQ'}
 TOP_N = 20                  # RS Movers list length
+MEGACAP_N = 12             # "two clocks" price-vs-rank table: N largest by market cap
+DIVERGE_N = 12             # price-up / rank-not-confirming divergences to surface
+DIVERGE_MIN_PX = 5.0       # a divergence needs at least this weekly price gain (%)
+DIVERGE_WEAK_RANK = 300    # ...while still ranked worse than this, or with rank flat/falling
 WATCHLIST_N = 15
 SECTOR_TOP_RANK = 12       # peer_group must rank in top-N by composite
 SECTOR_MIN_BREADTH = 50    # ...and clear this breadth %
@@ -283,9 +287,12 @@ GLOBAL_TELL = {
     'HG=F':     '"Dr. Copper", the global-growth barometer (ties to the copper theme when it runs)',
     'BZ=F':     'Brent crude — the direct oil / supply-shock gauge behind any Middle-East headline',
     'BTC-USD':  '24/7 risk-sentiment proxy — trades through the weekend when equities are shut',
+    'GC=F':     'gold — the oldest safe haven; a rally signals fear, flat/soft through a shock signals calm',
+    'HYG':      'US high-yield ("junk") bonds — the risk-appetite tell; a drop = credit stress spreading, steady/up = calm',
 }
 CATEGORY_LABEL = {'asia_equity': 'Asian equities (they trade before the US opens)',
-                  'fx': 'Currencies', 'commodity': 'Commodities', 'crypto': 'Crypto'}
+                  'fx': 'Currencies', 'commodity': 'Commodities', 'crypto': 'Crypto',
+                  'credit': 'Credit'}
 
 
 def _fmt_level(v):
@@ -546,6 +553,18 @@ def main():
     sect = {r['peer_group']: r for r in paginate('sector_rankings',
             'peer_group, composite_rank, breadth, rrg_quadrant', ['peer_group'],
             filters=[lambda q: q.eq('snapshot_date', latest)])}
+    # Market cap for the "two clocks" mega-cap block: the RS board ranks by relative
+    # strength and hides already-strong mega-caps, so a cap-weighted view is the
+    # corrective that shows who actually drove the index.
+    fund_cap = {r['ticker']: num(r.get('market_cap_usd'))
+                for r in paginate('stock_fundamentals', 'ticker, market_cap_usd', ['ticker'])}
+    # Latest cross-asset tape (dollar / gold / junk bonds) for the fear panel.
+    gsnap = (sb.table('global_indices').select('snapshot_date')
+             .order('snapshot_date', desc=True).limit(1).execute().data)
+    gi = {}
+    if gsnap:
+        gi = {r['symbol']: r for r in (sb.table('global_indices').select('*')
+              .eq('snapshot_date', gsnap[0]['snapshot_date']).execute().data or [])}
 
     # Two-date snapshot slice.
     snaps = paginate('daily_stock_snapshots',
@@ -562,6 +581,12 @@ def main():
     def rk(r):
         return r.get('rs_rank')
 
+    def wkpx(tk):
+        """Weekly price % for a ticker (last-week close → this-week close). The
+        second 'clock' next to rank: price can rally while rank lags (money exiting
+        into strength) — the two-clocks read the RS board alone can't show."""
+        return _pct((now.get(tk) or {}).get('close'), (prev.get(tk) or {}).get('close'))
+
     ranked = [r for r in now.values() if rk(r) is not None]
 
     # ── RS Movers ──────────────────────────────────────────────────────────
@@ -577,6 +602,28 @@ def main():
             climbers.append((tk, pr, nr, delta))
     climbers.sort(key=lambda x: x[3], reverse=True)
     climbers = climbers[:TOP_N]
+
+    # ── Two clocks: price vs rank ──────────────────────────────────────────
+    # (a) Mega-caps by market cap — the index-driver view the RS board hides.
+    megacaps = []
+    for tk in sorted((t for t in now if fund_cap.get(t) and rk(now[t]) is not None),
+                     key=lambda t: fund_cap[t], reverse=True)[:MEGACAP_N]:
+        nr = rk(now[tk])
+        pr = (prev.get(tk) or {}).get('rs_rank')
+        megacaps.append({'tk': tk, 'wk': wkpx(tk), 'rank': nr,
+                         'delta': (pr - nr) if pr is not None else None})
+    # (b) Divergences — price rallied but rank did not confirm ("exiting into strength").
+    diverge = []
+    for tk, r in now.items():
+        nr, wp = rk(r), wkpx(tk)
+        pr = (prev.get(tk) or {}).get('rs_rank')
+        if nr is None or pr is None or wp is None:
+            continue
+        rank_delta = pr - nr                       # >0 = rank improving
+        if wp >= DIVERGE_MIN_PX and (rank_delta <= 0 or nr > DIVERGE_WEAK_RANK):
+            diverge.append({'tk': tk, 'wk': wp, 'rank': nr, 'delta': rank_delta})
+    diverge.sort(key=lambda d: d['wk'], reverse=True)
+    diverge = diverge[:DIVERGE_N]
 
     # ── Watchlist (4 filters) ──────────────────────────────────────────────
     watch = []
@@ -622,7 +669,27 @@ def main():
     # Where We Stand
     L.append("## Where We Stand")
     nh, nl = health.get('new_highs'), health.get('new_lows')
+    # Record-high flag: compare this week's S&P close to the highest close on record
+    # (in our market_health history). The absolute state of the tape — a record vs a
+    # drawdown — is the first thing to say, not just where breadth sits.
+    sp_hist = [(r['snapshot_date'], num(r.get('sp_close'))) for r in mh if num(r.get('sp_close')) is not None]
+    sp_now = num(health.get('sp_close'))
+    sp_max, sp_max_date = (max(sp_hist, key=lambda x: x[1])[1], max(sp_hist, key=lambda x: x[1])[0]) if sp_hist else (None, None)
+    sp_record = sp_now is not None and sp_max is not None and sp_now >= sp_max - 1e-9
+    from_high = _pct(sp_now, sp_max)
+    sp_note = ("RECORD high (highest close on record)" if sp_record
+               else (f"{from_high:.1f}% below the {sp_max_date} high" if from_high is not None else ""))
+
+    def gmv(sym):
+        r = gi.get(sym)
+        return num(r.get('pct_chg_wk')) if r else None
+
+    def _wk(x):
+        return f"{x:+.1f}% wk" if x is not None else "n/a"
+
+    gold, junk, dxy = gmv('GC=F'), gmv('HYG'), gmv('DX-Y.NYB')
     checks = [
+        ("S&P 500 level", f"{health.get('sp_close')}", sp_note),
         ("S&P 500 vs its 200-day", "ABOVE" if health.get('sp_above_200d') else "below",
          f"{health.get('sp_close')} vs {health.get('sp_ema_200')}"),
         ("Stocks above 200-day", f"{health.get('pct_above_200d')}%", ""),
@@ -630,28 +697,68 @@ def main():
         ("New 52w highs vs lows", f"{nh} vs {nl}", ""),
         ("Advancers vs decliners", f"{health.get('advancers')} vs {health.get('decliners')}", ""),
         ("VIX", f"{health.get('vix_close')}", "calm <20" if num(health.get('vix_close')) and num(health['vix_close']) < 20 else "stress"),
-        ("Credit spreads", f"{health.get('credit_spread') if health.get('credit_spread') is not None else 'n/a (FRED pending)'}", ""),
+        ("Credit spreads", f"{health.get('credit_spread') if health.get('credit_spread') is not None else 'n/a (FRED pending)'}",
+         "widening = stress, tight = calm"),
     ]
+    # Cross-asset fear panel — did fear actually spread beyond the VIX? (only if global tape present)
+    if gold is not None:
+        checks.append(("Gold (safe haven)", _wk(gold), "rallying = fear bid; flat/soft through a shock = calm"))
+    if junk is not None:
+        checks.append(("High-yield / junk (HYG)", _wk(junk), "falling = credit stress spreading; steady/up = risk-on"))
+    if dxy is not None:
+        checks.append(("US dollar (DXY)", _wk(dxy), "spiking = flight to safety; soft = risk-on"))
     L.append("| Check | Reading | Note |\n|---|---|---|")
     for a, b, c in checks:
         L.append(f"| {a} | {b} | {c} |")
+    L.append("\n_Fear panel: read VIX, credit spreads, gold, junk bonds and the dollar together — "
+             "if the index holds a record while none of these blink, a scary headline was noise; "
+             "if two or more turn, the tape is starting to hedge._")
     # NH/NL trend — last trading day of each of the last 3 ISO weeks
     trend = [mh_by_date[d] for d in last_dates_per_week(dates, 3)]
     if len(trend) >= 2:
         tr = " → ".join(f"{t['snapshot_date']}: {t['new_highs']}↑/{t['new_lows']}↓" for t in trend)
         L.append(f"\n_New-high/low trend: {tr}_")
 
-    # RS Movers — strongest
+    def wp_txt(tk):
+        wp = wkpx(tk)
+        return f"{wp:+.1f}%" if wp is not None else "—"
+
+    # RS Movers — strongest (Wk % = the price clock next to the rank clock)
     L.append("\n## RS Movers — Top 20 Strongest")
-    L.append("| # | Ticker | Company | Industry |\n|---|---|---|---|")
+    L.append("| # | Ticker | Company | Industry | Wk % |\n|---|---|---|---|---|")
     for i, r in enumerate(strongest, 1):
-        L.append(f"| {i} | {r['ticker']} | {name(r['ticker'])} | {ind(r['ticker'])} |")
+        L.append(f"| {i} | {r['ticker']} | {name(r['ticker'])} | {ind(r['ticker'])} | {wp_txt(r['ticker'])} |")
 
     # RS Movers — climbers
     L.append("\n## RS Movers — Top 20 Weekly Climbers")
-    L.append("| Ticker | Sector | Rank: week ago → now | Climb |\n|---|---|---|---|")
+    L.append("| Ticker | Sector | Rank: week ago → now | Climb | Wk % |\n|---|---|---|---|---|")
     for tk, pr, nr, delta in climbers:
-        L.append(f"| {tk} | {(meta.get(tk) or {}).get('sector','—')} | {pr} → {nr} | +{delta} |")
+        L.append(f"| {tk} | {(meta.get(tk) or {}).get('sector','—')} | {pr} → {nr} | +{delta} | {wp_txt(tk)} |")
+
+    # Two clocks — price vs rank. Mega-caps drive the cap-weighted index but the RS
+    # board hides them; the divergences flag names rallying on price while rank fades
+    # (money exiting into strength). Lets the writer separate index return from board
+    # leadership instead of calling a group "buried" when it just bounced.
+    L.append("\n## Two Clocks — Price vs Rank")
+    L.append("_The RS board is a RANK clock; price is a second clock. When a name (or a "
+             "mega-cap that moves the index) rises on price while its rank stays weak or "
+             "falls, money is using the strength to leave — it can hold support and still "
+             "stop leading. Read both columns together; don't call a group 'down' on rank "
+             "alone if its price bounced, and don't call the index weak because the board "
+             "hides the mega-caps that carried it._\n")
+    L.append("**Mega-caps (largest by market cap — the index drivers):**")
+    L.append("| Ticker | Company | Wk % | Rank now | Rank Δwk |\n|---|---|---|---|---|")
+    for m in megacaps:
+        wk = f"{m['wk']:+.1f}%" if m['wk'] is not None else "—"
+        dl = (f"+{m['delta']}" if m['delta'] is not None and m['delta'] > 0
+              else (str(m['delta']) if m['delta'] is not None else "—"))
+        L.append(f"| {m['tk']} | {name(m['tk'])} | {wk} | {m['rank']} | {dl} |")
+    if diverge:
+        L.append("\n**Divergences — price up, rank not confirming (money exiting into strength):**")
+        L.append("| Ticker | Company | Wk % | Rank now | Rank Δwk |\n|---|---|---|---|---|")
+        for d in diverge:
+            dl = f"+{d['delta']}" if d['delta'] > 0 else str(d['delta'])
+            L.append(f"| {d['tk']} | {name(d['tk'])} | {d['wk']:+.1f}% | {d['rank']} | {dl} |")
 
     # Watchlist
     L.append("\n## Watchlist — Strong sector · climbing · uptrend · not stretched")

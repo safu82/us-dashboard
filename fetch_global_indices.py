@@ -98,6 +98,14 @@ INSTRUMENTS = [
     ('BTC-USD', 'Bitcoin', 'crypto', 9,
      'bitcoin OR cryptocurrency OR "crypto rally" OR "crypto selloff" OR "bitcoin ETF"',
      '24/7 risk-sentiment proxy — trades through the weekend when equities are shut'),
+    # Cross-asset "fear panel" gauges — did fear spread beyond the VIX? Gold is the
+    # oldest safe haven; high-yield (junk) is the risk-appetite / credit-stress tell.
+    ('GC=F', 'Gold', 'commodity', 10,
+     '"gold price" OR "gold prices" OR "safe haven" OR "gold rally" OR "gold futures"',
+     'gold — the oldest safe haven; a rally signals fear, flat/soft through a shock signals calm'),
+    ('HYG', 'US High-Yield (HYG)', 'credit', 11,
+     '"high yield bonds" OR "junk bonds" OR "credit spreads" OR "corporate bonds" OR "credit market"',
+     'US high-yield ("junk") bonds — the risk-appetite tell; a drop = credit stress spreading, steady/up = calm'),
 ]
 
 

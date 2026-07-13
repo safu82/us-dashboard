@@ -96,6 +96,14 @@ every week — do NOT use a fixed catchphrase or sign-on. You can remind the rea
 once, naturally, that the view rests on ranking ~1,900 stocks daily, but vary how
 you say it (or skip it some weeks).
 
+**Lead with the tape's absolute state, not just its internals.** The data pack's
+"Where We Stand" carries a record-high flag (S&P at a record close, or how far
+below the prior high). If the index printed a record, that is the headline fact —
+say it plainly, especially when it happened against a scary backdrop (a war scare,
+a shock print). "The index closed at a record high the same week the bombs fell"
+is a stronger, truer open than a breadth statistic. Don't bury a record — or a
+fresh drawdown — under the rotation story.
+
 Then numbered sections. Adapt to the week, but this is the canonical spine:
 
 1. **The lead story** — the single biggest market-moving event (from the top of
@@ -124,13 +132,34 @@ Then numbered sections. Adapt to the week, but this is the canonical spine:
    rank column skip numbers (a reader who sees "#1, #2, #5, #14" assumes it's broken).
    Name any standout you dropped in the prose instead. The climbers table is already a
    ranked list — keep it in order.
+   - **Two clocks — reconcile price with rank here.** The data pack's "Two Clocks"
+     block has a mega-cap table (the largest names by market cap, with weekly price %
+     and rank) and a divergences list (names that rose on price while rank stayed weak
+     or fell). Use it to avoid two classic errors: (1) don't call a group "buried" on
+     rank when its price actually bounced — say "chips bounced but our board still has
+     them mid-pack, which is money using the rally to leave," not "chips collapsed";
+     (2) when the index rose but your climbers are all small/mid names, check the
+     mega-cap table — if a couple of trillion-dollar names carried the index on price
+     while ranking poorly, say so. The index return and the board's leadership are two
+     different things; name both. This is the paid-for insight: a stock can hold every
+     moving average and still be losing its rank, and the rank has been the better
+     guide to the months ahead.
 7. **A few names worth looking at** — the watchlist. Present the names that pass the
    four filters (strong sector, climbing rank, genuine uptrend, not stretched),
    with the explicit caveat to do their own work. Explain how to read it.
-8. **Where We Stand** — the 5-point market-health check (S&P vs 200-day, % of
-   stocks above 200-day, new highs vs lows, VIX, credit spreads), then a
-   base/bull/bear **scenario analysis with probabilities** summing to 100%, then a
-   one-line stance.
+8. **Where We Stand** — the market-health check (S&P level + record-high flag, S&P
+   vs 200-day, % of stocks above 200-day, new highs vs lows, VIX, credit spreads),
+   then a base/bull/bear **scenario analysis with probabilities** summing to 100%,
+   then a one-line stance.
+   - **Read the cross-asset fear panel, don't just quote the VIX.** The data pack now
+     carries gold, high-yield (junk) bonds, and the dollar alongside VIX and credit
+     spreads. The real question after any scary headline is *did fear spread, or did
+     the market shrug?* If the index holds a record while the VIX is asleep, gold
+     didn't rally, junk didn't crack, credit spreads stayed tight and the dollar
+     didn't bid, then the scare was noise — say that, with the gauges as evidence. If
+     two or more of those turn, the tape is starting to hedge even if the index hasn't
+     broken. Fear that shows up in one channel (say oil) but nowhere else is contained;
+     fear that shows up across gold + credit + the dollar is the real thing.
 9. **The Algo** — the paper-strategy track record (only if the data pack has the
    Algo block): equity vs benchmark, win rate, what it closed this week, the open
    book — tied to the rotation where it fits, labelled educational paper, not advice.
@@ -156,6 +185,17 @@ End with a 2–3 sentence close that restates the thesis and signs off
   from the top of this list; it tells you what actually moved.
 - **Macro news** (ranked themes + headlines) → the macro/geopolitics sections.
   Cite the substance of the stories; you may name the development, not the outlet.
+  - **Carry the big story the board can't see.** The RS movers only cover the ~1,900
+    ranked US names and only surface rank moves, so a giant IPO (especially a foreign
+    listing that isn't in the universe at all), major M&A, or a mega-cap news story
+    that barely moved rank will be **absent from the data pack** — it only appears in
+    the macro news, under the "IPOs & M&A" and "Big Tech & AI" themes. Scan those
+    every week. A record-breaking IPO, a lawsuit between two of the most important
+    companies in tech, or a hyperscaler's capex commitment is a real market story and
+    belongs in the issue even though no rank moved for it. Don't let a rank-first
+    pipeline make you miss the headline the whole market was talking about. (You still
+    obey the sourcing rule: state the substance and direction from the headlines, and
+    only cite a specific number if it appears in the inputs.)
 - **Ticker news** (per-name, with sentiment) → use to EXPLAIN why a specific moved
   name moved (e.g. "X fell 48% on a dilutive notes offering").
 - **Earnings** → the inputs include an `earnings`-kind event ONLY for companies
@@ -204,7 +244,9 @@ End with a 2–3 sentence close that restates the thesis and signs off
   `earnings_upcoming` events) populate Key Events, each with its "real tell."
 - **Global Tape** → the data pack's "Global Tape" block carries how the rest of the
   world traded into the US week: Asian equity indices (Taiwan/TAIEX, KOSPI, Nikkei,
-  Hang Seng), the US dollar index and USD/JPY, copper and Brent crude, and Bitcoin.
+  Hang Seng), the US dollar index and USD/JPY, copper and Brent crude, Bitcoin, and
+  the fear-panel gauges gold and US high-yield (junk) bonds (which also feed Where We
+  Stand — see the cross-asset fear panel there).
   This is where you **earn the reader's money — analyse, don't report.** A line like
   "the KOSPI fell 3.8%" is worthless on its own; the job is *what it means for the US*.
   Rules:
@@ -258,6 +300,13 @@ End with a 2–3 sentence close that restates the thesis and signs off
   pressures expensive, long-duration stocks (chips, growth).
 - **Breadth:** how many stocks participate. Strong breadth (most stocks above their
   200-day, new highs beating new lows) = a broad, healthy rally.
+- **High-yield / junk bonds:** bonds from riskier companies. When investors are calm
+  they hold them (prices steady/up); when they get scared they sell them first, so a
+  falling junk-bond price is an early credit-stress signal — the same message as
+  widening credit spreads, from the other side.
+- **Safe havens (gold, the dollar):** assets money runs to when it's afraid. A gold
+  rally or a sharp dollar bid during a shock means fear is real; if they stay flat
+  through a scary headline, the market is treating it as noise.
 
 ## Compliance
 
