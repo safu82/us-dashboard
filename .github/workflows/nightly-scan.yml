@@ -84,8 +84,17 @@ jobs:
 
       # 8. Market-health rollup: breadth, new-high/low, S&P-vs-200d, VIX -> market_health
       #    (newsletter "Where We Stand"). Depends only on fetch_ohlc output.
-      - name: 8/8 compute_market_health.py
+      - name: 8/9 compute_market_health.py
         run: python compute_market_health.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # 9. ETF momentum board: sector SPDRs + thematic ETFs ranked in their OWN
+      #    cross-section -> etf_snapshots (sector-research ETF board). Self-contained
+      #    (fetches its own ETF + benchmark OHLC via yfinance); order-independent.
+      - name: 9/9 compute_etf_momentum.py
+        run: python compute_etf_momentum.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
