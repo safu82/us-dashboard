@@ -48,14 +48,21 @@ MACRO_TOPICS = [
     # mega-cap lawsuit — so the writer can carry a major story the board can't surface.
     ('IPOs & M&A',         '"initial public offering" OR IPO OR "goes public" OR "market debut" '
                            'OR "stock market debut" OR merger OR "to acquire" OR acquisition OR takeover OR buyout'),
-    ('Big Tech & AI',      '"artificial intelligence" OR "data center" OR "AI chips" OR Nvidia '
-                           'OR "Apple" OR "Meta" OR Microsoft OR OpenAI OR "cloud computing" OR hyperscaler'),
+    # Big Tech / AI. NOTE: GDELT rejects a quoted phrase whose token is <3 chars
+    # ("AI chips" -> "phrase is too short") and mishandles quoted single common words
+    # ("Apple"/"Meta"); use multi-word phrases + bare proper nouns only. OpenAI catches
+    # the Apple-v-OpenAI kind of story; "data center"/AI catch hyperscaler capex.
+    ('Big Tech & AI',      '"artificial intelligence" OR "data center" OR Nvidia OR Microsoft '
+                           'OR OpenAI OR "cloud computing" OR "tech stocks" OR "chip stocks"'),
 ]
 
 MAX_ARTICLES = 75
 TIMESPAN = '7d'
-HEADLINES_PER_TOPIC = 5
-SLEEP = 5.0           # GDELT throttles bursts; ~5s between queries stays clear
+HEADLINES_PER_TOPIC = 8   # broad buckets (IPOs, Big Tech) bury the marquee story in a
+                          # top-5 cut — regional IPO noise crowded out SK Hynix; save more
+SLEEP = 7.0           # GDELT throttles bursts; more themes now, so space them out
+EMPTY_RETRIES = 2     # an empty bucket is almost always a throttle, not "no news"
+EMPTY_BACKOFF = 20.0  # ...so wait longer and retry before giving up on a theme
 
 
 def main():
@@ -65,6 +72,15 @@ def main():
     results = []
     for label, query in MACRO_TOPICS:
         arts = provider.fetch_articles(query, max_articles=MAX_ARTICLES, timespan=TIMESPAN)
+        # For these perennial macro themes an empty result is a GDELT burst-throttle
+        # (429 / empty JSON), not a genuine absence of news — back off and retry so a
+        # top story (oil, inflation) doesn't silently drop out of the newsletter.
+        tries = 0
+        while not arts and tries < EMPTY_RETRIES:
+            tries += 1
+            print(f'  {label}: empty (likely throttled) — backoff {EMPTY_BACKOFF:.0f}s, retry {tries}/{EMPTY_RETRIES}')
+            time.sleep(EMPTY_BACKOFF)
+            arts = provider.fetch_articles(query, max_articles=MAX_ARTICLES, timespan=TIMESPAN)
         domains = {a.domain for a in arts if a.domain}
         # Dedupe to one headline per domain (keep relevance order), newest-ish first.
         seen, top = set(), []
