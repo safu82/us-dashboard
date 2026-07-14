@@ -85,6 +85,18 @@
   .hubrow+.hubrow{border-top:1px solid var(--border);}
   .hub-n{text-align:right;font-weight:800;color:var(--blue);font-size:15px;}
   .hub-th{font-size:11px;color:var(--text2);margin-top:2px;}
+  .etfhead,.etfrow{display:grid;grid-template-columns:26px 1fr 54px 62px;gap:10px;align-items:center;}
+  .etfhead{padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);}
+  .etfhead .r{text-align:right;}
+  .etfrow{padding:9px 10px;border-radius:8px;}
+  .etfrow:hover{background:var(--bg3);}
+  .etfrow+.etfrow{border-top:1px solid var(--border);}
+  .etf-tag{font-size:11px;color:var(--text2);margin-top:2px;}
+  .etf-kind{display:inline-block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:1px 6px;border-radius:6px;margin-left:8px;vertical-align:middle;}
+  .etf-kind.sector{background:rgba(88,166,255,.15);color:var(--blue);}
+  .etf-kind.theme{background:rgba(63,185,80,.15);color:var(--green);}
+  .etf-r{text-align:right;color:var(--text2);font-size:13px;}
+  .etf-mom{text-align:right;font-weight:800;font-size:15px;}
   .foot{color:var(--text2);font-size:11px;margin-top:24px;line-height:1.6;}
 </style>
 </head>
@@ -97,6 +109,7 @@
 <div class="page">
   <div id="cats">Loading…</div>
   <div id="board"></div>
+  <div id="etfboard"></div>
   <div id="hubs"></div>
   <div class="foot" id="foot"></div>
 </div>
@@ -198,6 +211,50 @@ async function load(){
       <div id="lbrows"></div>
     </div>`;
   if(rows.length) setBoard('blend');
+
+  // ---- ETF momentum board: sector SPDRs + thematic ETFs, ranked in their OWN cross-section ----
+  // etf_snapshots.momentum_score is the SAME 5-factor composite as the stock board, but ranked
+  // among ETFs only (compute_etf_momentum.py), so a diversified fund isn't pegged mid-pack vs
+  // 1,900 single stocks. Theme ETFs line up with the value-chain themes via theme_slug.
+  const etfMeta  = (await sb.from('etfs').select('*').order('display_order')).data || [];
+  const eLatest  = (await sb.from('etf_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
+  const eSnap    = eLatest ? ((await sb.from('etf_snapshots').select('symbol,momentum_score,etf_rank').eq('snapshot_date',eLatest)).data || []) : [];
+  const eBy={}; eSnap.forEach(r=>eBy[r.symbol]=r);
+  const etfRows = etfMeta.map(e=>{ const s=eBy[e.symbol]||{};
+      return { sym:e.symbol, name:e.name||e.symbol, kind:e.kind, slug:e.theme_slug,
+        tag: e.kind==='sector' ? (e.sector||'Sector') : (slugName[e.theme_slug]||e.theme_slug||'Theme'),
+        mom: s.momentum_score, rank: s.etf_rank }; })
+    .filter(r=>r.mom!=null);
+  window.setEtfBoard = function(mode){
+    const list = etfRows.filter(r=> mode==='all' ? true : r.kind===mode)
+                        .sort((a,b)=> (b.mom-a.mom) || ((a.rank??999)-(b.rank??999)));
+    document.querySelectorAll('.etftoggle button').forEach(b=>b.classList.toggle('on', b.dataset.mode===mode));
+    document.getElementById('etfrows').innerHTML = list.map((r,i)=>{
+      const col = r.mom>55?'var(--green)':r.mom<45?'var(--red)':'var(--text2)';
+      const arr = r.mom>55?'▲':r.mom<45?'▼':'→';
+      const inner = `
+        <div class="lb-rank">${i+1}</div>
+        <div><span class="lb-tk">${r.sym}</span><span class="etf-kind ${r.kind}">${r.kind}</span><span class="lb-nm">${r.name}</span><div class="etf-tag">${r.tag}</div></div>
+        <div class="etf-r">${r.rank==null?'–':r.rank}</div>
+        <div class="etf-mom" style="color:${col}">${arr} ${r.mom}</div>`;
+      return (r.kind==='theme' && r.slug)
+        ? `<a class="etfrow" href="theme.html?theme=${r.slug}">${inner}</a>`
+        : `<div class="etfrow">${inner}</div>`;
+    }).join('');
+  };
+  document.getElementById('etfboard').innerHTML = !etfRows.length ? '' :
+    `<div class="board" style="margin-top:22px">
+      <div class="btitle">📊 Sector &amp; Theme ETF Momentum</div>
+      <div class="bsub">Buyable sector (SPDR) and thematic ETFs, ranked by the same 0-100 <b>momentum</b> score used across this site — but scored against <b>each other</b>, so a diversified fund is measured versus other funds, not single stocks. Higher = stronger trend (▲ &gt;55, ▼ &lt;45). <b>RS</b> = relative-strength rank within the ETF set (1 = strongest). Theme ETFs link to their value-chain map.${eLatest?` As of ${eLatest}.`:''}</div>
+      <div class="etftoggle btoggle">
+        <button data-mode="all" onclick="setEtfBoard('all')">All</button>
+        <button data-mode="sector" onclick="setEtfBoard('sector')">Sectors</button>
+        <button data-mode="theme" onclick="setEtfBoard('theme')">Themes</button>
+      </div>
+      <div class="etfhead"><div></div><div>ETF</div><div class="r">RS</div><div class="r">Mom</div></div>
+      <div id="etfrows"></div>
+    </div>`;
+  if(etfRows.length) setEtfBoard('all');
 
   // ---- connective tissue: stocks that sit in multiple themes at once (structural hubs) ----
   const hubs = memTk.map(tk=>({tk, nm:cname[tk]||'', th:[...(slugsByTk[tk]||[])].sort(), mom:mscore[tk]}))
