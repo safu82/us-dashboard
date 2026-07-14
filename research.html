@@ -237,15 +237,16 @@ async function load(){
         <div><span class="lb-tk">${r.sym}</span><span class="etf-kind ${r.kind}">${r.kind}</span><span class="lb-nm">${r.name}</span><div class="etf-tag">${r.tag}</div></div>
         <div class="etf-r">${r.rank==null?'–':r.rank}</div>
         <div class="etf-mom" style="color:${col}">${arr} ${r.mom}</div>`;
-      return (r.kind==='theme' && r.slug)
-        ? `<a class="etfrow" href="theme.html?theme=${r.slug}">${inner}</a>`
-        : `<div class="etfrow">${inner}</div>`;
+      // Every ETF row opens its TradingView chart in a new tab (bare symbol; TradingView
+      // resolves the exchange). Theme value-chain maps stay reachable from the theme cards above.
+      const tv = `https://www.tradingview.com/symbols/${encodeURIComponent(r.sym)}/`;
+      return `<a class="etfrow" href="${tv}" target="_blank" rel="noopener">${inner}</a>`;
     }).join('');
   };
   document.getElementById('etfboard').innerHTML = !etfRows.length ? '' :
     `<div class="board" style="margin-top:22px">
       <div class="btitle">📊 Sector &amp; Theme ETF Momentum</div>
-      <div class="bsub">Buyable sector (SPDR) and thematic ETFs, ranked by the same 0-100 <b>momentum</b> score used across this site — but scored against <b>each other</b>, so a diversified fund is measured versus other funds, not single stocks. Higher = stronger trend (▲ &gt;55, ▼ &lt;45). <b>RS</b> = relative-strength rank within the ETF set (1 = strongest). Theme ETFs link to their value-chain map.${eLatest?` As of ${eLatest}.`:''}</div>
+      <div class="bsub">Buyable sector (SPDR) and thematic ETFs, ranked by the same 0-100 <b>momentum</b> score used across this site — but scored against <b>each other</b>, so a diversified fund is measured versus other funds, not single stocks. Higher = stronger trend (▲ &gt;55, ▼ &lt;45). <b>RS</b> = relative-strength rank within the ETF set (1 = strongest). Click any ETF to open its TradingView chart in a new tab.${eLatest?` As of ${eLatest}.`:''}</div>
       <div class="etftoggle btoggle">
         <button data-mode="all" onclick="setEtfBoard('all')">All</button>
         <button data-mode="sector" onclick="setEtfBoard('sector')">Sectors</button>
