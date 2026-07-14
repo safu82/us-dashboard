@@ -237,9 +237,10 @@ async function load(){
         <div><span class="lb-tk">${r.sym}</span><span class="etf-kind ${r.kind}">${r.kind}</span><span class="lb-nm">${r.name}</span><div class="etf-tag">${r.tag}</div></div>
         <div class="etf-r">${r.rank==null?'–':r.rank}</div>
         <div class="etf-mom" style="color:${col}">${arr} ${r.mom}</div>`;
-      // Every ETF row opens its TradingView chart in a new tab (bare symbol; TradingView
-      // resolves the exchange). Theme value-chain maps stay reachable from the theme cards above.
-      const tv = `https://www.tradingview.com/symbols/${encodeURIComponent(r.sym)}/`;
+      // Every ETF row opens its TradingView Supercharts in a new tab — the /chart/?symbol=
+      // form (same as the stock links in deep_dive/index), not the /symbols/ overview page.
+      // Theme value-chain maps stay reachable from the theme cards above.
+      const tv = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(r.sym)}`;
       return `<a class="etfrow" href="${tv}" target="_blank" rel="noopener">${inner}</a>`;
     }).join('');
   };

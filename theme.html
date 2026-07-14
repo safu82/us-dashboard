@@ -236,7 +236,7 @@ async function load(){
       const m = es ? num(es.momentum_score) : null;
       const arr = m==null?'':(m>55?'▲':m<45?'▼':'→');
       const cls = m==null?'badge-blue':(m>55?'badge-green':m<45?'badge-red':'badge-grey');
-      const tv = `https://www.tradingview.com/symbols/${encodeURIComponent(etf.symbol)}/`;
+      const tv = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(etf.symbol)}`;
       eel.innerHTML = `<a class="badge ${cls}" href="${tv}" target="_blank" rel="noopener" title="${(etf.name||etf.symbol).replace(/"/g,'')} — the buyable ETF for this theme; momentum ranked among ETFs. Opens its TradingView chart.">📊 ETF ${etf.symbol}${m==null?'':` ${arr} ${m}`} ↗</a>`;
     }
   }catch(e){ /* ETF chip is optional enrichment */ }
