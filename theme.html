@@ -114,7 +114,7 @@
 </head>
 <body>
 <div class="header">
-  <div class="h-title">🧭 <span id="theme-name">AI Value Chain</span> <span id="theme-momo" style="font-size:13px;font-weight:600;vertical-align:middle"></span></div>
+  <div class="h-title">🧭 <span id="theme-name">AI Value Chain</span> <span id="theme-momo" style="font-size:13px;font-weight:600;vertical-align:middle"></span> <span id="theme-etf" style="font-size:13px;font-weight:600;vertical-align:middle;margin-left:4px"></span></div>
   <div class="h-desc" id="theme-desc"></div>
   <div class="legend" style="margin-top:12px">
     <span>Valuation (relative, growth-adjusted):</span>
@@ -223,6 +223,24 @@ async function load(){
   const mel = document.getElementById('theme-momo');
   if(mel) mel.innerHTML = tScore==null ? '' :
     `<span class="badge ${tScore>55?'badge-green':tScore<45?'badge-red':'badge-grey'}">Theme momentum ${tScore}/100</span>`;
+
+  // Per-theme ETF chip: the buyable ETF mapped to this theme + its momentum (ranked among ETFs
+  // in compute_etf_momentum.py, same 0-100 scale), linking to its TradingView chart. Optional —
+  // a theme with no mapped ETF (e.g. aging) simply shows no chip.
+  try{
+    const etf = (await sb.from('etfs').select('symbol,name').eq('theme_slug',SLUG).eq('kind','theme').maybeSingle()).data;
+    const eel = document.getElementById('theme-etf');
+    if(etf && eel){
+      const eLatest = (await sb.from('etf_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
+      const es = eLatest ? (await sb.from('etf_snapshots').select('momentum_score,etf_rank').eq('symbol',etf.symbol).eq('snapshot_date',eLatest).maybeSingle()).data : null;
+      const m = es ? num(es.momentum_score) : null;
+      const arr = m==null?'':(m>55?'▲':m<45?'▼':'→');
+      const cls = m==null?'badge-blue':(m>55?'badge-green':m<45?'badge-red':'badge-grey');
+      const tv = `https://www.tradingview.com/symbols/${encodeURIComponent(etf.symbol)}/`;
+      eel.innerHTML = `<a class="badge ${cls}" href="${tv}" target="_blank" rel="noopener" title="${(etf.name||etf.symbol).replace(/"/g,'')} — the buyable ETF for this theme; momentum ranked among ETFs. Opens its TradingView chart.">📊 ETF ${etf.symbol}${m==null?'':` ${arr} ${m}`} ↗</a>`;
+    }
+  }catch(e){ /* ETF chip is optional enrichment */ }
+
   renderMap();
   if(NODES.length) selectNode(NODES[0].node_key);
   renderFoot();
