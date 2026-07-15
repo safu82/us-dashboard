@@ -739,9 +739,15 @@ console.log(`Result:`, ytdEndValue + ytdWithdrawals + ytdSoldValue - ytdDeposits
 
         // ============ MARKET STATE HELPERS (AH/PM display) ============
         // Returns one of REGULAR / PRE / POST / CLOSED based on (1) Yahoo's
-        // marketState on ^GSPC if present, (2) local time -> ET conversion.
+        // marketState, (2) local time -> ET conversion.
+        // Prefer SPY / ^IXIC (real securities that TRADE extended hours and report an
+        // accurate PRE/POST marketState) over ^GSPC — the raw S&P index is computed from
+        // constituents, doesn't trade after-hours, and Yahoo reports its marketState
+        // inconsistently (some sessions it freezes as CLOSED at 4pm, which used to flip
+        // the whole dashboard out of after-hours while SPY/^IXIC still said POST).
         function getMarketSession() {
-            const yahoo = prices['^GSPC']?.state || prices['QQQ']?.state;
+            const yahoo = prices['SPY']?.state || prices['^IXIC']?.state
+                        || prices['^GSPC']?.state || prices['QQQ']?.state;
             if (yahoo) {
                 const s = String(yahoo).toUpperCase();
                 if (s === 'REGULAR') return 'REGULAR';
