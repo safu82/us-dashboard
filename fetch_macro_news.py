@@ -60,9 +60,14 @@ MAX_ARTICLES = 75
 TIMESPAN = '7d'
 HEADLINES_PER_TOPIC = 8   # broad buckets (IPOs, Big Tech) bury the marquee story in a
                           # top-5 cut — regional IPO noise crowded out SK Hynix; save more
-SLEEP = 7.0           # GDELT throttles bursts; more themes now, so space them out
-EMPTY_RETRIES = 2     # an empty bucket is almost always a throttle, not "no news"
-EMPTY_BACKOFF = 20.0  # ...so wait longer and retry before giving up on a theme
+SLEEP = 5.0           # GDELT throttles bursts; space themes out (kept modest to fit the budget)
+EMPTY_RETRIES = 1     # an empty bucket is usually a throttle; retry once, then move on
+EMPTY_BACKOFF = 10.0  # ...short backoff so a throttled sweep can't run away
+FETCH_ATTEMPTS = 2    # per-theme GDELT attempts (was 4) — bounds per-theme wall time
+# Overall wall-time budget. When GDELT hangs/times out from CI IPs, the full 11-theme
+# sweep at 4 attempts x 30s could balloon to ~85 min and blow the job's 90-min timeout,
+# cancelling the whole newsletter mid-run. Cap the sweep and emit whatever we have.
+MAX_RUNTIME_SEC = 240
 
 
 def main():
@@ -70,17 +75,23 @@ def main():
     print(f'Macro news sweep via {provider.name} ({TIMESPAN}, {len(MACRO_TOPICS)} themes)\n')
 
     results = []
+    deadline = time.monotonic() + MAX_RUNTIME_SEC
     for label, query in MACRO_TOPICS:
-        arts = provider.fetch_articles(query, max_articles=MAX_ARTICLES, timespan=TIMESPAN)
+        # Stop sweeping once the budget is spent (GDELT hung this week) — emit what we
+        # have so far rather than run into the workflow's step/job timeout.
+        if time.monotonic() > deadline:
+            print(f'  [budget {MAX_RUNTIME_SEC}s spent — skipping remaining themes]')
+            break
+        arts = provider.fetch_articles(query, max_articles=MAX_ARTICLES, timespan=TIMESPAN, attempts=FETCH_ATTEMPTS)
         # For these perennial macro themes an empty result is a GDELT burst-throttle
         # (429 / empty JSON), not a genuine absence of news — back off and retry so a
         # top story (oil, inflation) doesn't silently drop out of the newsletter.
         tries = 0
-        while not arts and tries < EMPTY_RETRIES:
+        while not arts and tries < EMPTY_RETRIES and time.monotonic() < deadline:
             tries += 1
             print(f'  {label}: empty (likely throttled) — backoff {EMPTY_BACKOFF:.0f}s, retry {tries}/{EMPTY_RETRIES}')
             time.sleep(EMPTY_BACKOFF)
-            arts = provider.fetch_articles(query, max_articles=MAX_ARTICLES, timespan=TIMESPAN)
+            arts = provider.fetch_articles(query, max_articles=MAX_ARTICLES, timespan=TIMESPAN, attempts=FETCH_ATTEMPTS)
         domains = {a.domain for a in arts if a.domain}
         # Dedupe to one headline per domain (keep relevance order), newest-ish first.
         seen, top = set(), []

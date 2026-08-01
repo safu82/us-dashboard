@@ -42,15 +42,19 @@ jobs:
         run: python compute_market_health.py
       - name: 2/12 fetch_credit_spreads.py
         continue-on-error: true          # optional enrichment; FRED outage must not fail the run
+        timeout-minutes: 5               # step-level cap: a hang fails only this step, run continues
         run: python fetch_credit_spreads.py
       - name: 3/12 fetch_macro_data.py
         continue-on-error: true          # FRED->AV fallback; if both fail, rates stay (honestly) stale
+        timeout-minutes: 10
         run: python fetch_macro_data.py
       - name: 4/12 fetch_global_indices.py
         continue-on-error: true          # yfinance global tape; a network/Yahoo outage must not block
+        timeout-minutes: 10
         run: python fetch_global_indices.py
       - name: 5/12 fetch_earnings_dates.py
         continue-on-error: true          # yfinance calendar; partial/failed pull must not block the issue
+        timeout-minutes: 30              # ~1,900 .info calls — legitimately slow, so a generous cap
         run: python fetch_earnings_dates.py
 
       # 2. Deterministic data pack + event detection (pure DB). The data pack also
@@ -63,10 +67,12 @@ jobs:
 
       # 3. News retrieval (macro keyless GDELT; ticker via Alpha Vantage).
       - name: 8/12 fetch_macro_news.py
-        continue-on-error: true          # GDELT (keyless, rate-limits); optional colour
+        continue-on-error: true          # GDELT (keyless, rate-limits/hangs from CI IPs); optional colour
+        timeout-minutes: 8               # HARD cap: GDELT timing out on every theme used to eat the 90-min job wall
         run: python fetch_macro_news.py
       - name: 9/12 fetch_ticker_news.py
         continue-on-error: true          # Alpha Vantage (needs ALPHAVANTAGE_API_KEY, 25/day); optional
+        timeout-minutes: 8
         run: python fetch_ticker_news.py
 
       # 4. Synthesize the draft, humanize it (strip AI tells), then render .docx.
