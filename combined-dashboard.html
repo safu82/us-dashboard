@@ -1,0 +1,1254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Combined Portfolio Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.js"></script>
+    <style>
+        .card { @apply bg-white rounded-lg shadow-md p-6 mb-6; }
+        .metric-label { @apply text-sm text-gray-600 mb-1; }
+        .metric-value { @apply text-2xl font-bold; }
+        .positive { @apply text-green-600; }
+        .negative { @apply text-red-600; }
+        
+        /* Mobile optimizations */
+        @media (max-width: 768px) {
+            .metric-value { @apply text-xl; }
+            .card { @apply p-4 mb-4; }
+            body { @apply text-sm; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app" class="w-full max-w-7xl mx-auto p-3 md:p-6"></div>
+
+    <script>
+    // ============ SUPABASE CONFIGURATION ============
+    // OLD project (India system): holds INDIAN portfolio data + alerts.
+    const SUPABASE_URL = 'https://hcgyncghmcvylnrmcivj.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjZ3luY2dobWN2eWxucm1jaXZqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc1MTQwMTEsImV4cCI6MjA3MzA5MDAxMX0.n8vFVCJe1y_3o8fpAY0IgasZ4eKl7DAogEM3OlHB8Ww';
+
+    // NEW project (dedicated US dashboard): source of truth for US portfolio.
+    // US-only schema — these tables have NO `portfolio` column, so US loaders
+    // must query without the .eq('portfolio', ...) filter.
+    const US_SUPABASE_URL = 'https://jblrurlpyplbquqibphh.supabase.co';
+    const US_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpibHJ1cmxweXBsYnF1cWlicGhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzNDY1NzAsImV4cCI6MjA5NDkyMjU3MH0.oYZarIlHqxpZY6ZWA0KRD9HoxYyv80otXKVNkpuNLRo';
+
+    // Initialize Supabase clients - check if already exists to prevent errors
+    let supabase;     // old project (India)
+    let usSupabase;   // new project (US)
+    try {
+        if (!window.supabaseClient) {
+            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            window.supabaseClient = supabase; // Store globally to prevent re-initialization
+            console.log('🔗 Supabase client (India/old) initialized');
+        } else {
+            supabase = window.supabaseClient;
+            console.log('✅ Supabase client (India/old) already initialized');
+        }
+        if (!window.usSupabaseClient) {
+            usSupabase = window.supabase.createClient(US_SUPABASE_URL, US_SUPABASE_ANON_KEY);
+            window.usSupabaseClient = usSupabase;
+            console.log('🔗 Supabase client (US/new) initialized');
+        } else {
+            usSupabase = window.usSupabaseClient;
+            console.log('✅ Supabase client (US/new) already initialized');
+        }
+    } catch (error) {
+        console.error('❌ Error initializing Supabase:', error);
+    }
+    
+    // ============ STATE ============
+    let exchangeRate = 0;
+    let selectedYTDYear = new Date().getFullYear();
+    let selectedPeriodMonth = new Date().getMonth() + 1; // Current month (1-12)
+    let selectedPeriodYear = new Date().getFullYear(); // Current year for period gains
+    let lastUpdate = null;
+    let alerts = [];  // ADD THIS LINE
+let alertFilter = 'ALL';  // ADD THIS LINE
+let showArchived = false;  // ADD THIS LINE
+    
+    // Data containers
+    let usSnapshots = {};
+    let indianSnapshots = {};
+    let usLatestSnapshot = null;
+    let indianLatestSnapshot = null;
+    let usCashFlows = [];
+    let indianCashFlows = [];
+    let usTransactions = [];
+    let indianTransactions = [];
+
+    // ============ EXCHANGE RATE API ============
+    async function fetchExchangeRate() {
+        try {
+            const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+            const data = await response.json();
+            exchangeRate = data.rates.INR;
+            console.log(`✅ Exchange Rate: 1 USD = ₹${exchangeRate.toFixed(2)}`);
+            return exchangeRate;
+        } catch (error) {
+            console.error('❌ Error fetching exchange rate:', error);
+            exchangeRate = 83.50; // Fallback rate
+            return exchangeRate;
+        }
+    }
+
+// ============ LOAD ALERTS ============
+async function loadAlerts() {
+    try {
+        let query = supabase
+            .from('alerts')
+            .select('*')
+            .order('alert_date', { ascending: false })
+            .limit(100);
+        
+        // Hide archived alerts unless toggle is on
+        if (!showArchived) {
+            query = query.neq('status', 'ARCHIVED');
+        }
+        
+        const { data, error } = await query;
+        
+        if (error) throw error;
+        
+        alerts = data || [];
+        console.log(`✅ Loaded ${alerts.length} alerts`);
+    } catch (error) {
+        console.error('❌ Error loading alerts:', error);
+        alerts = [];
+    }
+}
+    // ============ SUPABASE DATA LOADERS ============
+    // client: which Supabase project to query.
+    // portfolio: portfolio code to filter on, or null when the project is
+    //            single-portfolio (the new US project has no `portfolio` column).
+    async function loadSnapshots(client, portfolio) {
+        try {
+            let query = client
+                .from('portfolio_snapshots')
+                .select('*')
+                .order('snapshot_date', { ascending: true });
+            if (portfolio) query = query.eq('portfolio', portfolio);
+            const { data, error } = await query;
+
+            if (error) throw error;
+            
+            const snapshotsObj = {};
+            data.forEach(snap => {
+                snapshotsObj[snap.snapshot_date] = snap.total_value;
+            });
+            
+            console.log(`✅ Loaded ${data.length} snapshots for ${portfolio || 'US'}`);
+
+            // Return both the date-indexed snapshots and the latest full snapshot
+            return {
+                snapshots: snapshotsObj,
+                latestSnapshot: data[data.length - 1] || null
+            };
+        } catch (error) {
+            console.error(`❌ Error loading snapshots for ${portfolio || 'US'}:`, error);
+            return { snapshots: {}, latestSnapshot: null };
+        }
+    }
+
+    async function loadCashFlows(client, portfolio) {
+        try {
+            let allData = [];
+            let start = 0;
+            const batchSize = 1000;
+
+            while (true) {
+                let query = client
+                    .from('cash_flows')
+                    .select('*')
+                    .order('date', { ascending: true })
+                    .range(start, start + batchSize - 1);
+                if (portfolio) query = query.eq('portfolio', portfolio);
+                const { data, error } = await query;
+
+                if (error) throw error;
+                if (!data || data.length === 0) break;
+                
+                allData = allData.concat(data);
+                if (data.length < batchSize) break;
+                
+                start += batchSize;
+            }
+            
+            const cashFlows = allData.map(cf => ({
+                date: cf.date,
+                type: cf.description,
+                amount: Math.abs(cf.amount)
+            }));
+            
+            console.log(`✅ Loaded ${cashFlows.length} cash flows for ${portfolio || 'US'}`);
+            return cashFlows;
+        } catch (error) {
+            console.error(`❌ Error loading cash flows for ${portfolio || 'US'}:`, error);
+            return [];
+        }
+    }
+
+    async function loadTransactions(client, portfolio) {
+        try {
+            let query = client
+                .from('transactions')
+                .select('*')
+                .order('date', { ascending: true });
+            if (portfolio) query = query.eq('portfolio', portfolio);
+            const { data, error } = await query;
+
+            if (error) throw error;
+
+            console.log(`✅ Loaded ${data.length} transactions for ${portfolio || 'US'}`);
+            return data;
+        } catch (error) {
+            console.error(`❌ Error loading transactions for ${portfolio || 'US'}:`, error);
+            return [];
+        }
+    }
+
+    // ============ CALCULATION FUNCTIONS ============
+    function calculateYTDGains(snapshots, cashFlows, transactions, year, currentValue = null) {
+        const yearStart = `${year}-01-01`;
+        const yearEnd = `${year}-12-31`;
+        const currentYear = new Date().getFullYear();
+        
+        // Get start value (ALWAYS use previous year's end, never current year's Jan 1)
+        const startValue = snapshots[`${year - 1}-12-31`] || 0;
+        
+        // Get end value (use current value for current year, snapshot for past years)
+        const endValue = year < currentYear 
+            ? (snapshots[yearEnd] || 0) 
+            : (currentValue || 0);
+        
+        // Get cash flows for the year
+        const yearCashFlows = cashFlows.filter(cf => cf.date >= yearStart && cf.date <= yearEnd);
+        const withdrawals = yearCashFlows
+            .filter(cf => cf.type === 'Withdrawl' || cf.type === 'Withdrawal')
+            .reduce((sum, cf) => sum + cf.amount, 0);
+        const deposits = yearCashFlows
+            .filter(cf => cf.type === 'Deposit')
+            .reduce((sum, cf) => sum + cf.amount, 0);
+        
+        // Get transactions for the year (BUY = deposit, SELL = withdrawal)
+        // Only include Oct 2025 onwards - pre-Oct 2025 already covered by cash_flows
+        const yearTransactions = transactions.filter(t => t.date >= yearStart && t.date <= yearEnd && t.date >= '2025-10-01');
+        const soldValue = yearTransactions
+            .filter(t => t.type === 'SELL')
+            .reduce((sum, t) => sum + (t.quantity * t.price), 0);
+        const purchasedValue = yearTransactions
+            .filter(t => t.type === 'BUY')
+            .reduce((sum, t) => sum + (t.quantity * t.price), 0);
+        
+        // Calculate gains: End Value + Withdrawals + Sold - Deposits - Purchased - Start Value
+        const gains = endValue + withdrawals + soldValue - deposits - purchasedValue - startValue;
+        
+        console.log(`YTD ${year} Gains Calculation:`);
+        console.log(`  Start: ${startValue.toFixed(2)}, End: ${endValue.toFixed(2)}`);
+        console.log(`  Withdrawals: ${withdrawals.toFixed(2)}, Deposits: ${deposits.toFixed(2)}`);
+        console.log(`  Sold (from transactions): ${soldValue.toFixed(2)}, Purchased (from transactions): ${purchasedValue.toFixed(2)}`);
+        console.log(`  Gains: ${gains.toFixed(2)}`);
+        
+        return gains;
+    }
+
+    // Helper function to find closest snapshot before or on a given date
+    function getClosestSnapshot(snapshots, targetDate) {
+        const dates = Object.keys(snapshots)
+            .filter(d => d <= targetDate)
+            .sort()
+            .reverse();
+        return dates.length > 0 ? snapshots[dates[0]] : 0;
+    }
+
+    function calculatePeriodGains(snapshots, cashFlows, transactions, year, month, currentValue = null) {
+        const currentDate = new Date();
+        const currentYear = currentDate.getFullYear();
+        const currentMonth = currentDate.getMonth() + 1;
+        
+        const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
+        const lastDayOfMonth = new Date(year, month, 0).getDate();
+        const periodEnd = `${year}-${String(month).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`;
+        
+        // Get start value (end of previous month)
+        const prevMonth = month === 1 ? 12 : month - 1;
+        const prevYear = month === 1 ? year - 1 : year;
+        const lastDayOfPrevMonth = new Date(prevYear, prevMonth, 0).getDate();
+        const prevMonthEnd = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(lastDayOfPrevMonth).padStart(2, '0')}`;
+        const startValue = getClosestSnapshot(snapshots, prevMonthEnd);
+        
+        // Get end value (use closest snapshot for past months, current value for current month)
+        const endValue = (year === currentYear && month === currentMonth) 
+            ? (currentValue || 0)
+            : getClosestSnapshot(snapshots, periodEnd);
+        
+        // Get cash flows for the period
+        const periodCashFlows = cashFlows.filter(cf => cf.date >= periodStart && cf.date <= periodEnd);
+        const withdrawals = periodCashFlows
+            .filter(cf => cf.type === 'Withdrawl' || cf.type === 'Withdrawal')
+            .reduce((sum, cf) => sum + cf.amount, 0);
+        const deposits = periodCashFlows
+            .filter(cf => cf.type === 'Deposit')
+            .reduce((sum, cf) => sum + cf.amount, 0);
+        
+        // Get transactions for the period
+        // Only include Oct 2025 onwards - pre-Oct 2025 already covered by cash_flows
+        const periodTransactions = transactions.filter(t => t.date >= periodStart && t.date <= periodEnd && t.date >= '2025-10-01');
+        const soldValue = periodTransactions
+            .filter(t => t.type === 'SELL')
+            .reduce((sum, t) => sum + (t.quantity * t.price), 0);
+        const purchasedValue = periodTransactions
+            .filter(t => t.type === 'BUY')
+            .reduce((sum, t) => sum + (t.quantity * t.price), 0);
+        
+        // Calculate gains
+        const gains = endValue + withdrawals + soldValue - deposits - purchasedValue - startValue;
+        
+        console.log(`Period ${year}-${month} Gains Calculation:`);
+        console.log(`  Start: ${startValue.toFixed(2)}, End: ${endValue.toFixed(2)}`);
+        console.log(`  Withdrawals: ${withdrawals.toFixed(2)}, Deposits: ${deposits.toFixed(2)}`);
+        console.log(`  Sold (from transactions): ${soldValue.toFixed(2)}, Purchased (from transactions): ${purchasedValue.toFixed(2)}`);
+        console.log(`  Gains: ${gains.toFixed(2)}`);
+        
+        return gains;
+    }
+
+    // Rebuilds the combined (INR) cumulative-gains curve since Jan 2023 on the union of
+    // US + Indian snapshot dates, so we can show how far current gains sit below their peak.
+    // Flow convention matches calculateYTDGains(): cash_flows for the whole period, plus
+    // transactions only from 2025-10-01 (pre-Oct 2025 is already covered by cash_flows).
+    // US values/flows are converted at the CURRENT exchange rate, same as the card itself.
+    function buildGainsCurve() {
+        const START = '2023-01-01';
+        const TXN_START = '2025-10-01';
+
+        // External flow events — positive = money added to the portfolio (INR)
+        const flowEvents = [];
+        const addFlows = (cashFlows, transactions, fx) => {
+            cashFlows.forEach(cf => {
+                if (cf.date < START) return;
+                if (cf.type === 'Deposit') flowEvents.push({ date: cf.date, amount: cf.amount * fx });
+                else if (cf.type === 'Withdrawl' || cf.type === 'Withdrawal') flowEvents.push({ date: cf.date, amount: -cf.amount * fx });
+            });
+            transactions.forEach(t => {
+                if (t.date < TXN_START) return;
+                const value = t.quantity * t.price * fx;
+                if (t.type === 'BUY') flowEvents.push({ date: t.date, amount: value });
+                else if (t.type === 'SELL') flowEvents.push({ date: t.date, amount: -value });
+            });
+        };
+        addFlows(usCashFlows, usTransactions, exchangeRate);
+        addFlows(indianCashFlows, indianTransactions, 1);
+        flowEvents.sort((a, b) => a.date.localeCompare(b.date));
+
+        const usDates = Object.keys(usSnapshots).sort();
+        const indianDates = Object.keys(indianSnapshots).sort();
+        const curveDates = [...new Set([...usDates, ...indianDates])].filter(d => d >= START).sort();
+        if (curveDates.length === 0) return [];
+
+        const baseValue = (usSnapshots['2023-01-01'] || usSnapshots['2022-12-31'] || 0) * exchangeRate
+                        + (indianSnapshots['2023-01-01'] || indianSnapshots['2022-12-31'] || 0);
+
+        // Walk snapshots + flows in date order, carrying forward the last known value on each side
+        const curve = [];
+        let ui = 0, ii = 0, fi = 0;
+        let usValue = 0, indianValue = 0, netInflow = 0;
+        curveDates.forEach(date => {
+            while (ui < usDates.length && usDates[ui] <= date) { usValue = usSnapshots[usDates[ui]]; ui++; }
+            while (ii < indianDates.length && indianDates[ii] <= date) { indianValue = indianSnapshots[indianDates[ii]]; ii++; }
+            while (fi < flowEvents.length && flowEvents[fi].date <= date) { netInflow += flowEvents[fi].amount; fi++; }
+            curve.push({ date, gains: (usValue * exchangeRate + indianValue) - baseValue - netInflow });
+        });
+        return curve;
+    }
+
+    function calculateXIRR(cashFlows, startValue, startDate, currentValue) {
+        const flows = [];
+        const dates = [];
+        
+        console.log(`\n=== XIRR Calculation Debug ===`);
+        console.log(`Start Date: ${startDate}, Start Value: ${startValue.toFixed(2)}`);
+        console.log(`Current Value: ${currentValue.toFixed(2)}`);
+        console.log(`Total Cash Flows in database: ${cashFlows.length}`);
+        
+        // Initial investment
+        flows.push(-startValue);
+        dates.push(new Date(startDate));
+        
+        // Add cash flows ONLY from start date onwards
+        const filteredCashFlows = cashFlows.filter(cf => cf.date >= startDate);
+        console.log(`Filtered Cash Flows (from ${startDate} onwards): ${filteredCashFlows.length}`);
+        
+        let totalDeposits = 0;
+        let totalWithdrawals = 0;
+        filteredCashFlows.forEach(cf => {
+            const amount = cf.type === 'Withdrawl' || cf.type === 'Withdrawal' 
+                ? cf.amount 
+                : -cf.amount;
+            flows.push(amount);
+            dates.push(new Date(cf.date));
+            
+            if (amount > 0) totalWithdrawals += amount;
+            else totalDeposits += Math.abs(amount);
+        });
+        
+        console.log(`Total Deposits (negative flows): ${totalDeposits.toFixed(2)}`);
+        console.log(`Total Withdrawals (positive flows): ${totalWithdrawals.toFixed(2)}`);
+        
+        // Current value
+        flows.push(currentValue);
+        dates.push(new Date());
+        
+        console.log(`Total flows: ${flows.length}`);
+        console.log(`First flow: ${flows[0].toFixed(2)} on ${dates[0].toISOString().split('T')[0]}`);
+        console.log(`Last flow: ${flows[flows.length-1].toFixed(2)} on ${dates[dates.length-1].toISOString().split('T')[0]}`);
+        
+        // Newton-Raphson method
+        let guess = 0.1;
+        const maxIterations = 1000;
+        const tolerance = 0.000001;
+        
+        for (let i = 0; i < maxIterations; i++) {
+            let npv = 0;
+            let dnpv = 0;
+            
+            for (let j = 0; j < flows.length; j++) {
+                const daysDiff = (dates[j] - dates[0]) / (1000 * 60 * 60 * 24);
+                const yearFrac = daysDiff / 365.25;
+                const factor = Math.pow(1 + guess, yearFrac);
+                
+                npv += flows[j] / factor;
+                dnpv += -yearFrac * flows[j] / factor / (1 + guess);
+            }
+            
+            if (Math.abs(npv) < tolerance) {
+                const xirrResult = guess * 100;
+                console.log(`✅ XIRR Result: ${xirrResult.toFixed(2)}%`);
+                return xirrResult;
+            }
+            
+            if (Math.abs(dnpv) < 1e-10) {
+                guess = guess * 0.5;
+                continue;
+            }
+            
+            const newGuess = guess - npv / dnpv;
+            const maxChange = 0.5;
+            
+            if (Math.abs(newGuess - guess) > maxChange) {
+                guess = guess + Math.sign(newGuess - guess) * maxChange;
+            } else {
+                guess = newGuess;
+            }
+        }
+        
+        console.log(`❌ XIRR did not converge`);
+        return null;
+    }
+
+    function calculateYTDXIRR(snapshots, cashFlows, transactions, year, currentValue) {
+        const yearStartDate = `${year}-01-01`;
+        const yearEndDate = `${year}-12-31`;
+        const currentYear = new Date().getFullYear();
+        
+        const flows = [];
+        const dates = [];
+        
+        // Get start value
+        const yearStartValue = snapshots[yearStartDate] || snapshots[`${year - 1}-12-31`];
+        
+        if (!yearStartValue) {
+            console.log(`⚠️ No start value for YTD XIRR ${year}`);
+            return null;
+        }
+        
+        flows.push(-yearStartValue);
+        dates.push(new Date(yearStartDate));
+        
+        // Add cash flows for the year
+        cashFlows.forEach(cf => {
+            if (cf.date >= yearStartDate && cf.date <= yearEndDate) {
+                const amount = (cf.type === 'Deposit') ? -cf.amount : (cf.type === 'Withdrawl' || cf.type === 'Withdrawal') ? cf.amount : 0;
+                flows.push(amount);
+                dates.push(new Date(cf.date));
+            }
+        });
+        
+        // Add transactions for the year
+        // Only include Oct 2025 onwards - pre-Oct 2025 already covered by cash_flows
+        const yearTransactions = transactions.filter(t => t.date >= yearStartDate && t.date <= yearEndDate && t.date >= '2025-10-01');
+        yearTransactions.forEach(txn => {
+            const amount = txn.quantity * txn.price;
+            flows.push(txn.type === 'BUY' ? -amount : amount);
+            dates.push(new Date(txn.date));
+        });
+        
+        // Get end value
+        const endValue = year < currentYear ? (snapshots[yearEndDate] || 0) : currentValue;
+        if (!endValue) {
+            console.log(`⚠️ No end value for YTD XIRR ${year}`);
+            return null;
+        }
+        
+        flows.push(endValue);
+        dates.push(new Date(year < currentYear ? yearEndDate : Date.now()));
+        
+        // Newton-Raphson method
+        let guess = 0.1;
+        const maxIterations = 1000;
+        const tolerance = 0.000001;
+        
+        for (let i = 0; i < maxIterations; i++) {
+            let npv = 0;
+            let dnpv = 0;
+            
+            for (let j = 0; j < flows.length; j++) {
+                const daysDiff = (dates[j] - dates[0]) / (1000 * 60 * 60 * 24);
+                const yearFrac = daysDiff / 365.25;
+                const factor = Math.pow(1 + guess, yearFrac);
+                
+                npv += flows[j] / factor;
+                dnpv += -yearFrac * flows[j] / factor / (1 + guess);
+            }
+            
+            if (Math.abs(npv) < tolerance) {
+                return guess * 100;
+            }
+            
+            if (Math.abs(dnpv) < 1e-10) {
+                guess = guess * 0.5;
+                continue;
+            }
+            
+            const newGuess = guess - npv / dnpv;
+            const maxChange = 0.5;
+            
+            if (Math.abs(newGuess - guess) > maxChange) {
+                guess = guess + Math.sign(newGuess - guess) * maxChange;
+            } else {
+                guess = newGuess;
+            }
+        }
+        
+        return null;
+    }
+
+    // ============ FORMATTING HELPERS ============
+    function formatNumber(value) {
+        return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(value);
+    }
+
+    function formatCurrency(value, currency = 'INR') {
+        if (currency === 'USD') {
+            return '$' + new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value);
+        }
+        return '₹' + formatNumber(value);
+    }
+
+// ============ ALERT HELPER FUNCTIONS ============
+function getAlertIcon(alertType) {
+    const icons = {
+        // EMA Crossovers
+        'ema_golden_cross': '🚀',
+        'ema_death_cross': '⚠️',
+        
+        // Volume Breakouts
+        'volume_breakout_bullish': '📈',
+        'volume_breakout_bearish': '📉',
+        
+        // Blue Zone Stocks (Strong Momentum Pullback)
+        'blue_zone_stocks': '🎯',
+        
+        // RSI Bullish Signals
+        'rsi_bullish_divergence': '🚀',
+        'rsi_oversold_recovery': '✅',
+        
+        // RSI Bearish Signals
+        'rsi_bearish_divergence': '⚠️',
+        'rsi_overbought_breakdown': '⚠️',
+        
+        // 200 EMA Patterns
+        'ema_200_breakout': '💎',  // Updated to match market scanner
+        '200ema_breakout': '💎',   // Also support new naming
+        'ema_200_retest': '✅',
+        '200ema_retest': '✅',     // Also support new naming
+        
+        // Promoter Activity
+        'promoter_buying': '💼',
+        'promoter_selling': '📤',
+        
+        // Quarterly Results
+        'quarterly_results': '📅',
+    };
+    
+    return icons[alertType] || '📌';  // Default to pin if not found
+}
+
+function formatAlertDate(dateStr) {
+    const alertDate = new Date(dateStr + 'T00:00:00'); // Parse as midnight
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset to midnight for comparison
+    
+    const diffTime = today - alertDate;
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays > 0 && diffDays < 7) return `${diffDays} days ago`;
+    
+    return alertDate.toLocaleDateString('en-IN', { 
+        month: 'short', 
+        day: 'numeric', 
+        year: 'numeric' 
+    });
+}
+
+// Dismiss alert
+async function archiveAlert(alertId) {
+    console.log('🔍 Archive called with ID:', alertId);
+    console.log('🔍 Supabase client:', supabase);
+    console.log('🔍 Supabase client type:', typeof supabase);
+    try {
+        const { error} = await supabase
+            .from('alerts')
+            .update({ status: 'ARCHIVED' })  // Changed from 'DISMISSED'
+            .eq('id', alertId);
+        
+        if (error) throw error;
+        
+        await loadAlerts();
+        render();
+    } catch (error) {
+        console.error('Error archiving alert:', error);
+    }
+}
+
+// Toggle alert details
+function toggleDetails(alertId) {
+    const detailsDiv = document.getElementById(`details-${alertId}`);
+    const toggleText = document.getElementById(`details-toggle-${alertId}`);
+    
+    if (detailsDiv.classList.contains('hidden')) {
+        detailsDiv.classList.remove('hidden');
+        toggleText.textContent = '▼ Hide Details';
+    } else {
+        detailsDiv.classList.add('hidden');
+        toggleText.textContent = '▶ Show Details';
+    }
+}
+
+
+
+
+    // ============ RENDER FUNCTION ============
+    function render() {
+        const app = document.getElementById('app');
+        
+        // Get current values from latest snapshots
+        const usCurrentValue = Object.values(usSnapshots).slice(-1)[0] || 0;
+        const indianCurrentValue = Object.values(indianSnapshots).slice(-1)[0] || 0;
+        
+        console.log('=== DEBUG: Current Values ===');
+        console.log('US Current Value:', usCurrentValue);
+        console.log('Indian Current Value:', indianCurrentValue);
+        console.log('Latest US Snapshot:', Object.keys(usSnapshots).slice(-1)[0]);
+        console.log('Latest Indian Snapshot:', Object.keys(indianSnapshots).slice(-1)[0]);
+        
+        // Get current month and year for period gains
+        const currentDate = new Date();
+        const currentYear = currentDate.getFullYear();
+        const currentMonth = currentDate.getMonth() + 1; // 1-12
+        
+        // Calculate metrics for US portfolio
+        const usYTDGains = calculateYTDGains(usSnapshots, usCashFlows, usTransactions, selectedYTDYear, usCurrentValue);
+        const usPeriodGains = calculatePeriodGains(usSnapshots, usCashFlows, usTransactions, selectedPeriodYear, selectedPeriodMonth, usCurrentValue);
+        const usStartValue = usSnapshots['2023-01-01'] || usSnapshots['2022-12-31'] || 0;
+        console.log('\n🇺🇸 === US PORTFOLIO XIRR (Since Jan 2023) ===');
+        const usXIRR = calculateXIRR(usCashFlows, usStartValue, '2023-01-01', usCurrentValue);
+        const usYTDPercent = calculateYTDXIRR(usSnapshots, usCashFlows, usTransactions, selectedYTDYear, usCurrentValue);
+        
+        // Calculate metrics for Indian portfolio
+        console.log('=== DEBUG: Calculating Indian YTD Gains ===');
+        const indianYTDGains = calculateYTDGains(indianSnapshots, indianCashFlows, indianTransactions, selectedYTDYear, indianCurrentValue);
+        console.log('=== DEBUG: Calculating Indian Period Gains ===');
+        const indianPeriodGains = calculatePeriodGains(indianSnapshots, indianCashFlows, indianTransactions, selectedPeriodYear, selectedPeriodMonth, indianCurrentValue);
+        const indianStartValue = indianSnapshots['2023-01-01'] || indianSnapshots['2022-12-31'] || 0;
+        console.log('\n🇮🇳 === INDIAN PORTFOLIO XIRR (Since Jan 2023) ===');
+        // Merge cash_flows (up to Sep 2025) with transactions table (Oct 2025 onwards)
+        const indianOctOnwards = indianTransactions
+            .filter(t => t.date >= '2025-10-01')
+            .map(t => ({ date: t.date, type: t.type === 'BUY' ? 'Deposit' : 'Withdrawal', amount: t.quantity * t.price }));
+        const indianCombinedFlows = [...indianCashFlows, ...indianOctOnwards].sort((a, b) => a.date.localeCompare(b.date));
+        const indianXIRR = calculateXIRR(indianCombinedFlows, indianStartValue, '2023-01-01', indianCurrentValue);
+        const indianYTDPercent = calculateYTDXIRR(indianSnapshots, indianCashFlows, indianTransactions, selectedYTDYear, indianCurrentValue);
+        
+        // ============ BENCHMARK CALCULATIONS (NEW) ============
+        // US Portfolio vs QQQ
+        const usBenchmarkXIRR = usLatestSnapshot?.benchmark_xirr || 0;
+        const usOutperformance = usXIRR - usBenchmarkXIRR;
+        console.log(`📊 US Benchmark (QQQ): ${usBenchmarkXIRR.toFixed(2)}% | Outperformance: ${usOutperformance >= 0 ? '+' : ''}${usOutperformance.toFixed(2)}%`);
+        
+        // Indian Portfolio vs NIFTYBEES
+        const indianBenchmarkXIRR = indianLatestSnapshot?.benchmark_xirr || 0;
+        const indianOutperformance = indianXIRR - indianBenchmarkXIRR;
+        console.log(`📊 Indian Benchmark (NIFTYBEES): ${indianBenchmarkXIRR.toFixed(2)}% | Outperformance: ${indianOutperformance >= 0 ? '+' : ''}${indianOutperformance.toFixed(2)}%`);
+        // ============ END BENCHMARK CALCULATIONS ============
+        
+        // Convert US values to INR for total calculation
+        const usCurrentValueINR = usCurrentValue * exchangeRate;
+        const usYTDGainsINR = usYTDGains * exchangeRate;
+        const usPeriodGainsINR = usPeriodGains * exchangeRate;
+        
+        // Calculate totals (in INR)
+        const totalValue = usCurrentValueINR + indianCurrentValue;
+        const totalYTDGains = usYTDGainsINR + indianYTDGains;
+        const totalPeriodGains = usPeriodGainsINR + indianPeriodGains;
+        
+        // Get month name for display
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const selectedMonthName = monthNames[selectedPeriodMonth - 1];
+        const periodLabel = `${selectedMonthName} ${selectedPeriodYear} Gains`;
+        
+        // Calculate Total Gains since Jan 2023 (ALWAYS sum of 2023 + 2024 + 2025 + 2026, regardless of dropdown)
+        const us2023Gains = calculateYTDGains(usSnapshots, usCashFlows, usTransactions, 2023, usSnapshots['2023-12-31'] || 0);
+        const us2024Gains = calculateYTDGains(usSnapshots, usCashFlows, usTransactions, 2024, usSnapshots['2024-12-31'] || 0);
+        const us2025Gains = calculateYTDGains(usSnapshots, usCashFlows, usTransactions, 2025, usSnapshots['2025-12-31'] || 0);
+        const us2026Gains = calculateYTDGains(usSnapshots, usCashFlows, usTransactions, 2026, usCurrentValue);
+        
+        const indian2023Gains = calculateYTDGains(indianSnapshots, indianCashFlows, indianTransactions, 2023, indianSnapshots['2023-12-31'] || 0);
+        const indian2024Gains = calculateYTDGains(indianSnapshots, indianCashFlows, indianTransactions, 2024, indianSnapshots['2024-12-31'] || 0);
+        const indian2025Gains = calculateYTDGains(indianSnapshots, indianCashFlows, indianTransactions, 2025, indianSnapshots['2025-12-31'] || 0);
+        const indian2026Gains = calculateYTDGains(indianSnapshots, indianCashFlows, indianTransactions, 2026, indianCurrentValue);
+        
+        // Convert US gains to INR and sum all years
+        const usTotalGainsSinceJan2023INR = (us2023Gains + us2024Gains + us2025Gains + us2026Gains) * exchangeRate;
+        const indianTotalGainsSinceJan2023 = indian2023Gains + indian2024Gains + indian2025Gains + indian2026Gains;
+        
+        const totalGainsSinceJan2023 = usTotalGainsSinceJan2023INR + indianTotalGainsSinceJan2023;
+        
+        console.log('=== Total Gains Breakdown ===');
+        console.log(`US: 2023=${us2023Gains.toFixed(2)}, 2024=${us2024Gains.toFixed(2)}, 2025=${us2025Gains.toFixed(2)}, 2026=${us2026Gains.toFixed(2)}, Total=${(us2023Gains + us2024Gains + us2025Gains + us2026Gains).toFixed(2)}`);
+        console.log(`Indian: 2023=${indian2023Gains.toFixed(2)}, 2024=${indian2024Gains.toFixed(2)}, 2025=${indian2025Gains.toFixed(2)}, 2026=${indian2026Gains.toFixed(2)}, Total=${indianTotalGainsSinceJan2023.toFixed(2)}`);
+        console.log(`Combined Total (INR): ${totalGainsSinceJan2023.toFixed(2)}`);
+
+        // ============ TOTAL GAINS vs ALL-TIME HIGH ============
+        const gainsCurve = buildGainsCurve();
+        const gainsATH = gainsCurve.reduce((best, p) => (best === null || p.gains >= best.gains) ? p : best, null);
+        const curveCurrentGains = gainsCurve.length ? gainsCurve[gainsCurve.length - 1].gains : 0;
+        const gainsDrawdown = gainsATH ? Math.max(0, gainsATH.gains - curveCurrentGains) : 0;
+        const gainsDrawdownPct = (gainsATH && gainsATH.gains > 0) ? (gainsDrawdown / gainsATH.gains) * 100 : null;
+        const atGainsATH = gainsATH ? gainsDrawdown < Math.abs(gainsATH.gains) * 0.001 : false;
+        const gainsATHDate = gainsATH
+            ? new Date(gainsATH.date + 'T00:00:00').toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })
+            : '';
+        if (gainsATH) {
+            console.log(`🏔️ Gains ATH: ${gainsATH.gains.toFixed(2)} on ${gainsATH.date} | Current (curve): ${curveCurrentGains.toFixed(2)} | Drawdown: ${gainsDrawdown.toFixed(2)}${gainsDrawdownPct !== null ? ` (${gainsDrawdownPct.toFixed(2)}%)` : ''}`);
+        }
+        
+        app.innerHTML = `
+            <div class="bg-white rounded-lg shadow-md p-4 md:p-6 mb-4 md:mb-6">
+    <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+        <!-- Left: Title -->
+        <div>
+            <h1 class="text-2xl md:text-3xl font-bold">Combined Portfolio</h1>
+            <p class="text-xs md:text-sm text-gray-600 mt-1">Last Updated: ${lastUpdate || 'Loading...'}</p>
+        </div>
+        
+        <!-- Middle: Exchange Rate -->
+        <div class="text-center">
+            <p class="text-xs md:text-sm text-gray-600">Exchange Rate</p>
+            <p class="text-base md:text-lg font-semibold">1 USD = ₹${formatNumber(exchangeRate)}</p>
+        </div>
+        
+        <!-- Right: Nifty500 Button -->
+        <a href="https://combined-portfolio-dashboard.netlify.app/market_alerts.html" 
+           class="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-colors flex items-center gap-2 border border-purple-200">
+            📊 Nifty500 Technical Alerts
+        </a>
+    </div>
+</div>
+
+            <!-- TOTAL PORTFOLIO CARDS -->
+            <div class="bg-white rounded-lg shadow-md p-4 md:p-6 mb-4 md:mb-6">
+                <h2 class="text-lg md:text-xl font-bold mb-4">Total Portfolio (₹)</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+                    <div class="bg-white rounded-lg border p-3 md:p-4">
+                        <div class="text-xs md:text-sm text-gray-600 mb-1">Total Value</div>
+                        <div class="text-xl md:text-2xl font-bold">${formatCurrency(totalValue)}</div>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg border p-3 md:p-4">
+                        <div class="flex justify-between items-start mb-1">
+                            <div class="text-xs md:text-sm text-gray-600">YTD Gains</div>
+                            <select 
+                                class="text-xs border rounded px-1 md:px-2 py-1"
+                                onchange="selectedYTDYear = parseInt(this.value); render()">
+                                <option value="2023" ${selectedYTDYear === 2023 ? 'selected' : ''}>2023</option>
+                                <option value="2024" ${selectedYTDYear === 2024 ? 'selected' : ''}>2024</option>
+                                <option value="2025" ${selectedYTDYear === 2025 ? 'selected' : ''}>2025</option>
+                                ${new Date().getFullYear() >= 2026 ? `<option value="2026" ${selectedYTDYear === 2026 ? 'selected' : ''}>2026</option>` : ''}
+                            </select>
+                        </div>
+                        <div class="text-xl md:text-2xl font-bold ${totalYTDGains >= 0 ? 'text-green-600' : 'text-red-600'}">
+                            ${formatCurrency(totalYTDGains)}
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg border p-3 md:p-4">
+                        <div class="flex justify-between items-start mb-1">
+                            <div class="text-xs md:text-sm text-gray-600">${periodLabel}</div>
+                            <div style="display: flex; gap: 4px;">
+                                <select 
+                                    class="text-xs border rounded px-1 md:px-2 py-1"
+                                    onchange="selectedPeriodMonth = parseInt(this.value); render()">
+                                    ${Array.from({length: 12}, (_, i) => i + 1).map(m => 
+                                        `<option value="${m}" ${selectedPeriodMonth === m ? 'selected' : ''}>${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1]}</option>`
+                                    ).join('')}
+                                </select>
+                                <select 
+                                    class="text-xs border rounded px-1 md:px-2 py-1"
+                                    onchange="selectedPeriodYear = parseInt(this.value); render()">
+                                    ${new Date().getFullYear() >= 2026 ? `<option value="2026" ${selectedPeriodYear === 2026 ? 'selected' : ''}>2026</option>` : ''}
+                                    <option value="2025" ${selectedPeriodYear === 2025 ? 'selected' : ''}>2025</option>
+                                    <option value="2024" ${selectedPeriodYear === 2024 ? 'selected' : ''}>2024</option>
+                                    <option value="2023" ${selectedPeriodYear === 2023 ? 'selected' : ''}>2023</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="text-xl md:text-2xl font-bold ${totalPeriodGains >= 0 ? 'text-green-600' : 'text-red-600'}">
+                            ${formatCurrency(totalPeriodGains)}
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg border p-3 md:p-4">
+                        <div class="text-xs md:text-sm text-gray-600 mb-1">Total Gains (Since Jan 2023)</div>
+                        <div class="text-xl md:text-2xl font-bold ${totalGainsSinceJan2023 >= 0 ? 'text-green-600' : 'text-red-600'}">
+                            ${formatCurrency(totalGainsSinceJan2023)}
+                        </div>
+                        ${gainsATH ? `
+                            <div class="mt-1" title="Peak of cumulative gains since Jan 2023, measured on snapshot dates and adjusted for deposits, withdrawals, buys and sells. US converted at today's rate.">
+                                ${atGainsATH ? `
+                                    <div class="text-xs font-semibold text-green-600">🏔️ At all-time high</div>
+                                ` : `
+                                    <div class="text-xs font-semibold text-orange-600">
+                                        ${formatCurrency(gainsDrawdown)} below ATH${gainsDrawdownPct !== null ? ` (−${gainsDrawdownPct.toFixed(1)}%)` : ''}
+                                    </div>
+                                `}
+                                <div class="text-xs text-gray-500">ATH ${formatCurrency(gainsATH.gains)} · ${gainsATHDate}</div>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+
+            <!-- INDIVIDUAL PORTFOLIOS SIDE BY SIDE -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                <!-- US PORTFOLIO -->
+                <div class="bg-white rounded-lg shadow-md p-4 md:p-6">
+                    <h2 class="text-lg md:text-xl font-bold mb-4">US Portfolio ($)</h2>
+                    
+                    <div class="grid grid-cols-1 gap-3 md:gap-4">
+                        <div class="bg-white rounded-lg border p-3 md:p-4">
+                            <div class="text-xs md:text-sm text-gray-600 mb-1">Portfolio Value</div>
+                            <div class="text-xl md:text-2xl font-bold">${formatCurrency(usCurrentValue, 'USD')}</div>
+                        </div>
+                        
+                        <div class="bg-white rounded-lg border p-3 md:p-4">
+                            <div class="text-xs md:text-sm text-gray-600 mb-1">YTD ${selectedYTDYear} Gains</div>
+                            <div class="text-xl md:text-2xl font-bold ${usYTDGains >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                ${formatCurrency(usYTDGains, 'USD')}
+                            </div>
+                            <div class="text-xs md:text-sm ${usYTDPercent >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                ${usYTDPercent !== null ? (usYTDPercent >= 0 ? '+' : '') + usYTDPercent.toFixed(2) + '%' : 'N/A'}
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white rounded-lg border p-3 md:p-4">
+                            <div class="text-xs md:text-sm text-gray-600 mb-1">${periodLabel}</div>
+                            <div class="text-xl md:text-2xl font-bold ${usPeriodGains >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                ${formatCurrency(usPeriodGains, 'USD')}
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white rounded-lg border p-3 md:p-4">
+                            <div class="text-xs md:text-sm text-gray-600 mb-2">XIRR (Since Jan 2023)</div>
+                            <div class="text-xl md:text-2xl font-bold ${usXIRR >= 0 ? 'text-green-600' : 'text-red-600'} mb-3">
+                                ${usXIRR !== null ? (usXIRR >= 0 ? '+' : '') + usXIRR.toFixed(2) + '%' : 'N/A'}
+                            </div>
+                            
+                            <!-- Benchmark Comparison -->
+                            ${usBenchmarkXIRR > 0 ? `
+                                <div class="border-t pt-2 mt-2">
+                                    <div class="text-xs text-gray-500 mb-1">vs QQQ</div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-gray-600">${usBenchmarkXIRR.toFixed(2)}%</span>
+                                        <span class="text-sm font-semibold ${usOutperformance >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                            ${usOutperformance >= 0 ? '+' : ''}${usOutperformance.toFixed(2)}%
+                                        </span>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- INDIAN PORTFOLIO -->
+                <div class="bg-white rounded-lg shadow-md p-4 md:p-6">
+                    <h2 class="text-lg md:text-xl font-bold mb-4">Indian Portfolio</h2>
+                    
+                    <div class="grid grid-cols-1 gap-3 md:gap-4">
+                        <div class="bg-white rounded-lg border p-3 md:p-4">
+                            <div class="text-xs md:text-sm text-gray-600 mb-1">Portfolio Value</div>
+                            <div class="text-xl md:text-2xl font-bold">${formatCurrency(indianCurrentValue)}</div>
+                        </div>
+                        
+                        <div class="bg-white rounded-lg border p-3 md:p-4">
+                            <div class="text-xs md:text-sm text-gray-600 mb-1">YTD ${selectedYTDYear} Gains</div>
+                            <div class="text-xl md:text-2xl font-bold ${indianYTDGains >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                ${formatCurrency(indianYTDGains)}
+                            </div>
+                            <div class="text-xs md:text-sm ${indianYTDPercent >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                ${indianYTDPercent !== null ? (indianYTDPercent >= 0 ? '+' : '') + indianYTDPercent.toFixed(2) + '%' : 'N/A'}
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white rounded-lg border p-3 md:p-4">
+                            <div class="text-xs md:text-sm text-gray-600 mb-1">${periodLabel}</div>
+                            <div class="text-xl md:text-2xl font-bold ${indianPeriodGains >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                ${formatCurrency(indianPeriodGains)}
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white rounded-lg border p-3 md:p-4">
+                            <div class="text-xs md:text-sm text-gray-600 mb-2">XIRR (Since Jan 2023)</div>
+                            <div class="text-xl md:text-2xl font-bold ${indianXIRR >= 0 ? 'text-green-600' : 'text-red-600'} mb-3">
+                                ${indianXIRR !== null ? (indianXIRR >= 0 ? '+' : '') + indianXIRR.toFixed(2) + '%' : 'N/A'}
+                            </div>
+                            
+                            <!-- Benchmark Comparison -->
+                            ${indianBenchmarkXIRR > 0 ? `
+                                <div class="border-t pt-2 mt-2">
+                                    <div class="text-xs text-gray-500 mb-1">vs NIFTYBEES</div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-gray-600">${indianBenchmarkXIRR.toFixed(2)}%</span>
+                                        <span class="text-sm font-semibold ${indianOutperformance >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                            ${indianOutperformance >= 0 ? '+' : ''}${indianOutperformance.toFixed(2)}%
+                                        </span>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+
+                <!-- ALERTS SECTION -->
+                <div class="bg-white rounded-lg shadow-md p-4 md:p-6 mt-6">
+                    <div class="flex flex-col md:flex-row md:justify-between md:items-center mb-4 gap-3">
+                        <div class="flex items-center gap-3">
+    <h2 class="text-xl md:text-2xl font-bold">📊 Portfolio Alerts</h2>
+    
+</div>
+                       <div class="flex gap-2 flex-wrap">
+                            ${(() => {
+                                const bullishCount = alerts.filter(a => a.alert_category === 'BULLISH').length;
+                                const bearishCount = alerts.filter(a => a.alert_category === 'BEARISH').length;
+                                const infoCount = alerts.filter(a => a.alert_category === 'INFO').length;
+                                const totalCount = alerts.length;
+                                
+                                return `
+                                    <button onclick="alertFilter = 'ALL'; loadAlerts().then(render)" 
+                                        class="px-3 py-1 text-sm rounded ${alertFilter === 'ALL' ? 'bg-blue-600 text-white' : 'bg-gray-200'}">
+                                        All (${totalCount})
+                                    </button>
+                                    <button onclick="alertFilter = 'BULLISH'; loadAlerts().then(render)" 
+                                        class="px-3 py-1 text-sm rounded ${alertFilter === 'BULLISH' ? 'bg-green-600 text-white' : 'bg-gray-200'}">
+                                        Bullish (${bullishCount})
+                                    </button>
+                                    <button onclick="alertFilter = 'BEARISH'; loadAlerts().then(render)" 
+                                        class="px-3 py-1 text-sm rounded ${alertFilter === 'BEARISH' ? 'bg-red-600 text-white' : 'bg-gray-200'}">
+                                        Bearish (${bearishCount})
+                                    </button>
+                                    <button onclick="alertFilter = 'INFO'; loadAlerts().then(render)" 
+                                        class="px-3 py-1 text-sm rounded ${alertFilter === 'INFO' ? 'bg-purple-600 text-white' : 'bg-gray-200'}">
+                                        Results (${infoCount})
+                                    </button>
+                                    <button disabled
+                                        class="px-3 py-1 text-sm rounded bg-gray-300 text-gray-500 cursor-not-allowed" 
+                                        title="Coming Soon">
+                                        News (Coming Soon)
+                                    </button>
+<label class="flex items-center gap-2 px-3 py-1 text-sm">
+    <input type="checkbox" ${showArchived ? 'checked' : ''} onchange="showArchived = !showArchived; loadAlerts().then(render)">
+    <span>Show Archived</span>
+</label>
+                                `;
+                            })()}
+                        </div>
+                    </div>
+                    
+                    <!-- Indicator Info (collapsible) -->
+                    <div class="mt-4 mb-6">
+                        <button onclick="document.getElementById('indicator-info').classList.toggle('hidden')" 
+                            class="text-sm text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1">
+                            <span id="info-toggle">ℹ️ What do these indicators mean?</span>
+                        </button>
+                        <div id="indicator-info" class="hidden mt-3 p-4 bg-blue-50 rounded-lg text-sm space-y-3">
+                            <div>
+                                <span class="font-semibold text-blue-900">🎯 Blue Zone:</span>
+                                <span class="text-gray-700">Stocks with strong momentum (RSI EMA > 70) that are within 1.5 DATR of their 52-week high. Indicates sustained strength with minimal pullback from peak.</span>
+                            </div>
+                            <div>
+                                <span class="font-semibold text-blue-900">🚀 Golden Cross:</span>
+                                <span class="text-gray-700">20 EMA crosses above 50 EMA. Classic bullish signal indicating trend reversal to upside.</span>
+                            </div>
+                            <div>
+                                <span class="font-semibold text-blue-900">⚠️ Death Cross:</span>
+                                <span class="text-gray-700">20 EMA crosses below 50 EMA. Classic bearish signal indicating trend reversal to downside.</span>
+                            </div>
+                            <div>
+                                <span class="font-semibold text-blue-900">💎 200 EMA Breakout:</span>
+                                <span class="text-gray-700">Stock breaks above 200 EMA after consolidating below it for 20+ days within a 3-15% range, with 1.5x+ volume. Signals end of consolidation and potential start of new uptrend.</span>
+                            </div>
+                            <div>
+                                <span class="font-semibold text-blue-900">✅ 200 EMA Retest:</span>
+                                <span class="text-gray-700">Stock in uptrend pulls back to test 200 EMA as support (within 2%), then bounces 0.5%+ with 1.5x+ volume. Confirms 200 EMA is holding as support in uptrend.</span>
+                            </div>
+                            <div>
+                                <span class="font-semibold text-blue-900">💼 Promoter Buying:</span>
+                                <span class="text-gray-700">Promoter shareholding increased, indicating insider confidence in the company's future prospects.</span>
+                            </div>
+                            <div>
+                                <span class="font-semibold text-blue-900">📅 Quarterly Results:</span>
+                                <span class="text-gray-700">Upcoming earnings announcement in next 7 days. Color-coded by urgency: 🔴 1-3 days (urgent), 🟡 4-7 days (upcoming).</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    ${alerts.length === 0 ? `
+                        <div class="text-center py-12 text-gray-500">
+                            <div class="text-4xl mb-2">📭</div>
+                            <div class="text-lg">No alerts found</div>
+                            <div class="text-sm mt-1">Your portfolio is being monitored daily</div>
+                        </div>
+                    ` : `
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    ${alerts.filter(a => alertFilter === 'ALL' || a.alert_category === alertFilter).map(alert => `
+                                <div class="bg-white border rounded-lg p-4 relative hover:shadow-lg transition-shadow">
+                                    <div class="absolute top-3 right-3">
+    <button onclick="archiveAlert('${alert.id}')" 
+        class="text-xs text-gray-400 hover:text-gray-600 font-semibold"
+        title="Archive">
+        ✕
+    </button>
+</div>
+                                    
+                                    <div class="flex items-start gap-3 mb-2">
+                                        <div class="text-2xl">${getAlertIcon(alert.alert_type)}</div>
+                                        <div class="flex-1">
+                                            <div class="flex items-center gap-2 mb-1 flex-wrap">
+                                                <a href="https://www.tradingview.com/chart/?symbol=NSE%3A${alert.ticker}" 
+   target="_blank" 
+   class="font-bold text-blue-600 hover:text-blue-800 hover:underline">
+    ${alert.ticker} ↗
+</a>
+                                                <span class="text-xs px-2 py-0.5 rounded ${alert.alert_category === 'BULLISH' ? 'bg-green-100 text-green-800' : alert.alert_category === 'BEARISH' ? 'bg-red-100 text-red-800' : alert.alert_category === 'FUNDAMENTAL' ? 'bg-blue-100 text-blue-800' : alert.alert_category === 'INFO' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'}">${alert.alert_category}</span>
+                                                ${alert.status === 'NEW' ? '<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded font-semibold">NEW</span>' : ''}
+                                            </div>
+                                            <div class="text-sm text-gray-600 mb-1">${alert.stock_name}</div>
+                                            <div class="font-semibold text-sm mb-1">${alert.alert_description}</div>
+                                            ${alert.price ? `<div class="text-sm text-gray-600">Price: ${alert.portfolio === 'US' ? '$' : '₹'}${formatNumber(alert.price)}</div>` : ''}
+                                            <div class="text-xs text-gray-500 mt-2">${formatAlertDate(alert.alert_date)}</div>
+                                            
+                                            ${alert.details ? `
+                                            <button onclick="toggleDetails('${alert.id}')" class="text-xs text-blue-600 hover:text-blue-800 mt-2 font-semibold">
+                                                <span id="details-toggle-${alert.id}">▶ Show Details</span>
+                                            </button>
+                                            <div id="details-${alert.id}" class="hidden mt-3 pt-3 border-t text-xs space-y-1">
+                                                ${(() => {
+                                                    const d = alert.details;
+                                                    let html = '';
+                                                    
+                                                    // Blue Zone specific details
+                                                    if (alert.alert_type === 'blue_zone_stocks') {
+                                                        html += '<div class="font-semibold text-gray-700 mb-2">🔵 Blue Zone Metrics:</div>';
+                                                        if (d.rsi_ema_9) html += `<div class="text-gray-600">• RSI EMA(9): <span class="font-semibold">${d.rsi_ema_9}</span> (threshold: ${d.rsi_threshold || 70})</div>`;
+                                                        if (d.datr_distance) html += `<div class="text-gray-600">• DATR Distance: <span class="font-semibold">${d.datr_distance}</span> (limit: ${d.datr_limit || 1.5})</div>`;
+                                                        if (d.pct_from_high) html += `<div class="text-gray-600">• From 52W High: <span class="font-semibold">${d.pct_from_high}%</span></div>`;
+                                                        // NEW: Add days counter
+                                                        if (d.days_in_blue_zone) html += `<div class="text-gray-600">• Days in Blue Zone: <span class="font-semibold ${d.days_in_blue_zone >= 5 ? 'text-green-600' : ''}">${d.days_in_blue_zone} ${d.days_in_blue_zone >= 10 ? '🔥' : d.days_in_blue_zone >= 5 ? '💪' : ''}</span></div>`;
+                                                        if (d.high_52w) html += `<div class="text-gray-600">• 52W High: <span class="font-semibold">₹${formatNumber(d.high_52w)}</span></div>`;
+                                                        
+                                                        // Volume info if available
+                                                        if (d.volume_ratio !== undefined) {
+                                                            html += '<div class="font-semibold text-gray-700 mt-3 mb-2">📊 Volume Analysis:</div>';
+                                                            html += `<div class="text-gray-600">• Current Volume: <span class="font-semibold">${formatNumber(d.current_volume)}</span></div>`;
+                                                            html += `<div class="text-gray-600">• Avg Volume (20d): <span class="font-semibold">${formatNumber(d.avg_volume)}</span></div>`;
+                                                            // Explicitly check for true (not just truthy)
+                                                           const hasBreakout = d.volume_breakout === true || d.volume_breakout === 'true' || d.volume_breakout === 'True';
+                                                            html += `<div class="text-gray-600">• Volume Ratio: <span class="font-semibold ${hasBreakout ? 'text-orange-600' : ''}">${d.volume_ratio}x ${hasBreakout ? '🔥' : ''}</span></div>`;
+                                                            html += `<div class="text-gray-600">• Breakout (≥${d.volume_threshold || 2}x): <span class="font-semibold">${hasBreakout ? '✅ Yes' : '❌ No'}</span></div>`;
+                                                        }
+                                                    }
+                                                    
+                                                    // EMA Crossover details
+                                                    else if (alert.alert_type.includes('ema_')) {
+                                                        html += '<div class="font-semibold text-gray-700 mb-2">📈 EMA Details:</div>';
+                                                        if (d['20_ema']) html += `<div class="text-gray-600">• 20 EMA: ₹${formatNumber(d['20_ema'])}</div>`;
+                                                        if (d['50_ema']) html += `<div class="text-gray-600">• 50 EMA: ₹${formatNumber(d['50_ema'])}</div>`;
+                                                        if (d['200_ema']) html += `<div class="text-gray-600">• 200 EMA: ₹${formatNumber(d['200_ema'])}</div>`;
+                                                        if (d.volume_ratio) html += `<div class="text-gray-600">• Volume: ${d.volume_ratio}x average</div>`;
+                                                    }
+                                                    
+                                                    // Volume Breakout details
+                                                    else if (alert.alert_type.includes('volume_')) {
+                                                        html += '<div class="font-semibold text-gray-700 mb-2">📊 Volume Details:</div>';
+                                                        if (d.current_volume) html += `<div class="text-gray-600">• Current: ${formatNumber(d.current_volume)}</div>`;
+                                                        if (d.avg_volume) html += `<div class="text-gray-600">• Average: ${formatNumber(d.avg_volume)}</div>`;
+                                                        if (d.volume_ratio) html += `<div class="text-gray-600">• Ratio: <span class="font-semibold text-orange-600">${d.volume_ratio}x</span></div>`;
+                                                        if (d.price_change_pct) html += `<div class="text-gray-600">• Price Change: ${d.price_change_pct > 0 ? '+' : ''}${d.price_change_pct}%</div>`;
+                                                    }
+                                                    
+                                                    // Promoter activity details
+                                                    else if (alert.alert_type.includes('promoter_')) {
+                                                        html += '<div class="font-semibold text-gray-700 mb-2">💼 Transaction Details:</div>';
+                                                        if (d.transaction_type) html += `<div class="text-gray-600">• Type: ${d.transaction_type}</div>`;
+                                                        if (d.shares) html += `<div class="text-gray-600">• Shares: ${formatNumber(d.shares)}</div>`;
+                                                        if (d.percentage) html += `<div class="text-gray-600">• Percentage: ${d.percentage}%</div>`;
+                                                        if (d.date) html += `<div class="text-gray-600">• Date: ${d.date}</div>`;
+                                                    }
+                                                    
+                                                    // 200 EMA Breakout details
+                                                    else if (alert.alert_type === '200ema_breakout' || alert.alert_type === 'ema_200_breakout') {
+                                                        html += '<div class="font-semibold text-gray-700 mb-2">💎 200 EMA Breakout:</div>';
+                                                        if (d.ema_200) html += `<div class="text-gray-600">• 200 EMA: ₹${formatNumber(d.ema_200)}</div>`;
+                                                        if (d.breakout_pct) html += `<div class="text-gray-600">• Breakout: <span class="font-semibold text-green-600">+${d.breakout_pct}%</span></div>`;
+                                                        if (d.consolidation_days) html += `<div class="text-gray-600">• Consolidation: <span class="font-semibold">${d.consolidation_days} days</span></div>`;
+                                                        if (d.range_pct) html += `<div class="text-gray-600">• Range: ${d.range_pct}%</div>`;
+                                                        if (d.volume_ratio) html += `<div class="text-gray-600">• Volume: <span class="font-semibold text-orange-600">${d.volume_ratio}x</span></div>`;
+                                                    }
+                                                    
+                                                    // 200 EMA Retest details
+                                                    else if (alert.alert_type === '200ema_retest' || alert.alert_type === 'ema_200_retest') {
+                                                        html += '<div class="font-semibold text-gray-700 mb-2">✅ 200 EMA Retest:</div>';
+                                                        if (d.ema_200) html += `<div class="text-gray-600">• 200 EMA: ₹${formatNumber(d.ema_200)}</div>`;
+                                                        if (d.proximity_pct) html += `<div class="text-gray-600">• Proximity: <span class="font-semibold text-blue-600">${d.proximity_pct}%</span> from EMA</div>`;
+                                                        if (d.bounce_pct) html += `<div class="text-gray-600">• Bounce: <span class="font-semibold text-green-600">+${d.bounce_pct}%</span></div>`;
+                                                        if (d.days_since_breakout) html += `<div class="text-gray-600">• Days Since Breakout: ${d.days_since_breakout}</div>`;
+                                                        if (d.volume_ratio) html += `<div class="text-gray-600">• Volume: <span class="font-semibold text-orange-600">${d.volume_ratio}x</span></div>`;
+                                                    }
+                                                    
+                                                    // Quarterly Results details
+                                                    else if (alert.alert_type === 'quarterly_results') {
+                                                        const urgentClass = d.priority === 'URGENT' ? 'text-red-600' : 'text-yellow-600';
+                                                        html += '<div class="font-semibold text-gray-700 mb-2">📅 Earnings Details:</div>';
+                                                        if (d.quarter) html += `<div class="text-gray-600">• Quarter: <span class="font-semibold">${d.quarter}</span></div>`;
+                                                        if (d.results_date) {
+                                                            const resultDate = new Date(d.results_date);
+                                                            html += `<div class="text-gray-600">• Date: <span class="font-semibold">${resultDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>`;
+                                                        }
+                                                        if (d.days_until !== undefined) html += `<div class="text-gray-600">• Days Until Results: <span class="font-semibold ${urgentClass}">${d.days_until} ${d.days_until === 1 ? 'day' : 'days'}</span></div>`;
+                                                        if (d.priority) html += `<div class="text-gray-600">• Priority: <span class="font-semibold ${urgentClass}">${d.priority}</span></div>`;
+                                                        if (d.trendlyne_url) html += `<div class="text-gray-600 mt-2">• <a href="${d.trendlyne_url}" target="_blank" class="text-blue-600 hover:underline">View on Trendlyne ↗</a></div>`;
+                                                    }
+                                                    
+                                                    return html || '<div class="text-gray-500">No additional details available</div>';
+                                                })()}
+                                            </div>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `}
+                </div>
+
+            </div>
+        `;
+
+
+
+    }
+
+    // ============ AUTO-REFRESH AT 7 AM IST ============
+    function scheduleNextRefresh() {
+        const now = new Date();
+        const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
+        const nowIST = new Date(now.getTime() + istOffset);
+        
+        // Set target to 7:00 AM IST today
+        let targetIST = new Date(nowIST);
+        targetIST.setHours(7, 0, 0, 0);
+        
+        // If we've already passed 7 AM today, schedule for tomorrow
+        if (nowIST >= targetIST) {
+            targetIST.setDate(targetIST.getDate() + 1);
+        }
+        
+        // Convert back to local time
+        const targetLocal = new Date(targetIST.getTime() - istOffset);
+        const msUntilRefresh = targetLocal - now;
+        
+        console.log(`⏰ Next auto-refresh scheduled for: ${targetIST.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST`);
+        console.log(`⏰ Time until refresh: ${Math.floor(msUntilRefresh / 1000 / 60 / 60)} hours ${Math.floor((msUntilRefresh / 1000 / 60) % 60)} minutes`);
+        
+        // Set timeout to refresh at 7 AM IST
+        setTimeout(() => {
+            console.log('🔄 Auto-refreshing dashboard at 7:00 AM IST...');
+            location.reload();
+        }, msUntilRefresh);
+    }
+
+    // ============ INITIALIZATION ============
+    async function initialize() {
+        console.log('🚀 Initializing Combined Dashboard...');
+        
+        // Show loading state
+        document.getElementById('app').innerHTML = '<div class="text-center py-20"><div class="text-2xl">Loading...</div></div>';
+        
+        // Load all data in parallel
+        const [rate, usSnap, indianSnap, usCF, indianCF, usTxn, indianTxn, alertsData] = await Promise.all([
+    fetchExchangeRate(),
+    loadSnapshots(usSupabase, null),       // US → new project (no portfolio filter)
+    loadSnapshots(supabase, 'INDIAN'),     // India → old project
+    loadCashFlows(usSupabase, null),       // US → new project
+    loadCashFlows(supabase, 'INDIAN'),     // India → old project
+    loadTransactions(usSupabase, null),    // US → new project
+    loadTransactions(supabase, 'INDIAN'),  // India → old project
+    loadAlerts()  // alerts stay on old project
+]);
+        
+        exchangeRate = rate;
+        usSnapshots = usSnap.snapshots;
+        indianSnapshots = indianSnap.snapshots;
+        usLatestSnapshot = usSnap.latestSnapshot;
+        indianLatestSnapshot = indianSnap.latestSnapshot;
+        usCashFlows = usCF;
+        indianCashFlows = indianCF;
+        usTransactions = usTxn;
+        indianTransactions = indianTxn;
+        
+        lastUpdate = new Date().toLocaleString('en-IN', { 
+            timeZone: 'Asia/Kolkata',
+            dateStyle: 'medium',
+            timeStyle: 'short'
+        });
+        
+        console.log('✅ All data loaded successfully');
+        render();
+        
+        // Schedule auto-refresh at 7 AM IST
+        scheduleNextRefresh();
+    }
+
+    // Start the app
+    initialize();
+    </script>
+</body>
+</html>
