@@ -24,6 +24,7 @@ Env: SUPABASE_URL, SUPABASE_SERVICE_KEY (.env in repo root auto-loaded).
 import os
 import sys
 import time
+from collections import Counter
 from datetime import datetime, timezone, date, timedelta
 
 import numpy as np
@@ -404,6 +405,7 @@ def main():
                              auto_adjust=True, progress=False)
     bench_df = get_ticker_df(bench_hist, BENCHMARK)
     index_closes = bench_df['Close'].dropna() if bench_df is not None else None
+    bench_rows = []
     if index_closes is None or len(index_closes) < 25:
         print('WARN: benchmark history unavailable — Alkalyme RS will be null')
     else:
@@ -414,6 +416,7 @@ def main():
             print(f'  stored {len(bench_rows)} {BENCHMARK} OHLC rows')
 
     ok = fail = total = 0
+    latest_by_ticker = {}   # ticker -> newest snapshot_date stored (staleness check below)
     for i in range(0, len(universe), BATCH_SIZE):
         batch = universe[i:i + BATCH_SIZE]
         bnum = i // BATCH_SIZE + 1
@@ -429,6 +432,7 @@ def main():
             recs = compute_records(ticker, get_ticker_df(hist, ticker), index_closes)
             if recs:
                 batch_records.extend(recs)
+                latest_by_ticker[ticker] = recs[-1]['snapshot_date']
                 ok += 1
             else:
                 fail += 1
@@ -448,6 +452,19 @@ def main():
     print('=' * 70)
     print(f'Done. {ok} tickers OK | {fail} failed | {total:,} rows upserted')
     print(f'Completed: {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}')
+
+    # Staleness guard. Yahoo's multi-ticker download can lag the single-ticker
+    # benchmark fetch by a session (seen 2026-09-21: ^GSPC had Monday's bar, all
+    # 1,940 stocks stopped at Friday). The run "succeeded" but every downstream
+    # consumer anchored on the benchmark-only date and showed no scores. Fail
+    # loudly so the Telegram notification flags it and the scan can be re-run.
+    if bench_rows and latest_by_ticker:
+        bench_latest = bench_rows[-1]['snapshot_date']
+        stock_latest = Counter(latest_by_ticker.values()).most_common(1)[0][0]
+        if stock_latest < bench_latest:
+            sys.exit(f'ERROR: stock universe is stale — most tickers end at '
+                     f'{stock_latest} but {BENCHMARK} has {bench_latest}. '
+                     f'Yahoo batch data not yet published; re-run the scan later.')
 
 
 if __name__ == '__main__':
