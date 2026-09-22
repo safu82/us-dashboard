@@ -135,7 +135,8 @@ async function load(){
   const themesByTk={}; members.forEach(m=>{ if(!m.is_context){ (themesByTk[m.ticker]=themesByTk[m.ticker]||new Set()).add(slugName[m.theme_slug]||m.theme_slug); } });
   const slugsByTk={}; members.forEach(m=>{ if(!m.is_context){ (slugsByTk[m.ticker]=slugsByTk[m.ticker]||new Set()).add(m.theme_slug); } });
 
-  const latest = (await sb.from('daily_stock_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
+  // Latest date with cross-sectional scores (a benchmark-only ^GSPC row can exist for a newer date).
+  const latest = (await sb.from('daily_stock_snapshots').select('snapshot_date').not('momentum_score','is',null).order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
 
   // ---- batched pulls: precomputed momentum_score + value inputs for all in-universe members ----
   const mscore={}, ps={}, gr={}, nm={}, sector={}, cname={};

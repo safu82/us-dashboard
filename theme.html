@@ -210,7 +210,9 @@ async function load(){
     const a = (await sb.from('analyst_ratings').select('ticker,best_target_upside_pct,consensus,smart_score').in('ticker',ch)).data||[];
     a.forEach(r=>ANALYST[r.ticker]=r);
   }
-  const latest = (await sb.from('daily_stock_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
+  // Latest date that actually has cross-sectional scores. fetch_ohlc stores the ^GSPC benchmark
+  // separately, so a day can exist with only that (unscored) row — anchoring on it blanks every stock.
+  const latest = (await sb.from('daily_stock_snapshots').select('snapshot_date').not('momentum_score','is',null).order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
   if(latest){ for(const ch of chunks){
     const s = (await sb.from('daily_stock_snapshots').select('ticker,rs_rank,rank_slope,momentum_score').eq('snapshot_date',latest).in('ticker',ch)).data||[];
     s.forEach(r=>SNAP[r.ticker]=r);
