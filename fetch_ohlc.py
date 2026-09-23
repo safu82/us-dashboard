@@ -24,6 +24,7 @@ Env: SUPABASE_URL, SUPABASE_SERVICE_KEY (.env in repo root auto-loaded).
 import os
 import sys
 import time
+from collections import Counter
 from datetime import datetime, timezone, date, timedelta
 
 import numpy as np
@@ -422,6 +423,28 @@ def download_batch(batch, attempts=2, want_date=None):
     return best
 
 
+def newest_complete_session(latest_by_ticker, min_coverage):
+    """Newest session that enough of the universe actually reached, or None.
+
+    latest_by_ticker maps ticker -> its newest stored snapshot_date (ISO string).
+    A ticker whose newest bar is D also holds every session before D, so the
+    coverage of D is the share of tickers sitting on D *or later*. Walking the
+    dates newest-first and taking the first to clear the bar is what makes this
+    robust: Yahoo finalizes bars per symbol, so a couple of early finishers are
+    always out ahead, and judging max() alone would score a complete session at
+    0.1% coverage and throw it away."""
+    if not latest_by_ticker:
+        return None
+    n = len(latest_by_ticker)
+    counts = Counter(latest_by_ticker.values())
+    seen = 0
+    for d in sorted(counts, reverse=True):
+        seen += counts[d]
+        if seen / n >= min_coverage:
+            return date.fromisoformat(d)
+    return None
+
+
 def cleanup_old(sb):
     """Delete rows older than STORE_DAYS. At ~1,900 tickers a single bulk DELETE
     across the whole window exceeds Supabase's statement timeout, so we delete
@@ -467,38 +490,36 @@ def main():
                 bench_rows, on_conflict='ticker,snapshot_date').execute()
             print(f'  stored {len(bench_rows)} {BENCHMARK} OHLC rows')
 
-    # The session every stock batch should reach. Single-ticker benchmark fetches
-    # have stayed current even when the batched endpoint served stale cache.
     bench_latest = date.fromisoformat(bench_rows[-1]['snapshot_date']) if bench_rows else None
-    if bench_latest:
-        print(f'  expecting batches through {bench_latest}')
+
+    # What the run is trying to beat. Everything below is judged against the newest
+    # session already scored, not against the benchmark: ^GSPC is one symbol with
+    # the same per-symbol finalization lag as any other, and on 2026-09-22 it
+    # published a complete bar and then withdrew it, so it is not a reliable
+    # yardstick in either direction.
+    prev = (sb.table('daily_stock_snapshots').select('snapshot_date')
+            .not_.is_('momentum_score', 'null')
+            .order('snapshot_date', desc=True).limit(1).execute().data)
+    prev_scored = date.fromisoformat(prev[0]['snapshot_date']) if prev else None
+    print(f'  latest scored session: {prev_scored} | {BENCHMARK} has {bench_latest}')
+
+    # Only ask download_batch to retry for a session that would actually advance us.
+    target = bench_latest if (bench_latest and
+                              (prev_scored is None or bench_latest > prev_scored)) else None
 
     ok = fail = total = 0
-    latest_by_ticker = {}   # ticker -> newest snapshot_date stored (staleness check below)
-    checked = short = 0     # batches compared against bench_latest, and how many fell short
+    latest_by_ticker = {}   # ticker -> newest snapshot_date stored
+    checked = 0             # batches downloaded, for the fail-fast probe below
     for i in range(0, len(universe), BATCH_SIZE):
         batch = universe[i:i + BATCH_SIZE]
         bnum = i // BATCH_SIZE + 1
         print(f'  batch {bnum} ({len(batch)} tickers) ...', end=' ', flush=True)
-        hist = download_batch(batch, want_date=bench_latest)
+        hist = download_batch(batch, want_date=target)
         if hist is None:
             print('download failed after retries')
             fail += len(batch)
             continue
-
-        # Fail fast on a session Yahoo has not finalized. When the whole market is
-        # short it is not a per-batch cache miss, and grinding all ~40 batches
-        # through their retries just burns ~15 minutes to reach the same verdict.
-        if bench_latest:
-            checked += 1
-            got = batch_latest(hist)
-            if got is None or got < bench_latest:
-                short += 1
-            if checked >= PROBE_BATCHES and short == checked:
-                print(f'\nNOT PUBLISHED: first {checked} batches all stop before '
-                      f'{bench_latest} (latest seen {got}) — Yahoo has not finalized '
-                      f'the session for the stock universe. Nothing scored.')
-                sys.exit(EX_NOT_PUBLISHED)
+        checked += 1
 
         batch_records = []
         for ticker in batch:
@@ -518,6 +539,23 @@ def main():
                 print(f'(upsert chunk error: {str(e)[:80]}) ', end='', flush=True)
         total += len(batch_records)
         print(f'{len(batch_records)} rows')
+
+        # Fail fast when nothing new is out there. Once a representative sample is
+        # in, apply the same coverage rule the end-of-run guard uses: if it already
+        # says the newest whole session is one we have scored, the rest of the
+        # universe will not change that, and grinding all ~40 batches just burns
+        # ~15 minutes to reach the identical verdict. Sampling on coverage rather
+        # than "every batch is behind" matters because Yahoo finalizes per symbol,
+        # so a couple of early finishers are usually in the first batches.
+        if prev_scored and checked == PROBE_BATCHES:
+            sampled = newest_complete_session(latest_by_ticker, MIN_COVERAGE)
+            if sampled and sampled <= prev_scored:
+                print(f'\nNOT PUBLISHED: after {len(latest_by_ticker)} tickers the '
+                      f'newest session with {MIN_COVERAGE:.0%} coverage is still '
+                      f'{sampled}, already scored. Yahoo has not finalized the next '
+                      f'one; stopping early.')
+                sys.exit(EX_NOT_PUBLISHED)
+
         if i + BATCH_SIZE < len(universe):
             time.sleep(SLEEP_BATCH)
 
@@ -533,15 +571,17 @@ def main():
     # direction. Coverage is self-contained and says the thing that matters —
     # is this day whole enough for compute_cross_sectional to rank.
     if latest_by_ticker:
-        stock_latest = max(latest_by_ticker.values())
-        reached = sum(1 for d in latest_by_ticker.values() if d == stock_latest)
-        coverage = reached / len(latest_by_ticker)
-        print(f'Coverage: {reached}/{len(latest_by_ticker)} tickers reached '
-              f'{stock_latest} ({coverage:.1%})')
-        if coverage < MIN_COVERAGE:
-            print(f'NOT PUBLISHED: only {coverage:.1%} of the universe reached '
-                  f'{stock_latest} (need {MIN_COVERAGE:.0%}) — Yahoo finalizes bars '
-                  f'per symbol over several hours. Nothing scored.')
+        complete = newest_complete_session(latest_by_ticker, MIN_COVERAGE)
+        print(f'Newest session with >={MIN_COVERAGE:.0%} coverage: {complete} '
+              f'(of {len(latest_by_ticker)} tickers; newest any ticker reached: '
+              f'{max(latest_by_ticker.values())})')
+
+        if complete is None:
+            print(f'NOT PUBLISHED: no session reached {MIN_COVERAGE:.0%} coverage.')
+            sys.exit(EX_NOT_PUBLISHED)
+        if prev_scored and complete <= prev_scored:
+            print(f'NOT PUBLISHED: newest complete session is {complete}, which is '
+                  f'already scored — Yahoo has not finalized the next one.')
             sys.exit(EX_NOT_PUBLISHED)
 
 
