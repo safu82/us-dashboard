@@ -24,7 +24,6 @@ Env: SUPABASE_URL, SUPABASE_SERVICE_KEY (.env in repo root auto-loaded).
 import os
 import sys
 import time
-from collections import Counter
 from datetime import datetime, timezone, date, timedelta
 
 import numpy as np
@@ -47,6 +46,10 @@ BATCH_SIZE = 50            # tickers per yf.download call
 SLEEP_BATCH = 2            # seconds between batches
 BENCHMARK = '^GSPC'        # S&P 500 — Alkalyme RS reference index
 PROBE_BATCHES = 3          # consecutive short batches that mean the session isn't published
+MIN_COVERAGE = 0.90        # share of the universe that must reach the newest session
+EX_NOT_PUBLISHED = 75      # EX_TEMPFAIL: not our bug, just no data yet — retry later.
+                           # The workflow treats this as "skip quietly" on catch-up
+                           # attempts and only alerts on the last one of the day.
 ALWAYS_FETCH = ['QQQ']     # extras the dashboard always needs (Custom Period card benchmark)
 
 
@@ -492,9 +495,10 @@ def main():
             if got is None or got < bench_latest:
                 short += 1
             if checked >= PROBE_BATCHES and short == checked:
-                sys.exit(f'\nERROR: first {checked} batches all stop before {bench_latest} '
-                         f'(latest seen {got}) — Yahoo has not finalized the session for '
-                         f'the stock universe. Nothing scored; re-run the scan later.')
+                print(f'\nNOT PUBLISHED: first {checked} batches all stop before '
+                      f'{bench_latest} (latest seen {got}) — Yahoo has not finalized '
+                      f'the session for the stock universe. Nothing scored.')
+                sys.exit(EX_NOT_PUBLISHED)
 
         batch_records = []
         for ticker in batch:
@@ -522,17 +526,23 @@ def main():
     print(f'Done. {ok} tickers OK | {fail} failed | {total:,} rows upserted')
     print(f'Completed: {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}')
 
-    # Backstop staleness guard. download_batch already retries a short frame on a
-    # different cache key; reaching here means every retry still came back a
-    # session behind the benchmark. Downstream steps would score stale prices and
-    # the dashboards would anchor on a benchmark-only date, so fail loudly and let
-    # the Telegram notification flag it for a re-run.
-    if bench_latest and latest_by_ticker:
-        stock_latest = Counter(latest_by_ticker.values()).most_common(1)[0][0]
-        if date.fromisoformat(stock_latest) < bench_latest:
-            sys.exit(f'ERROR: stock universe is stale after retries — most tickers '
-                     f'end at {stock_latest} but {BENCHMARK} has {bench_latest}. '
-                     f'Yahoo served cached batch data; re-run the scan later.')
+    # Backstop completeness guard. Judge the newest session on how much of the
+    # universe actually reached it, rather than on whether it beat the benchmark:
+    # Yahoo published a complete ^GSPC bar for 2026-09-22 at 00:22 UTC and had
+    # withdrawn it by 06:00, so "ahead of the index" can be an artifact in either
+    # direction. Coverage is self-contained and says the thing that matters —
+    # is this day whole enough for compute_cross_sectional to rank.
+    if latest_by_ticker:
+        stock_latest = max(latest_by_ticker.values())
+        reached = sum(1 for d in latest_by_ticker.values() if d == stock_latest)
+        coverage = reached / len(latest_by_ticker)
+        print(f'Coverage: {reached}/{len(latest_by_ticker)} tickers reached '
+              f'{stock_latest} ({coverage:.1%})')
+        if coverage < MIN_COVERAGE:
+            print(f'NOT PUBLISHED: only {coverage:.1%} of the universe reached '
+                  f'{stock_latest} (need {MIN_COVERAGE:.0%}) — Yahoo finalizes bars '
+                  f'per symbol over several hours. Nothing scored.')
+            sys.exit(EX_NOT_PUBLISHED)
 
 
 if __name__ == '__main__':

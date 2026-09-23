@@ -1,19 +1,31 @@
 name: Nightly scan (US)
 
-# 22:07 UTC Mon-Fri. US regular session closes 16:00 ET, which is 21:00 UTC
-# (EDT, summer) / 22:00 UTC (EST, winter). 22:07 UTC lands after the close
-# year-round, and the off-the-hour minute avoids GitHub Actions' worst
-# top-of-hour scheduler delays.
+# Primary at 22:07 UTC Mon-Fri, then three catch-up attempts overnight.
 #
-# Runs the full nightly chain sequentially. The chain shares state via
-# daily_stock_snapshots so steps must run in this order:
+# US regular session closes 16:00 ET = 20:00 UTC (EDT) / 21:00 UTC (EST), but
+# Yahoo does not finalize daily bars at the close: it serves a placeholder row
+# (NaN OHLC carrying only a volume) and fills in the real bar per symbol over
+# the following hours. Observed spread on when a session became usable ranged
+# from ~4h after the close (2026-09-18) to >12h (2026-09-22), so a single slot
+# is a bet. fetch_ohlc exits 75 when the session simply is not published yet;
+# that is not a failure, so the run skips the rest of the chain quietly and the
+# next attempt picks it up. Only the last attempt of the day raises an alarm.
+#
+# GitHub delays these crons by roughly 2h in practice, so the effective times
+# are about 00:20, 03:20, 06:20 and 09:20 UTC — all ahead of compute-conviction,
+# which is chained off this workflow succeeding.
+#
+# The chain shares state via daily_stock_snapshots so steps must run in order:
 #   fetch_ohlc -> compute_cross_sectional -> compute_sector_rankings
 #                                         -> entry_signals_scanner
 #                                         -> score_presignals
 #   fetch_ohlc -> portfolio_alerts_scanner
 on:
   schedule:
-    - cron: '7 22 * * 1-5'
+    - cron: '7 22 * * 1-5'   # primary, after the US close
+    - cron: '7 1 * * 2-6'    # catch-up 1
+    - cron: '7 4 * * 2-6'    # catch-up 2
+    - cron: '7 7 * * 2-6'    # final attempt — alerts if still unpublished
   workflow_dispatch:
 
 jobs:
@@ -21,6 +33,9 @@ jobs:
     name: OHLC + cross-sectional + sector rankings + alerts
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      published: ${{ steps.ohlc.outputs.published }}
+      needed: ${{ steps.precheck.outputs.needed }}
     steps:
       - uses: actions/checkout@v4
 
@@ -33,50 +48,100 @@ jobs:
           python -m pip install --upgrade pip
           pip install yfinance pandas numpy supabase python-dotenv requests lxml
 
-      # 1. Pull EOD OHLC + indicators for the S&P500 + NASDAQ100 + holdings universe
-      - name: 1/7 fetch_ohlc.py
-        run: python fetch_ohlc.py
+      # 0. Is there anything to do? Skip when the most recent weekday is already
+      #    scored, so a successful primary run does not make the catch-ups refetch
+      #    ~1,900 tickers three more times (needless load on a rate-limited Yahoo).
+      #    Holidays make this say "run", which costs ~1 min of fail-fast — the safe
+      #    direction to be wrong in.
+      - name: 0/9 skip if already current
+        id: precheck
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import date, timedelta
+          from supabase import create_client
+          sb = create_client(os.environ['SUPABASE_URL'], os.environ['SUPABASE_SERVICE_KEY'])
+          r = (sb.table('daily_stock_snapshots').select('snapshot_date')
+               .not_.is_('momentum_score', 'null')
+               .order('snapshot_date', desc=True).limit(1).execute().data)
+          scored = date.fromisoformat(r[0]['snapshot_date']) if r else None
+          prev = date.today() - timedelta(days=1)
+          while prev.weekday() > 4:           # back up over the weekend
+              prev -= timedelta(days=1)
+          need = scored is None or scored < prev
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+              fh.write(f'needed={"true" if need else "false"}\n')
+          print(f'latest scored={scored} previous weekday={prev} '
+                f'-> {"running" if need else "already current, skipping"}')
+          PY
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # 1. Pull EOD OHLC + indicators for the S&P500 + NASDAQ100 + holdings universe.
+      #    Exit 75 means Yahoo has not finalized the session — skip the chain, no alarm.
+      - name: 1/9 fetch_ohlc.py
+        id: ohlc
+        if: steps.precheck.outputs.needed == 'true'
+        run: |
+          set +e
+          python fetch_ohlc.py
+          rc=$?
+          set -e
+          if [ "$rc" -eq 75 ]; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Session not finalized by Yahoo yet — skipping downstream steps."
+            exit 0
+          fi
+          echo "published=true" >> "$GITHUB_OUTPUT"
+          exit $rc
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 2. Append latest QQQ close to benchmark_history (long-lived; survives 90d prune)
-      - name: 2/7 sync_benchmark_history.py
+      - name: 2/9 sync_benchmark_history.py
+        if: steps.ohlc.outputs.published == 'true'
         run: python sync_benchmark_history.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 3. Cross-sectional metrics: rs_rank, sector_percentile, peer_*, rank_slope
-      - name: 3/7 compute_cross_sectional.py
+      - name: 3/9 compute_cross_sectional.py
+        if: steps.ohlc.outputs.published == 'true'
         run: python compute_cross_sectional.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 4. Aggregate per-peer-group: composite, breadth, RRG quadrant, rs_slope
-      - name: 4/7 compute_sector_rankings.py
+      - name: 4/9 compute_sector_rankings.py
+        if: steps.ohlc.outputs.published == 'true'
         run: python compute_sector_rankings.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 5. Entry-signal patterns (8 detectors -> entry_signals table)
-      - name: 5/7 entry_signals_scanner.py
+      - name: 5/9 entry_signals_scanner.py
+        if: steps.ohlc.outputs.published == 'true'
         run: python entry_signals_scanner.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 6. Pre-signal scoring (6 rules, score >= 70 -> presignal_scores table)
-      - name: 6/7 score_presignals.py
+      - name: 6/9 score_presignals.py
+        if: steps.ohlc.outputs.published == 'true'
         run: python score_presignals.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 7. Holdings-only alerts (ema_crossover, vol_breakout, blue_zone -> alerts table)
-      - name: 7/8 portfolio_alerts_scanner.py
+      - name: 7/9 portfolio_alerts_scanner.py
+        if: steps.ohlc.outputs.published == 'true'
         run: python portfolio_alerts_scanner.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -85,6 +150,7 @@ jobs:
       # 8. Market-health rollup: breadth, new-high/low, S&P-vs-200d, VIX -> market_health
       #    (newsletter "Where We Stand"). Depends only on fetch_ohlc output.
       - name: 8/9 compute_market_health.py
+        if: steps.ohlc.outputs.published == 'true'
         run: python compute_market_health.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -94,6 +160,7 @@ jobs:
       #    cross-section -> etf_snapshots (sector-research ETF board). Self-contained
       #    (fetches its own ETF + benchmark OHLC via yfinance); order-independent.
       - name: 9/9 compute_etf_momentum.py
+        if: steps.ohlc.outputs.published == 'true'
         run: python compute_etf_momentum.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -111,16 +178,33 @@ jobs:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT:  ${{ secrets.TELEGRAM_CHAT_ID }}
           SCAN_STATUS: ${{ needs.scan.result }}
+          PUBLISHED: ${{ needs.scan.outputs.published }}
+          NEEDED: ${{ needs.scan.outputs.needed }}
+          SCHEDULE: ${{ github.event.schedule }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then
             echo "Telegram secrets not set; skipping notification."
             exit 0
           fi
-          if [ "$SCAN_STATUS" = "success" ]; then
-            EMOJI="✅"; TITLE="US nightly scan OK"
-          else
+          # '7 7 * * 2-6' is the last attempt of the day; a manual dispatch sends
+          # no schedule at all and should always report.
+          IS_FINAL=false
+          if [ "$SCHEDULE" = '7 7 * * 2-6' ] || [ -z "$SCHEDULE" ]; then
+            IS_FINAL=true
+          fi
+          if [ "$SCAN_STATUS" != "success" ]; then
             EMOJI="❌"; TITLE="US nightly scan FAILED"
+          elif [ "$NEEDED" = "false" ]; then
+            echo "Already current before this attempt; nothing to report."
+            exit 0
+          elif [ "$PUBLISHED" = "true" ]; then
+            EMOJI="✅"; TITLE="US nightly scan OK"
+          elif [ "$IS_FINAL" = "true" ]; then
+            EMOJI="⏳"; TITLE="US nightly scan — Yahoo never published the session"
+          else
+            echo "Session not published yet on a catch-up attempt; staying quiet."
+            exit 0
           fi
           printf -v MSG '%s <b>%s</b>\nscan: %s\n\n<a href="%s">view run</a>' "$EMOJI" "$TITLE" "$SCAN_STATUS" "$RUN_URL"
           curl -sS -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \

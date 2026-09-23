@@ -4,9 +4,19 @@ name: Compute Conviction Score (US)
 # fetch-tipranks-data (06:30) so the conviction score uses fresh inputs.
 # Reads snapshot + fundamentals + sector_rankings + analyst_ratings, writes
 # conviction_scores. ~518 tickers, ~30 sec runtime.
+#
+# Also chained off Nightly scan: because Yahoo finalizes a session's bars over
+# several hours, the scan may only land on a catch-up attempt well after this
+# cron would have fired. Running again on scan success means conviction reflects
+# the new session the same morning instead of waiting a day. Both triggers are
+# safe — compute_conviction anchors on the latest *scored* snapshot and aborts on
+# a partial one, so an early or duplicate run is a no-op rather than a bad board.
 on:
   schedule:
     - cron: '45 6 * * *'
+  workflow_run:
+    workflows: ['Nightly scan (US)']
+    types: [completed]
   workflow_dispatch:
 
 jobs:
@@ -14,6 +24,8 @@ jobs:
     name: Compute Conviction scores
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # On the workflow_run trigger, only follow a scan that actually succeeded.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
