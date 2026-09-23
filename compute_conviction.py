@@ -34,6 +34,10 @@ if not URL or not KEY:
 
 sb = create_client(URL, KEY)
 
+# Floor for "this snapshot day is real". A scored day covers the whole scan
+# universe (~1,900 tickers); the partial days this guards against held 1-3.
+MIN_SCORED_ROWS = 500
+
 
 def _f(v):
     if v is None: return None
@@ -223,11 +227,19 @@ def main():
     print('COMPUTE CONVICTION  ', datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'))
     print('=' * 60)
 
-    # Latest snapshot per ticker — pull latest date first, then all rows for it
+    # Latest snapshot per ticker — pull latest date first, then all rows for it.
+    # Anchor on the newest *scored* date, not simply the newest one. fetch_ohlc
+    # stores the ^GSPC benchmark separately and Yahoo finalizes daily bars per
+    # symbol over several hours, so a newer date routinely exists holding only the
+    # benchmark plus the two or three stocks Yahoo happened to publish early. Those
+    # rows never reach compute_cross_sectional, so momentum_score is the marker for
+    # "this day was complete enough to rank". Taking the raw max instead scored a
+    # single ticker on 2026-08-27, 08-31, 09-01 and 09-04.
     latest = sb.table('daily_stock_snapshots').select('snapshot_date') \
+        .not_.is_('momentum_score', 'null') \
         .order('snapshot_date', desc=True).limit(1).execute()
     if not latest.data:
-        sys.exit('No snapshots found')
+        sys.exit('No scored snapshots found')
     snap_date = latest.data[0]['snapshot_date']
     print(f'Using snapshot_date: {snap_date}')
 
@@ -235,6 +247,13 @@ def main():
                      'ticker, close, ema_20, ema_50, ema_200, rs_rank, high_52w, vol_ratio, peer_group, peer_percentile',
                      filters=[lambda q: q.eq('snapshot_date', snap_date)])
     snap_by_ticker = {r['ticker']: r for r in snaps}
+
+    # Backstop: a scored day carries the whole universe (~1,900). Anything close to
+    # empty means the date chosen above is not what it claims to be — write nothing
+    # rather than publish a conviction board built from a handful of tickers.
+    if len(snap_by_ticker) < MIN_SCORED_ROWS:
+        sys.exit(f'ERROR: only {len(snap_by_ticker)} scored rows on {snap_date} '
+                 f'(expected >= {MIN_SCORED_ROWS}) — snapshot looks partial, aborting.')
 
     funds = paginate('stock_fundamentals',
                      'ticker, revenue_growth_yoy, earnings_growth_yoy, roe')
