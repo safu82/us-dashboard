@@ -46,6 +46,7 @@ STORE_DAYS = 90            # most recent N daily rows upserted per ticker
 BATCH_SIZE = 50            # tickers per yf.download call
 SLEEP_BATCH = 2            # seconds between batches
 BENCHMARK = '^GSPC'        # S&P 500 — Alkalyme RS reference index
+PROBE_BATCHES = 3          # consecutive short batches that mean the session isn't published
 ALWAYS_FETCH = ['QQQ']     # extras the dashboard always needs (Custom Period card benchmark)
 
 
@@ -353,21 +354,69 @@ def load_universe(sb):
     return tickers
 
 
-def download_batch(batch, attempts=3):
+def batch_latest(hist):
+    """Newest session with a real close anywhere in a downloaded frame.
+
+    Yahoo emits a placeholder row for a session it has not finalized — NaN OHLC
+    carrying only a volume — and a plain dropna(how='all') keeps it, which reads
+    as a session we have when we do not. Only a bar with an actual close counts,
+    matching the not-null skip in compute_records / benchmark_ohlc_records."""
+    try:
+        cols = hist.columns
+        if isinstance(cols, pd.MultiIndex):
+            # group_by='ticker' gives (ticker, field); the default gives (field, ticker).
+            mask = ((cols.get_level_values(-1) == 'Close') |
+                    (cols.get_level_values(0) == 'Close'))
+            closes = hist.loc[:, mask]
+        else:
+            closes = hist[['Close']]
+        idx = closes.dropna(how='all').index
+        return idx[-1].date() if len(idx) else None
+    except Exception:
+        return None
+
+
+def download_batch(batch, attempts=2, want_date=None):
     """yf.download with retry/backoff. At ~38 batches a lone transient error
-    would otherwise silently drop 50 tickers from the snapshot."""
+    would otherwise silently drop 50 tickers from the snapshot.
+
+    want_date is the session the batch is expected to reach — the benchmark's
+    latest bar, fetched single-ticker and reliably current. Yahoo intermittently
+    serves a *cached* frame that stops a session short: seen on ~5 of 11 trading
+    days from GitHub Actions while the identical call from a residential IP
+    returned the current bar. That is not an error and not empty, so it slipped
+    past the old retry and produced a silently stale scan. Treat it as a retry
+    condition, and from the second attempt request an explicit start/end window
+    instead of period= — a different Yahoo cache key, which usually breaks the
+    stale response."""
+    best = None
     for a in range(1, attempts + 1):
         try:
-            hist = yf.download(batch, period=HISTORY_PERIOD, interval='1d',
-                               auto_adjust=True, progress=False, threads=True,
-                               group_by='ticker')
+            if a == 1:
+                hist = yf.download(batch, period=HISTORY_PERIOD, interval='1d',
+                                   auto_adjust=True, progress=False, threads=True,
+                                   group_by='ticker')
+            else:
+                end = date.today() + timedelta(days=1)       # end is exclusive
+                start = end - timedelta(days=740)            # ~2y, matches HISTORY_PERIOD
+                hist = yf.download(batch, start=start.isoformat(), end=end.isoformat(),
+                                   interval='1d', auto_adjust=True, progress=False,
+                                   threads=True, group_by='ticker')
             if hist is not None and not hist.empty:
-                return hist
-            print(f'(empty, retry {a}) ', end='', flush=True)
+                got = batch_latest(hist)
+                if best is None or (got and batch_latest(best) and got > batch_latest(best)):
+                    best = hist
+                if want_date is None or (got is not None and got >= want_date):
+                    return hist
+                print(f'(stale thru {got}, retry {a}) ', end='', flush=True)
+            else:
+                print(f'(empty, retry {a}) ', end='', flush=True)
         except Exception as e:
             print(f'(err {a}: {str(e)[:50]}) ', end='', flush=True)
         time.sleep(SLEEP_BATCH * a)
-    return None
+    # Best effort: a stale frame still backfills history, and the end-of-run
+    # staleness guard fails the run so nothing downstream trusts it.
+    return best
 
 
 def cleanup_old(sb):
@@ -415,17 +464,37 @@ def main():
                 bench_rows, on_conflict='ticker,snapshot_date').execute()
             print(f'  stored {len(bench_rows)} {BENCHMARK} OHLC rows')
 
+    # The session every stock batch should reach. Single-ticker benchmark fetches
+    # have stayed current even when the batched endpoint served stale cache.
+    bench_latest = date.fromisoformat(bench_rows[-1]['snapshot_date']) if bench_rows else None
+    if bench_latest:
+        print(f'  expecting batches through {bench_latest}')
+
     ok = fail = total = 0
     latest_by_ticker = {}   # ticker -> newest snapshot_date stored (staleness check below)
+    checked = short = 0     # batches compared against bench_latest, and how many fell short
     for i in range(0, len(universe), BATCH_SIZE):
         batch = universe[i:i + BATCH_SIZE]
         bnum = i // BATCH_SIZE + 1
         print(f'  batch {bnum} ({len(batch)} tickers) ...', end=' ', flush=True)
-        hist = download_batch(batch)
+        hist = download_batch(batch, want_date=bench_latest)
         if hist is None:
             print('download failed after retries')
             fail += len(batch)
             continue
+
+        # Fail fast on a session Yahoo has not finalized. When the whole market is
+        # short it is not a per-batch cache miss, and grinding all ~40 batches
+        # through their retries just burns ~15 minutes to reach the same verdict.
+        if bench_latest:
+            checked += 1
+            got = batch_latest(hist)
+            if got is None or got < bench_latest:
+                short += 1
+            if checked >= PROBE_BATCHES and short == checked:
+                sys.exit(f'\nERROR: first {checked} batches all stop before {bench_latest} '
+                         f'(latest seen {got}) — Yahoo has not finalized the session for '
+                         f'the stock universe. Nothing scored; re-run the scan later.')
 
         batch_records = []
         for ticker in batch:
@@ -453,18 +522,17 @@ def main():
     print(f'Done. {ok} tickers OK | {fail} failed | {total:,} rows upserted')
     print(f'Completed: {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}')
 
-    # Staleness guard. Yahoo's multi-ticker download can lag the single-ticker
-    # benchmark fetch by a session (seen 2026-09-21: ^GSPC had Monday's bar, all
-    # 1,940 stocks stopped at Friday). The run "succeeded" but every downstream
-    # consumer anchored on the benchmark-only date and showed no scores. Fail
-    # loudly so the Telegram notification flags it and the scan can be re-run.
-    if bench_rows and latest_by_ticker:
-        bench_latest = bench_rows[-1]['snapshot_date']
+    # Backstop staleness guard. download_batch already retries a short frame on a
+    # different cache key; reaching here means every retry still came back a
+    # session behind the benchmark. Downstream steps would score stale prices and
+    # the dashboards would anchor on a benchmark-only date, so fail loudly and let
+    # the Telegram notification flag it for a re-run.
+    if bench_latest and latest_by_ticker:
         stock_latest = Counter(latest_by_ticker.values()).most_common(1)[0][0]
-        if stock_latest < bench_latest:
-            sys.exit(f'ERROR: stock universe is stale — most tickers end at '
-                     f'{stock_latest} but {BENCHMARK} has {bench_latest}. '
-                     f'Yahoo batch data not yet published; re-run the scan later.')
+        if date.fromisoformat(stock_latest) < bench_latest:
+            sys.exit(f'ERROR: stock universe is stale after retries — most tickers '
+                     f'end at {stock_latest} but {BENCHMARK} has {bench_latest}. '
+                     f'Yahoo served cached batch data; re-run the scan later.')
 
 
 if __name__ == '__main__':
