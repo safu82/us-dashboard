@@ -324,9 +324,31 @@ def build_links(slug):
             'what_it_is': n.get('blurb'),
             'median_momentum': round(med) if med is not None else None,
             'scored_members': len(scores),
+            'confidence': confidence(len(scores)),
             'members': rows,
         })
     return links
+
+
+def confidence(n):
+    """How much weight a link's median deserves.
+
+    A median over one stock is that stock. Several links are genuinely thin
+    (AI 'Advanced Packaging' is AMKR alone) and four are narrative placeholders
+    with no members at all, so the payload has to say which is which — otherwise
+    the model reports 'packaging ranks 6th' as though it measured something."""
+    if n == 0:
+        return 'empty'
+    if n <= 2:
+        return 'low'
+    return 'ok'
+
+
+LOW_N_CAVEAT = ('Links marked confidence "low" hold 1-2 companies, so their '
+                'median is close to a single stock — treat the ordering as '
+                'indicative and say so. Links marked "empty" are narrative '
+                'stages with no listed pure-plays mapped yet; describe them if '
+                'useful but never present them as a stock list.')
 
 
 MOMENTUM_EXPLAINER = (
@@ -407,7 +429,7 @@ def get_value_chain(theme: str) -> dict:
     if not t:
         return no_match(theme, cands)
     links = build_links(t['slug'])
-    return {
+    out = {
         'theme': t['slug'],
         'name': t['name'],
         'description': t.get('description'),
@@ -417,6 +439,9 @@ def get_value_chain(theme: str) -> dict:
         **as_of_block(),
         'disclaimer': DISCLAIMER,
     }
+    if any(l['confidence'] != 'ok' for l in links):
+        out['sample_size_caveat'] = LOW_N_CAVEAT
+    return out
 
 
 @mcp.tool(
@@ -437,9 +462,11 @@ def rank_links(theme: str) -> dict:
     if not t:
         return no_match(theme, cands)
 
-    ranked = []
+    ranked, unpopulated = [], []
     for ln in build_links(t['slug']):
         if ln['median_momentum'] is None:
+            unpopulated.append({'link': ln['link'], 'name': ln['name'],
+                                'what_it_is': ln['what_it_is']})
             continue
         scored = [m for m in ln['members']
                   if not m['context_only'] and m['momentum'] is not None]
@@ -450,23 +477,37 @@ def rank_links(theme: str) -> dict:
             'position': ln['position'],
             'median_momentum': ln['median_momentum'],
             'members': ln['scored_members'],
+            'confidence': ln['confidence'],
             'leader': {'ticker': lead['ticker'], 'company': lead['company'],
                        'momentum': lead['momentum']} if lead else None,
         })
     ranked.sort(key=lambda r: -r['median_momentum'])
 
-    all_scores = [r['median_momentum'] for r in ranked]
-    return {
+    # Headline strongest/weakest only from links with a real sample — calling a
+    # one-stock link "the hottest part of the chain" would be a data artefact.
+    solid = [r for r in ranked if r['confidence'] == 'ok']
+    all_scores = [r['median_momentum'] for r in solid] or \
+                 [r['median_momentum'] for r in ranked]
+
+    out = {
         'theme': t['slug'],
         'name': t['name'],
         'links_ranked': ranked,
-        'strongest': ranked[0]['name'] if ranked else None,
-        'weakest': ranked[-1]['name'] if ranked else None,
+        'strongest': solid[0]['name'] if solid else None,
+        'weakest': solid[-1]['name'] if solid else None,
+        'headline_basis': ('strongest/weakest consider only links with 3+ '
+                           'companies; thinner links still appear in '
+                           'links_ranked with confidence "low"'),
         'theme_median_momentum': round(median(all_scores)) if all_scores else None,
         'momentum_explainer': MOMENTUM_EXPLAINER,
         **as_of_block(),
         'disclaimer': DISCLAIMER,
     }
+    if unpopulated:
+        out['unpopulated_links'] = unpopulated
+    if any(r['confidence'] != 'ok' for r in ranked) or unpopulated:
+        out['sample_size_caveat'] = LOW_N_CAVEAT
+    return out
 
 
 @mcp.tool(
@@ -505,12 +546,13 @@ def compare_peers(theme: str, link: str) -> dict:
         key=lambda m: (m['momentum'] is None, -(m['momentum'] or 0)))
     context = [m for m in match['members'] if m['context_only']]
 
-    return {
+    out = {
         'theme': t['slug'],
         'link': match['link'],
         'name': match['name'],
         'what_it_is': match['what_it_is'],
         'median_momentum': match['median_momentum'],
+        'confidence': match['confidence'],
         'companies': ranked,
         'context_only': context,
         'context_note': ('Foreign, private or ADR names listed for completeness; '
@@ -520,6 +562,14 @@ def compare_peers(theme: str, link: str) -> dict:
         **as_of_block(),
         'disclaimer': DISCLAIMER,
     }
+    if match['confidence'] == 'empty':
+        out['note'] = ('This stage has no listed pure-plays mapped. Explain what '
+                       'it is from what_it_is; do not imply a stock list exists.')
+    elif match['confidence'] == 'low':
+        out['note'] = (f'Only {match["scored_members"]} company(ies) here — too '
+                       f'few to compare meaningfully. Present them individually '
+                       f'rather than as a ranking.')
+    return out
 
 
 if __name__ == '__main__':
