@@ -8,9 +8,11 @@ name: Weekly newsletter (US)
 # Assumes the daily nightly-scan chain (OHLC -> cross_sectional -> sector_rankings
 # -> market_health) and the analyst/tipranks/conviction jobs have already run for
 # the week. This workflow only builds the newsletter-specific artifacts.
+# Scheduled run is OFF (paused 2026-10-01). Run it on demand from the Actions tab
+# or with `gh workflow run weekly-newsletter.yml`; uncomment the schedule to resume.
 on:
-  schedule:
-    - cron: '0 13 * * 0'
+  # schedule:
+  #   - cron: '0 13 * * 0'
   workflow_dispatch:
 
 jobs:
