@@ -1,0 +1,5 @@
+# Phase 0 plugin server. mcp 2.x renamed FastMCP -> MCPServer, so the major
+# version is pinned; mcp<2 will not import this module.
+mcp>=2.2.0,<3
+supabase==2.10.0
+python-dotenv==1.0.0

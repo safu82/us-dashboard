@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "theme-value-chains": {
+      "command": "python",
+      "args": ["plugin/theme_server.py"]
+    }
+  }
+}
