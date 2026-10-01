@@ -60,7 +60,8 @@ MEMBERS = {
         ('VKTX', 'Oral & injectable obesity pipeline (Viking)', False),
         ('ALT',  'Next-gen obesity (Altimmune)', False),
         ('GPCR', 'Oral GLP-1 (Structure Therapeutics)', False),
-        ('TERN', 'Oral obesity pipeline (Terns)', False),
+        # Removed 2026-10-01: delisted, Yahoo 404s the symbol.
+        # ('TERN', 'Oral obesity pipeline (Terns)', False),
     ],
     'makers': [
         ('LLY',  'Zepbound / Mounjaro — the leader', False),

@@ -79,8 +79,12 @@ MEMBERS = {
     'reit': [
         ('INVH', 'Invitation Homes — single-family rentals', False),
         ('AMH',  'American Homes 4 Rent — SFR landlord', False),
-        ('EQR',  'Equity Residential — apartments', False),
-        ('AVB',  'AvalonBay — apartment REIT', False),
+        # Removed 2026-10-01. Both still listed and ~$25bn, but Yahoo serves a
+        # truncated history — one lone bar from Aug 2026 and nothing since, via
+        # every fetch path. No momentum, so they rendered blank. Re-add if the
+        # feed recovers; see check_universe_health.py.
+        # ('EQR',  'Equity Residential — apartments', False),
+        # ('AVB',  'AvalonBay — apartment REIT', False),
     ],
 }
 

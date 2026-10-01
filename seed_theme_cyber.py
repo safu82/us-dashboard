@@ -59,7 +59,8 @@ NODES = [
 MEMBERS = {
     'identity': [
         ('OKTA', 'Single sign-on & identity', False),
-        ('CYBR', 'Privileged access (CyberArk)', False),
+        # Removed 2026-10-01: delisted (acquired), Yahoo 404s the symbol.
+        # ('CYBR', 'Privileged access (CyberArk)', False),
         ('MSFT', 'Entra ID — the biggest identity platform', False),
     ],
     'endpoint': [
@@ -72,7 +73,8 @@ MEMBERS = {
         ('FTNT', 'Firewalls (Fortinet)', False),
         ('CHKP', 'Firewalls (Check Point)', False),
         ('CSCO', 'Networking & security', False),
-        ('JNPR', 'Networking', False),
+        # Removed 2026-10-01: delisted (acquired by HPE), Yahoo 404s the symbol.
+        # ('JNPR', 'Networking', False),
     ],
     'cloud_app': [
         ('ZS',   'Zero-trust cloud access (Zscaler)', False),

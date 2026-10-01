@@ -54,7 +54,8 @@ MEMBERS = {
     'panels': [
         ('FSLR', 'First Solar — the US thin-film leader', False),
         ('CSIQ', 'Canadian Solar — global module maker', False),
-        ('MAXN', 'Maxeon — premium panels (turnaround)', False),
+        # Removed 2026-10-01: delisted, Yahoo 404s the symbol.
+        # ('MAXN', 'Maxeon — premium panels (turnaround)', False),
     ],
     'hardware': [
         ('ENPH', 'Enphase — microinverters', False),
