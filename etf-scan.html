@@ -42,10 +42,14 @@
   *{box-sizing:border-box;margin:0;padding:0;}
   body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;}
   a{color:inherit;text-decoration:none;}
-  .header{background:var(--bg2);border-bottom:1px solid var(--border);padding:20px 24px;}
-  .h-title{font-size:26px;font-weight:800;letter-spacing:-0.5px;}
-  .h-desc{font-size:13px;color:var(--text2);margin-top:6px;max-width:860px;line-height:1.55;}
-  .back{float:right;color:var(--text2);font-size:13px;border:1px solid var(--border);padding:6px 12px;border-radius:8px;}
+  .nav{background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;position:sticky;top:0;z-index:50;}
+  .nav-home{font-weight:800;font-size:15px;letter-spacing:-.3px;margin-right:10px;white-space:nowrap;}
+  .nav-tab{font-size:13px;font-weight:600;color:var(--text2);padding:6px 14px;border-radius:999px;border:1px solid transparent;white-space:nowrap;}
+  .nav-tab:hover{color:var(--text);background:var(--bg3);}
+  .nav-tab.on{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .nav-sp{flex:1;}
+  .nav-back{font-size:12.5px;color:var(--text2);border:1px solid var(--border);padding:6px 12px;border-radius:8px;white-space:nowrap;}
+  .h-desc{font-size:13px;color:var(--text2);max-width:880px;line-height:1.55;margin-bottom:16px;}
   .page{max-width:1240px;margin:0 auto;padding:24px;}
 
   .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 14px;}
@@ -91,12 +95,16 @@
 </style>
 </head>
 <body>
-<div class="header">
-  <a class="back" href="research.html">← Sector Research</a>
-  <div class="h-title">🔭 Sector Rotation</div>
-  <div class="h-desc">Find the sector. Find the leader. Wait for the setup. Every sector and thematic ETF ranked against the others, with the five checks that matter: at new highs, holding its <b>8/21</b> trend (close above the 8-day EMA, 8 above the 21), beating SPY and QQQ <b>over the last 20 sessions</b>, and <b>how durably</b> it has led. Momentum says strong today; durability separates a real trend from a one-week pop. Rebuilt nightly. Educational, not advice.</div>
+<div class="nav">
+  <a class="nav-home" href="research.html">🧭 Sector Research</a>
+  <a class="nav-tab on" href="etf-scan.html">Rotation</a>
+  <a class="nav-tab" href="research.html">Themes</a>
+  <a class="nav-tab" href="leaders.html">Leaders</a>
+  <span class="nav-sp"></span>
+  <a class="nav-back" href="index.html">← Dashboard</a>
 </div>
 <div class="page">
+  <div class="h-desc">Find the sector. Find the leader. Wait for the setup. Every sector and thematic ETF ranked against the others, with the five checks that matter: at new highs, holding its <b>8/21</b> trend (close above the 8-day EMA, 8 above the 21), beating SPY and QQQ <b>over the last 20 sessions</b>, and <b>how durably</b> it has led. Momentum says strong today; durability separates a real trend from a one-week pop. Rebuilt nightly. Educational, not advice.</div>
   <div id="app">Loading…</div>
   <div class="foot" id="foot"></div>
 </div>

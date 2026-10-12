@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script>
+(function() {
+    var PASS_KEY = 'dashboard_auth_v2';
+    var CORRECT  = 'khimani2026';
+    if (localStorage.getItem(PASS_KEY) === CORRECT) return;
+    document.addEventListener('DOMContentLoaded', function() {
+        document.body.style.display = 'none';
+        var gate = document.createElement('div');
+        gate.style.cssText = 'position:fixed;inset:0;background:#0d1117;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif';
+        gate.innerHTML = '<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:40px 48px;width:320px;text-align:center">'
+            + '<div style="font-size:28px;margin-bottom:8px">🏆</div>'
+            + '<div style="font-size:20px;font-weight:700;color:#e6edf3">Leaders</div>'
+            + '<div style="font-size:13px;color:#8b949e;margin:6px 0 28px">Enter password to continue</div>'
+            + '<input id="pw-input" type="password" placeholder="Password" style="width:100%;box-sizing:border-box;padding:10px 14px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;outline:none;margin-bottom:12px">'
+            + '<button id="pw-btn" style="width:100%;padding:10px;border-radius:8px;border:none;background:#238636;color:white;font-weight:600;cursor:pointer">Unlock</button>'
+            + '<div id="pw-err" style="display:none;margin-top:12px;font-size:13px;color:#f85149">Incorrect password</div>'
+            + '</div>';
+        document.body.parentNode.insertBefore(gate, document.body);
+        function attempt() {
+            var v = document.getElementById('pw-input').value;
+            if (v === CORRECT) { localStorage.setItem(PASS_KEY, CORRECT); gate.remove(); document.body.style.display = ''; }
+            else { document.getElementById('pw-err').style.display = 'block'; document.getElementById('pw-input').value = ''; }
+        }
+        document.getElementById('pw-btn').onclick = attempt;
+        document.getElementById('pw-input').onkeydown = function(e){ if(e.key==='Enter') attempt(); };
+        setTimeout(function(){ document.getElementById('pw-input').focus(); }, 100);
+    });
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover">
+<title>Leaders — Sector Research</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{--bg:#0d1117;--bg2:#161b22;--bg3:#1c2128;--border:#30363d;--text:#e6edf3;--text2:#8b949e;--green:#3fb950;--red:#f85149;--orange:#f0883e;--blue:#58a6ff;--accent:#1f6feb;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;}
+  a{color:inherit;text-decoration:none;}
+  .nav{background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;position:sticky;top:0;z-index:50;}
+  .nav-home{font-weight:800;font-size:15px;letter-spacing:-.3px;margin-right:10px;white-space:nowrap;}
+  .nav-tab{font-size:13px;font-weight:600;color:var(--text2);padding:6px 14px;border-radius:999px;border:1px solid transparent;white-space:nowrap;}
+  .nav-tab:hover{color:var(--text);background:var(--bg3);}
+  .nav-tab.on{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .nav-sp{flex:1;}
+  .nav-back{font-size:12.5px;color:var(--text2);border:1px solid var(--border);padding:6px 12px;border-radius:8px;white-space:nowrap;}
+  .page{max-width:1100px;margin:0 auto;padding:24px;}
+  .lead{font-size:13px;color:var(--text2);line-height:1.55;max-width:840px;margin-bottom:18px;}
+  .board{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:6px 8px;}
+  .btitle{font-size:16px;font-weight:800;padding:12px 10px 2px;}
+  .bsub{font-size:12px;color:var(--text2);padding:0 10px 10px;line-height:1.5;}
+  .bhead,.lbrow{display:grid;grid-template-columns:26px 1fr 60px 60px 58px;gap:10px;align-items:center;}
+  .bhead{padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);}
+  .bhead .r{text-align:right;}
+  .lbrow{padding:9px 10px;border-radius:8px;}
+  .lbrow:hover{background:var(--bg3);}
+  .lbrow+.lbrow{border-top:1px solid var(--border);}
+  .lb-rank{color:var(--text2);font-weight:800;font-size:13px;text-align:center;}
+  .lb-tk{font-weight:800;}
+  .lb-nm{color:var(--text2);font-size:12px;font-weight:400;margin-left:6px;}
+  .lb-theme{font-size:11px;color:var(--text2);margin-top:2px;}
+  .lb-m{font-size:13px;text-align:right;color:var(--text2);}
+  .lb-m b{color:var(--text);font-size:13px;}
+  .lb-m.hi b{color:var(--orange);}
+  .lb-blend{font-weight:800;color:var(--orange);text-align:right;font-size:15px;}
+  .btoggle{display:flex;gap:6px;padding:2px 10px 12px;flex-wrap:wrap;}
+  .btoggle button{background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-size:12px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;}
+  .btoggle button:hover{border-color:var(--accent);}
+  .btoggle button.on{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .hubhead,.hubrow{display:grid;grid-template-columns:26px 1fr 54px 54px;gap:10px;align-items:center;}
+  .hubhead{padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);}
+  .hubhead .r{text-align:right;}
+  .hubrow{padding:9px 10px;border-radius:8px;}
+  .hubrow:hover{background:var(--bg3);}
+  .hubrow+.hubrow{border-top:1px solid var(--border);}
+  .hub-n{text-align:right;font-weight:800;color:var(--blue);font-size:15px;}
+  .hub-th{font-size:11px;color:var(--text2);margin-top:2px;}
+  .foot{color:var(--text2);font-size:11px;margin-top:24px;line-height:1.6;}
+  @media(max-width:640px){ .nav{padding:10px 14px;} .page{padding:16px;} }
+</style>
+</head>
+<body>
+<div class="nav">
+  <a class="nav-home" href="research.html">🧭 Sector Research</a>
+  <a class="nav-tab" href="etf-scan.html">Rotation</a>
+  <a class="nav-tab" href="research.html">Themes</a>
+  <a class="nav-tab on" href="leaders.html">Leaders</a>
+  <span class="nav-sp"></span>
+  <a class="nav-back" href="index.html">← Dashboard</a>
+</div>
+<div class="page">
+  <div class="lead">The individual names, once you know which part of the market is working. Ranked across every theme at once — on momentum, on value versus their own sector, or the two together — plus the stocks that sit in several themes at the same time. Click any row for the deep dive. Educational, not advice.</div>
+  <div id="board">Loading…</div>
+  <div id="hubs"></div>
+  <div class="foot" id="foot"></div>
+</div>
+<script>
+const SB_URL='https://jblrurlpyplbquqibphh.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpibHJ1cmxweXBsYnF1cWlicGhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzNDY1NzAsImV4cCI6MjA5NDkyMjU3MH0.oYZarIlHqxpZY6ZWA0KRD9HoxYyv80otXKVNkpuNLRo';
+const sb = supabase.createClient(SB_URL, SB_KEY);
+
+function med(a){ const s=a.filter(x=>x!=null&&isFinite(x)).map(Number).sort((x,y)=>x-y); if(!s.length)return null; const m=Math.floor(s.length/2); return s.length%2?s[m]:(s[m-1]+s[m])/2; }
+// Percentile map over [{k,v}] where HIGHER v = better; best -> 1, worst -> 0.
+function prank(items){ const a=items.filter(x=>x.v!=null&&isFinite(x.v)).sort((x,y)=>x.v-y.v); const n=a.length,m={}; a.forEach((x,i)=>{ m[x.k]= n<=1?1:i/(n-1); }); return m; }
+
+async function load(){
+  const themes  = (await sb.from('themes').select('slug,name')).data || [];
+  const members = (await sb.from('theme_members').select('theme_slug,is_context,ticker')).data || [];
+  const slugName={}; themes.forEach(t=>slugName[t.slug]=t.name);
+  const memTk = [...new Set(members.filter(m=>!m.is_context).map(m=>m.ticker))];
+  const themesByTk={}, slugsByTk={};
+  members.forEach(m=>{ if(!m.is_context){
+    (themesByTk[m.ticker]=themesByTk[m.ticker]||new Set()).add(slugName[m.theme_slug]||m.theme_slug);
+    (slugsByTk[m.ticker]=slugsByTk[m.ticker]||new Set()).add(m.theme_slug); } });
+
+  // Latest date with cross-sectional scores (a benchmark-only ^GSPC row can exist for a newer date).
+  const latest = (await sb.from('daily_stock_snapshots').select('snapshot_date').not('momentum_score','is',null).order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
+
+  const mscore={}, ps={}, gr={}, nm={}, sector={}, cname={};
+  for(let i=0;i<memTk.length;i+=200){ const ch=memTk.slice(i,i+200);
+    if(latest){ const s=(await sb.from('daily_stock_snapshots').select('ticker,momentum_score').eq('snapshot_date',latest).in('ticker',ch)).data||[];
+      s.forEach(r=>mscore[r.ticker]=r.momentum_score); }
+    const f=(await sb.from('stock_fundamentals').select('ticker,price_to_sales,revenue_growth_yoy,net_margin').in('ticker',ch)).data||[];
+    f.forEach(r=>{ ps[r.ticker]=r.price_to_sales; gr[r.ticker]=r.revenue_growth_yoy; nm[r.ticker]=r.net_margin; });
+    const u=(await sb.from('us_stock_sectors').select('ticker,sector,company_name').in('ticker',ch)).data||[];
+    u.forEach(r=>{ sector[r.ticker]=r.sector; cname[r.ticker]=r.company_name; });
+  }
+
+  // ---- cross-theme Top-10: blend of precomputed MOMENTUM (momentum_score) + like-for-like VALUE ----
+  // momentum_score (0-100) is computed nightly in compute_cross_sectional.py from 5 technical factors
+  // (RS level, RS improvement ~20d, EMA-9/20 slopes, price vs EMA-50) — robust vs 5-day bounces.
+  const momPct={}; memTk.forEach(tk=>{ if(mscore[tk]!=null) momPct[tk]=mscore[tk]/100; });
+  // VALUE = how cheap a stock is vs its GICS-SECTOR peers (like-for-like), as a CONTINUOUS distance
+  // from the sector's median growth-adjusted P/S, then percentile-ranked ONCE globally. A plain
+  // within-sector percentile saturated at 100 for each sector's cheapest name; measuring the distance
+  // and ranking it once de-saturates the column and orders it correctly. Sector-relative also strips
+  // out the sector-wide price move, so value stays independent of momentum — a clean 2nd signal.
+  // Requires POSITIVE revenue growth (a shrinking-revenue name isn't value) and P/S > 0.
+  const gaps={}; memTk.forEach(tk=>{ const p=ps[tk], g=gr[tk]; if(p>0 && g!=null && g>0){ gaps[tk]= p/(Math.max(g,3)/100); } });
+  const bySec={}; memTk.forEach(tk=>{ const s=sector[tk], v=gaps[tk]; if(s&&v!=null){ (bySec[s]=bySec[s]||[]).push(v); } });
+  const secMed={}; Object.entries(bySec).forEach(([s,arr])=>{ if(arr.length>=5) secMed[s]=med(arr); });
+  const globMed = med(Object.values(gaps));   // fallback for thin sectors (<5 scored members)
+  const cheap={}; memTk.forEach(tk=>{ const v=gaps[tk]; if(v>0){ const ref=secMed[sector[tk]]??globMed; if(ref!=null) cheap[tk]=ref/v; } });  // >1 = cheaper than peers
+  const valPct = prank(memTk.filter(tk=>cheap[tk]!=null).map(tk=>({k:tk,v:cheap[tk]})));
+  // value-trap guard: a deeply loss-making firm (net margin < -50%) isn't "cheap" — neutralise its value leg.
+  memTk.forEach(tk=>{ if(valPct[tk]!=null && nm[tk]!=null && nm[tk]<-50) valPct[tk]=Math.min(valPct[tk],0.5); });
+
+  const rows=[];
+  memTk.forEach(tk=>{ const mp=momPct[tk], vp=valPct[tk]; if(mp==null && vp==null) return;
+    rows.push({tk, nm:cname[tk]||'', th:[...(themesByTk[tk]||[])].join(', '),
+      mom: mp==null?null:Math.round(mp*100),
+      val: vp==null?null:Math.round(vp*100),
+      valRaw: vp==null?null:vp,
+      blend: (mp!=null&&vp!=null)?+((0.5*mp+0.5*vp)*100).toFixed(1):null }); });
+
+  // three views: rank by momentum alone, value alone, or the 50/50 blend.
+  window.setBoard = function(mode){
+    const key = mode==='mom'?'mom':mode==='val'?'val':'blend';
+    // Sort by the continuous underlying score to avoid display-rounding ties: value by its raw
+    // sector-relative cheapness; momentum ties break by value; blend ties by momentum.
+    const cmp = ({
+      blend:(a,b)=> (b.blend-a.blend) || ((b.mom??-1)-(a.mom??-1)),
+      mom:  (a,b)=> (b.mom-a.mom)     || ((b.valRaw??-1)-(a.valRaw??-1)),
+      val:  (a,b)=> (b.valRaw-a.valRaw),
+    })[mode];
+    const list = rows.filter(r=>r[key]!=null).sort(cmp).slice(0,20);
+    document.querySelectorAll('.btoggle button').forEach(b=>b.classList.toggle('on', b.dataset.mode===mode));
+    document.getElementById('lbrows').innerHTML = list.map((r,i)=>`
+      <a class="lbrow" href="deep_dive.html?ticker=${r.tk}">
+        <div class="lb-rank">${i+1}</div>
+        <div><span class="lb-tk">${r.tk}</span><span class="lb-nm">${r.nm}</span><div class="lb-theme">${r.th}</div></div>
+        <div class="lb-m${key==='mom'?' hi':''}"><b>${r.mom==null?'–':r.mom}</b></div>
+        <div class="lb-m${key==='val'?' hi':''}"><b>${r.val==null?'–':r.val}</b></div>
+        <div class="lb-blend" style="${key==='blend'?'':'opacity:.55'}">${r.blend==null?'–':r.blend}</div>
+      </a>`).join('');
+  };
+  document.getElementById('board').innerHTML = !rows.length ? 'No scored names yet.' :
+    `<div class="board">
+      <div class="btitle">🏆 Top 20 across all themes</div>
+      <div class="bsub"><b>Momentum</b> = a multi-factor technical composite (relative-strength level &amp; trend, EMA-9/20 slopes, price-vs-EMA-50). <b>Value</b> = how cheap vs its GICS-sector peers on growth-adjusted price-to-sales (shrinking-revenue &amp; deep-loss names excluded). <b>Combined</b> = 50/50 blend. Excludes fundamentals/analyst-heavy conviction so newer names compete fairly. Click a row for the deep dive.${latest?` As of ${latest}.`:''}</div>
+      <div class="btoggle">
+        <button data-mode="blend" onclick="setBoard('blend')">Momentum + Value</button>
+        <button data-mode="mom" onclick="setBoard('mom')">Momentum</button>
+        <button data-mode="val" onclick="setBoard('val')">Value</button>
+      </div>
+      <div class="bhead"><div></div><div>Company</div><div class="r">Mom</div><div class="r">Val</div><div class="r">Blend</div></div>
+      <div id="lbrows"></div>
+    </div>`;
+  if(rows.length) setBoard('blend');
+
+  // ---- connective tissue: stocks that sit in multiple themes at once (structural hubs) ----
+  const hubs = memTk.map(tk=>({tk, nm:cname[tk]||'', th:[...(slugsByTk[tk]||[])].sort(), mom:mscore[tk]}))
+    .filter(h=>h.th.length>=2)
+    .sort((a,b)=> (b.th.length-a.th.length) || ((b.mom??-1)-(a.mom??-1)))
+    .slice(0,12);
+  document.getElementById('hubs').innerHTML = !hubs.length ? '' :
+    `<div class="board" style="margin-top:18px">
+      <div class="btitle">🔗 Cross-theme hubs</div>
+      <div class="bsub">Stocks sitting in several themes at once — one name catching multiple megatrends, and structurally central to the map. More themes = more secular tailwinds converging on it. <b>Mom</b> = 0-100 momentum score.</div>
+      <div class="hubhead"><div></div><div>Company · themes</div><div class="r">Themes</div><div class="r">Mom</div></div>
+      ${hubs.map((h,i)=>`
+        <a class="hubrow" href="deep_dive.html?ticker=${h.tk}">
+          <div class="lb-rank">${i+1}</div>
+          <div><span class="lb-tk">${h.tk}</span><span class="lb-nm">${h.nm}</span><div class="hub-th">${h.th.join(' · ')}</div></div>
+          <div class="hub-n">${h.th.length}</div>
+          <div class="lb-m"><b>${h.mom==null?'–':h.mom}</b></div>
+        </a>`).join('')}
+    </div>`;
+
+  document.getElementById('foot').innerHTML =
+    `Ranked across ${memTk.length} in-universe names mapped to a theme. Momentum is scored against the whole ~1,900-stock universe; value is scored against each name's own GICS sector, so the two legs stay independent. Educational research data, not investment advice.`;
+}
+load().catch(e=>{ document.getElementById('board').textContent='Failed to load: '+e.message; });
+</script>
+</body>
+</html>

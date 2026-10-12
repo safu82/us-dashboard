@@ -31,86 +31,62 @@
 })();
 </script>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sector Research — Themes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover">
+<title>Themes — Sector Research</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root{--bg:#0d1117;--bg2:#161b22;--bg3:#1c2128;--border:#30363d;--text:#e6edf3;--text2:#8b949e;--green:#3fb950;--red:#f85149;--orange:#f0883e;--blue:#58a6ff;--accent:#1f6feb;}
   *{box-sizing:border-box;margin:0;padding:0;}
   body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;}
   a{color:inherit;text-decoration:none;}
-  .header{background:var(--bg2);border-bottom:1px solid var(--border);padding:20px 24px;}
-  .h-title{font-size:26px;font-weight:800;letter-spacing:-0.5px;}
-  .h-desc{font-size:13px;color:var(--text2);margin-top:6px;max-width:820px;line-height:1.55;}
-  .page{max-width:1100px;margin:0 auto;padding:24px;}
-  .catrow{display:flex;align-items:baseline;gap:12px;margin:30px 0 14px;}
-  .catrow:first-child{margin-top:6px;}
-  .cname{font-size:17px;font-weight:800;letter-spacing:-0.3px;white-space:nowrap;}
+  .nav{background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;position:sticky;top:0;z-index:50;}
+  .nav-home{font-weight:800;font-size:15px;letter-spacing:-.3px;margin-right:10px;white-space:nowrap;}
+  .nav-tab{font-size:13px;font-weight:600;color:var(--text2);padding:6px 14px;border-radius:999px;border:1px solid transparent;white-space:nowrap;}
+  .nav-tab:hover{color:var(--text);background:var(--bg3);}
+  .nav-tab.on{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .nav-sp{flex:1;}
+  .nav-back{font-size:12.5px;color:var(--text2);border:1px solid var(--border);padding:6px 12px;border-radius:8px;white-space:nowrap;}
+  .page{max-width:1180px;margin:0 auto;padding:22px 24px;}
+  .lead{font-size:13px;color:var(--text2);line-height:1.55;max-width:860px;}
+  .bar{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:16px 0 18px;}
+  .chip{background:var(--bg2);border:1px solid var(--border);color:var(--text2);border-radius:999px;padding:6px 13px;font-size:12.5px;cursor:pointer;white-space:nowrap;}
+  .chip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  .barlab{font-size:12px;color:var(--text2);margin-right:2px;}
+
+  .catrow{display:flex;align-items:baseline;gap:12px;margin:22px 0 11px;}
+  .catrow:first-child{margin-top:0;}
+  .cname{font-size:15px;font-weight:800;letter-spacing:-.2px;white-space:nowrap;}
   .cline{flex:1;height:1px;background:var(--border);}
-  .ccount{font-size:12px;color:var(--text2);white-space:nowrap;}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;}
-  .tcard{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:8px;transition:border-color .15s,transform .1s;min-height:170px;}
+  .ccount{font-size:11.5px;color:var(--text2);white-space:nowrap;}
+
+  /* Compact enough that all 18 themes land in roughly one screen instead of six rows. */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(262px,1fr));gap:12px;}
+  .tcard{background:var(--bg2);border:1px solid var(--border);border-radius:11px;padding:14px 15px;display:flex;flex-direction:column;gap:6px;transition:border-color .15s,transform .1s;}
   .tcard:hover{border-color:var(--accent);transform:translateY(-2px);}
-  .tname{font-size:18px;font-weight:800;}
-  .tdesc{font-size:12.5px;color:var(--text2);line-height:1.5;flex:1;}
-  .tstat{font-size:12px;color:var(--text2);}
+  .thead-r{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .tname{font-size:15px;font-weight:800;letter-spacing:-.2px;line-height:1.25;}
+  .tmom{font-weight:800;font-size:13px;white-space:nowrap;}
+  .tdesc{font-size:12px;color:var(--text2);line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .tstat{font-size:11.5px;color:var(--text2);}
   .tstat b{color:var(--text);}
-  .texp{color:var(--accent);font-weight:700;font-size:13px;margin-top:2px;}
-  .board{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:6px 8px;}
-  .btitle{font-size:16px;font-weight:800;padding:12px 10px 2px;}
-  .bsub{font-size:12px;color:var(--text2);padding:0 10px 10px;line-height:1.5;}
-  .bhead,.lbrow{display:grid;grid-template-columns:26px 1fr 60px 60px 58px;gap:10px;align-items:center;}
-  .bhead{padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);}
-  .bhead .r{text-align:right;}
-  .lbrow{padding:9px 10px;border-radius:8px;}
-  .lbrow:hover{background:var(--bg3);}
-  .lbrow+.lbrow{border-top:1px solid var(--border);}
-  .lb-rank{color:var(--text2);font-weight:800;font-size:13px;text-align:center;}
-  .lb-tk{font-weight:800;}
-  .lb-nm{color:var(--text2);font-size:12px;font-weight:400;margin-left:6px;}
-  .lb-theme{font-size:11px;color:var(--text2);margin-top:2px;}
-  .lb-m{font-size:13px;text-align:right;color:var(--text2);}
-  .lb-m b{color:var(--text);font-size:13px;}
-  .lb-blend{font-weight:800;color:var(--orange);text-align:right;font-size:15px;}
-  .btoggle{display:flex;gap:6px;padding:2px 10px 12px;flex-wrap:wrap;}
-  .btoggle button{background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-size:12px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;}
-  .btoggle button:hover{border-color:var(--accent);}
-  .btoggle button.on{background:var(--accent);border-color:var(--accent);color:#fff;}
-  .lb-m.hi b{color:var(--orange);}
-  .hubhead,.hubrow{display:grid;grid-template-columns:26px 1fr 54px 54px;gap:10px;align-items:center;}
-  .hubhead{padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);}
-  .hubhead .r{text-align:right;}
-  .hubrow{padding:9px 10px;border-radius:8px;}
-  .hubrow:hover{background:var(--bg3);}
-  .hubrow+.hubrow{border-top:1px solid var(--border);}
-  .hub-n{text-align:right;font-weight:800;color:var(--blue);font-size:15px;}
-  .hub-th{font-size:11px;color:var(--text2);margin-top:2px;}
-  .etfhead,.etfrow{display:grid;grid-template-columns:26px 1fr 54px 62px;gap:10px;align-items:center;}
-  .etfhead{padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);}
-  .etfhead .r{text-align:right;}
-  .etfrow{padding:9px 10px;border-radius:8px;}
-  .etfrow:hover{background:var(--bg3);}
-  .etfrow+.etfrow{border-top:1px solid var(--border);}
-  .etf-tag{font-size:11px;color:var(--text2);margin-top:2px;}
-  .etf-kind{display:inline-block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:1px 6px;border-radius:6px;margin-left:8px;vertical-align:middle;}
-  .etf-kind.sector{background:rgba(88,166,255,.15);color:var(--blue);}
-  .etf-kind.theme{background:rgba(63,185,80,.15);color:var(--green);}
-  .etf-r{text-align:right;color:var(--text2);font-size:13px;}
-  .etf-mom{text-align:right;font-weight:800;font-size:15px;}
-  .foot{color:var(--text2);font-size:11px;margin-top:24px;line-height:1.6;}
+  .tcat{font-size:10px;color:var(--text2);border:1px solid var(--border);border-radius:5px;padding:1px 6px;}
+  .foot{color:var(--text2);font-size:11px;margin-top:26px;line-height:1.6;}
+  @media(max-width:640px){ .nav{padding:10px 14px;} .page{padding:16px;} }
 </style>
 </head>
 <body>
-<div class="header">
-  <a href="index.html" style="float:right;color:var(--text2);font-size:13px;text-decoration:none;border:1px solid var(--border);padding:6px 12px;border-radius:8px" title="Back to the portfolio dashboard">← Dashboard</a>
-  <div class="h-title">🧭 Sector Research</div>
-  <div class="h-desc">Pick a theme to see its whole value chain as a map — the companies in each link, how their momentum is trending, and who looks cheap or pricey versus their peers. Built for first-time investors. Educational, not advice.</div>
+<div class="nav">
+  <a class="nav-home" href="research.html">🧭 Sector Research</a>
+  <a class="nav-tab" href="etf-scan.html">Rotation</a>
+  <a class="nav-tab on" href="research.html">Themes</a>
+  <a class="nav-tab" href="leaders.html">Leaders</a>
+  <span class="nav-sp"></span>
+  <a class="nav-back" href="index.html">← Dashboard</a>
 </div>
 <div class="page">
+  <div class="lead">Each theme broken into its value chain — the companies at every stage, how their momentum is trending, and who looks cheap or pricey against their peers. Start with <a href="etf-scan.html" style="color:var(--blue)">Rotation</a> if you want to know which of these is working first. Built for first-time investors. Educational, not advice.</div>
+  <div class="bar" id="bar"></div>
   <div id="cats">Loading…</div>
-  <div id="board"></div>
-  <div id="etfboard"></div>
-  <div id="hubs"></div>
   <div class="foot" id="foot"></div>
 </div>
 <script>
@@ -119,199 +95,91 @@ const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZ
 const sb = supabase.createClient(SB_URL, SB_KEY);
 
 function med(a){ const s=a.filter(x=>x!=null&&isFinite(x)).map(Number).sort((x,y)=>x-y); if(!s.length)return null; const m=Math.floor(s.length/2); return s.length%2?s[m]:(s[m-1]+s[m])/2; }
-// Percentile map over [{k,v}] where HIGHER v = better; best -> 1, worst -> 0.
-function prank(items){ const a=items.filter(x=>x.v!=null&&isFinite(x.v)).sort((x,y)=>x.v-y.v); const n=a.length,m={}; a.forEach((x,i)=>{ m[x.k]= n<=1?1:i/(n-1); }); return m; }
+
+let THEMES=[], MOMO={}, NNODES={}, NMEMBERS={}, ASOF=null, sortBy='category';
 
 async function load(){
   const themes  = (await sb.from('themes').select('*').order('display_order')).data || [];
   const nodes   = (await sb.from('theme_nodes').select('theme_slug')).data || [];
   const members = (await sb.from('theme_members').select('theme_slug,is_context,ticker')).data || [];
-  const nNodes={}, nMembers={};
-  nodes.forEach(n=>nNodes[n.theme_slug]=(nNodes[n.theme_slug]||0)+1);
-  members.forEach(m=>{ if(!m.is_context) nMembers[m.theme_slug]=(nMembers[m.theme_slug]||0)+1; });
   if(!themes.length){ document.getElementById('cats').textContent='No themes yet.'; return; }
-  const slugName={}; themes.forEach(t=>slugName[t.slug]=t.name);
-  const memTk = [...new Set(members.filter(m=>!m.is_context).map(m=>m.ticker))];
-  const themesByTk={}; members.forEach(m=>{ if(!m.is_context){ (themesByTk[m.ticker]=themesByTk[m.ticker]||new Set()).add(slugName[m.theme_slug]||m.theme_slug); } });
-  const slugsByTk={}; members.forEach(m=>{ if(!m.is_context){ (slugsByTk[m.ticker]=slugsByTk[m.ticker]||new Set()).add(m.theme_slug); } });
+  nodes.forEach(n=>NNODES[n.theme_slug]=(NNODES[n.theme_slug]||0)+1);
+  members.forEach(m=>{ if(!m.is_context) NMEMBERS[m.theme_slug]=(NMEMBERS[m.theme_slug]||0)+1; });
 
   // Latest date with cross-sectional scores (a benchmark-only ^GSPC row can exist for a newer date).
-  const latest = (await sb.from('daily_stock_snapshots').select('snapshot_date').not('momentum_score','is',null).order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
+  ASOF = (await sb.from('daily_stock_snapshots').select('snapshot_date').not('momentum_score','is',null)
+            .order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
 
-  // ---- batched pulls: precomputed momentum_score + value inputs for all in-universe members ----
-  const mscore={}, ps={}, gr={}, nm={}, sector={}, cname={};
-  for(let i=0;i<memTk.length;i+=200){ const ch=memTk.slice(i,i+200);
-    if(latest){ const s=(await sb.from('daily_stock_snapshots').select('ticker,momentum_score').eq('snapshot_date',latest).in('ticker',ch)).data||[];
-      s.forEach(r=>mscore[r.ticker]=r.momentum_score); }
-    const f=(await sb.from('stock_fundamentals').select('ticker,price_to_sales,revenue_growth_yoy,net_margin').in('ticker',ch)).data||[];
-    f.forEach(r=>{ ps[r.ticker]=r.price_to_sales; gr[r.ticker]=r.revenue_growth_yoy; nm[r.ticker]=r.net_margin; });
-    const u=(await sb.from('us_stock_sectors').select('ticker,sector,company_name').in('ticker',ch)).data||[];
-    u.forEach(r=>{ sector[r.ticker]=r.sector; cname[r.ticker]=r.company_name; });
+  // Only momentum is needed here now. The value legs moved to Leaders with the
+  // boards that used them, so this page no longer pulls stock_fundamentals or
+  // us_stock_sectors for ~400 tickers just to render cards.
+  const memTk = [...new Set(members.filter(m=>!m.is_context).map(m=>m.ticker))];
+  const mscore={};
+  if(ASOF){ for(let i=0;i<memTk.length;i+=200){ const ch=memTk.slice(i,i+200);
+    const s=(await sb.from('daily_stock_snapshots').select('ticker,momentum_score')
+              .eq('snapshot_date',ASOF).in('ticker',ch)).data||[];
+    s.forEach(r=>mscore[r.ticker]=r.momentum_score); } }
+
+  // Theme momentum = median member momentum_score (0-100, 50 = the median stock).
+  themes.forEach(t=>{ const md=med(members.filter(m=>m.theme_slug===t.slug&&!m.is_context)
+                                          .map(m=>mscore[m.ticker]).filter(x=>x!=null));
+                      MOMO[t.slug]= md==null?null:Math.round(md); });
+  THEMES = themes;
+  render();
+}
+
+const card = t => {
+  const mm = MOMO[t.slug];
+  const c  = mm==null?'var(--text2)':mm>55?'var(--green)':mm<45?'var(--red)':'var(--text2)';
+  const ar = mm==null?'':mm>55?'▲':mm<45?'▼':'→';
+  return `
+  <a class="tcard" href="theme.html?theme=${t.slug}">
+    <div class="thead-r">
+      <div class="tname">${t.name}</div>
+      <div class="tmom" style="color:${c}" title="Theme momentum: median momentum score of its in-universe companies">${mm==null?'–':ar+' '+mm}</div>
+    </div>
+    <div class="tdesc">${t.description||''}</div>
+    <div class="tstat"><b>${NNODES[t.slug]||0}</b> links · <b>${NMEMBERS[t.slug]||0}</b> companies${
+      sortBy==='category' ? '' : ` <span class="tcat">${t.category||'Other'}</span>`}</div>
+  </a>`;
+};
+
+function render(){
+  document.getElementById('bar').innerHTML =
+    `<span class="barlab">Sort</span>` +
+    [['category','By category'],['momentum','Hottest first'],['size','Most companies']]
+      .map(([k,l])=>`<span class="chip ${sortBy===k?'on':''}" onclick="setSort('${k}')">${l}</span>`).join('');
+
+  const host = document.getElementById('cats');
+  if(sortBy === 'category'){
+    // Umbrella categories in their configured order, hottest theme first inside each.
+    const cats=[], seen={};
+    THEMES.slice().sort((a,b)=>(a.category_order??99)-(b.category_order??99))
+          .forEach(t=>{ const c=t.category||'Other'; if(!seen[c]){ seen[c]=1; cats.push(c); } });
+    host.innerHTML = cats.map(c=>{
+      const list = THEMES.filter(t=>(t.category||'Other')===c)
+                         .sort((a,b)=>(MOMO[b.slug]??-1e9)-(MOMO[a.slug]??-1e9));
+      return `<div class="catrow"><div class="cname">${c}</div><div class="cline"></div>
+                <div class="ccount">${list.length} theme${list.length>1?'s':''}</div></div>
+              <div class="grid">${list.map(card).join('')}</div>`;
+    }).join('');
+  } else {
+    // Flat grid — category headers would only fragment an ordering that ignores them.
+    const list = THEMES.slice().sort(sortBy==='momentum'
+      ? (a,b)=>(MOMO[b.slug]??-1e9)-(MOMO[a.slug]??-1e9)
+      : (a,b)=>(NMEMBERS[b.slug]||0)-(NMEMBERS[a.slug]||0));
+    host.innerHTML = `<div class="grid">${list.map(card).join('')}</div>`;
   }
 
-  // ---- theme momentum = median member momentum_score (0-100, 50 = neutral) ----
-  const momo={};
-  themes.forEach(t=>{ const md=med(members.filter(m=>m.theme_slug===t.slug&&!m.is_context).map(m=>mscore[m.ticker]).filter(x=>x!=null)); momo[t.slug]=md==null?null:Math.round(md); });
-
-  // ---- cross-theme Top-10: blend of precomputed MOMENTUM (momentum_score) + like-for-like VALUE ----
-  // momentum_score (0-100) is computed nightly in compute_cross_sectional.py from 5 technical factors
-  // (RS level, RS improvement ~20d, EMA-9/20 slopes, price vs EMA-50) — robust vs 5-day bounces.
-  const momPct={}; memTk.forEach(tk=>{ if(mscore[tk]!=null) momPct[tk]=mscore[tk]/100; });
-  // VALUE = how cheap a stock is vs its GICS-SECTOR peers (like-for-like), as a CONTINUOUS distance
-  // from the sector's median growth-adjusted P/S, then percentile-ranked ONCE globally. A plain
-  // within-sector percentile saturated at 100 for each sector's cheapest name; measuring the distance
-  // and ranking it once de-saturates the column and orders it correctly. Sector-relative also strips
-  // out the sector-wide price move, so value stays independent of momentum — a clean 2nd signal.
-  // Requires POSITIVE revenue growth (a shrinking-revenue name isn't value) and P/S > 0.
-  const gaps={}; memTk.forEach(tk=>{ const p=ps[tk], g=gr[tk]; if(p>0 && g!=null && g>0){ gaps[tk]= p/(Math.max(g,3)/100); } });
-  const bySec={}; memTk.forEach(tk=>{ const s=sector[tk], v=gaps[tk]; if(s&&v!=null){ (bySec[s]=bySec[s]||[]).push(v); } });
-  const secMed={}; Object.entries(bySec).forEach(([s,arr])=>{ if(arr.length>=5) secMed[s]=med(arr); });
-  const globMed = med(Object.values(gaps));   // fallback for thin sectors (<5 scored members)
-  const cheap={}; memTk.forEach(tk=>{ const v=gaps[tk]; if(v>0){ const ref=secMed[sector[tk]]??globMed; if(ref!=null) cheap[tk]=ref/v; } });  // >1 = cheaper than peers
-  const valPct = prank(memTk.filter(tk=>cheap[tk]!=null).map(tk=>({k:tk,v:cheap[tk]})));
-  // value-trap guard: a deeply loss-making firm (net margin < -50%) isn't "cheap" — neutralise its value leg.
-  memTk.forEach(tk=>{ if(valPct[tk]!=null && nm[tk]!=null && nm[tk]<-50) valPct[tk]=Math.min(valPct[tk],0.5); });
-  const rows=[];
-  memTk.forEach(tk=>{ const mp=momPct[tk], vp=valPct[tk]; if(mp==null && vp==null) return;
-    rows.push({tk, nm:cname[tk]||'', th:[...(themesByTk[tk]||[])].join(', '),
-      mom: mp==null?null:Math.round(mp*100),
-      val: vp==null?null:Math.round(vp*100),
-      valRaw: vp==null?null:vp,
-      blend: (mp!=null&&vp!=null)?+((0.5*mp+0.5*vp)*100).toFixed(1):null }); });
-  // three views: rank by momentum alone, value alone, or the 50/50 blend.
-  window.setBoard = function(mode){
-    const key = mode==='mom'?'mom':mode==='val'?'val':'blend';
-    // Sort by the continuous underlying score to avoid display-rounding ties: value by its raw
-    // sector-relative cheapness; momentum ties break by value; blend ties by momentum.
-    const cmp = ({
-      blend:(a,b)=> (b.blend-a.blend) || ((b.mom??-1)-(a.mom??-1)),
-      mom:  (a,b)=> (b.mom-a.mom)     || ((b.valRaw??-1)-(a.valRaw??-1)),
-      val:  (a,b)=> (b.valRaw-a.valRaw),
-    })[mode];
-    const list = rows.filter(r=>r[key]!=null).sort(cmp).slice(0,10);
-    document.querySelectorAll('.btoggle button').forEach(b=>b.classList.toggle('on', b.dataset.mode===mode));
-    document.getElementById('lbrows').innerHTML = list.map((r,i)=>`
-      <a class="lbrow" href="deep_dive.html?ticker=${r.tk}">
-        <div class="lb-rank">${i+1}</div>
-        <div><span class="lb-tk">${r.tk}</span><span class="lb-nm">${r.nm}</span><div class="lb-theme">${r.th}</div></div>
-        <div class="lb-m${key==='mom'?' hi':''}"><b>${r.mom==null?'–':r.mom}</b></div>
-        <div class="lb-m${key==='val'?' hi':''}"><b>${r.val==null?'–':r.val}</b></div>
-        <div class="lb-blend" style="${key==='blend'?'':'opacity:.55'}">${r.blend==null?'–':r.blend}</div>
-      </a>`).join('');
-  };
-  document.getElementById('board').innerHTML = !rows.length ? '' :
-    `<div class="board" style="margin-top:22px">
-      <div class="btitle">🏆 Top 10 across all themes</div>
-      <div class="bsub"><b>Momentum</b> = a multi-factor technical composite (relative-strength level &amp; trend, EMA-9/20 slopes, price-vs-EMA-50). <b>Value</b> = how cheap vs its GICS-sector peers on growth-adjusted price-to-sales (shrinking-revenue &amp; deep-loss names excluded). <b>Combined</b> = 50/50 blend. Excludes fundamentals/analyst-heavy conviction so newer names compete fairly. Click a row for the deep dive.</div>
-      <div class="btoggle">
-        <button data-mode="blend" onclick="setBoard('blend')">Momentum + Value</button>
-        <button data-mode="mom" onclick="setBoard('mom')">Momentum</button>
-        <button data-mode="val" onclick="setBoard('val')">Value</button>
-      </div>
-      <div class="bhead"><div></div><div>Company</div><div class="r">Mom</div><div class="r">Val</div><div class="r">Blend</div></div>
-      <div id="lbrows"></div>
-    </div>`;
-  if(rows.length) setBoard('blend');
-
-  // ---- ETF momentum board: sector SPDRs + thematic ETFs, ranked in their OWN cross-section ----
-  // etf_snapshots.momentum_score is the SAME 5-factor composite as the stock board, but ranked
-  // among ETFs only (compute_etf_momentum.py), so a diversified fund isn't pegged mid-pack vs
-  // 1,900 single stocks. Theme ETFs line up with the value-chain themes via theme_slug.
-  const etfMeta  = (await sb.from('etfs').select('*').order('display_order')).data || [];
-  const eLatest  = (await sb.from('etf_snapshots').select('snapshot_date').order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
-  const eSnap    = eLatest ? ((await sb.from('etf_snapshots').select('symbol,momentum_score,etf_rank').eq('snapshot_date',eLatest)).data || []) : [];
-  const eBy={}; eSnap.forEach(r=>eBy[r.symbol]=r);
-  const etfRows = etfMeta.map(e=>{ const s=eBy[e.symbol]||{};
-      return { sym:e.symbol, name:e.name||e.symbol, kind:e.kind, slug:e.theme_slug,
-        tag: e.kind==='sector' ? (e.sector||'Sector') : (slugName[e.theme_slug]||e.theme_slug||'Theme'),
-        mom: s.momentum_score, rank: s.etf_rank }; })
-    .filter(r=>r.mom!=null);
-  // Teaser only — the full board (55 funds, the 8/21 / new-high / vs-SPY-QQQ
-  // checks and leadership durability) lives on etf-scan.html. This page is for
-  // exploring a theme; that one is for deciding where to start.
-  const TEASER = 5;
-  window.setEtfBoard = function(mode){
-    const list = etfRows.filter(r=> mode==='all' ? true : r.kind===mode)
-                        .sort((a,b)=> (b.mom-a.mom) || ((a.rank??999)-(b.rank??999)))
-                        .slice(0, TEASER);
-    document.querySelectorAll('.etftoggle button').forEach(b=>b.classList.toggle('on', b.dataset.mode===mode));
-    document.getElementById('etfrows').innerHTML = list.map((r,i)=>{
-      const col = r.mom>55?'var(--green)':r.mom<45?'var(--red)':'var(--text2)';
-      const arr = r.mom>55?'▲':r.mom<45?'▼':'→';
-      const inner = `
-        <div class="lb-rank">${i+1}</div>
-        <div><span class="lb-tk">${r.sym}</span><span class="etf-kind ${r.kind}">${r.kind}</span><span class="lb-nm">${r.name}</span><div class="etf-tag">${r.tag}</div></div>
-        <div class="etf-r">${r.rank==null?'–':r.rank}</div>
-        <div class="etf-mom" style="color:${col}">${arr} ${r.mom}</div>`;
-      // Every ETF row opens its TradingView Supercharts in a new tab — the /chart/?symbol=
-      // form (same as the stock links in deep_dive/index), not the /symbols/ overview page.
-      // Theme value-chain maps stay reachable from the theme cards above.
-      const tv = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(r.sym)}`;
-      return `<a class="etfrow" href="${tv}" target="_blank" rel="noopener">${inner}</a>`;
-    }).join('');
-  };
-  document.getElementById('etfboard').innerHTML = !etfRows.length ? '' :
-    `<div class="board" style="margin-top:22px">
-      <div class="btitle">📊 Strongest ETFs right now
-        <a href="etf-scan.html" style="float:right;font-size:12px;font-weight:600;color:var(--blue)">Sector rotation board →</a></div>
-      <div class="bsub">The top ${TEASER} buyable funds by the same 0-100 <b>momentum</b> score used across this site — scored against <b>each other</b>, so a diversified fund is measured versus other funds, not single stocks (▲ &gt;55, ▼ &lt;45). <b>RS</b> = rank within the ETF set. The <a href="etf-scan.html" style="color:var(--blue)">full board</a> covers all 55 funds with new highs, the 8/21 trend, performance versus SPY and QQQ, and how durably each has led.${eLatest?` As of ${eLatest}.`:''}</div>
-      <div class="etftoggle btoggle">
-        <button data-mode="all" onclick="setEtfBoard('all')">All</button>
-        <button data-mode="sector" onclick="setEtfBoard('sector')">Sectors</button>
-        <button data-mode="theme" onclick="setEtfBoard('theme')">Themes</button>
-      </div>
-      <div class="etfhead"><div></div><div>ETF</div><div class="r">RS</div><div class="r">Mom</div></div>
-      <div id="etfrows"></div>
-    </div>`;
-  if(etfRows.length) setEtfBoard('all');
-
-  // ---- connective tissue: stocks that sit in multiple themes at once (structural hubs) ----
-  const hubs = memTk.map(tk=>({tk, nm:cname[tk]||'', th:[...(slugsByTk[tk]||[])].sort(), mom:mscore[tk]}))
-    .filter(h=>h.th.length>=2)
-    .sort((a,b)=> (b.th.length-a.th.length) || ((b.mom??-1)-(a.mom??-1)))
-    .slice(0,12);
-  document.getElementById('hubs').innerHTML = !hubs.length ? '' :
-    `<div class="board" style="margin-top:16px">
-      <div class="btitle">🔗 Cross-theme hubs</div>
-      <div class="bsub">Stocks sitting in several themes at once — one name catching multiple megatrends, and structurally central to the map. More themes = more secular tailwinds converging on it. <b>Mom</b> = 0-100 momentum score.</div>
-      <div class="hubhead"><div></div><div>Company · themes</div><div class="r">Themes</div><div class="r">Mom</div></div>
-      ${hubs.map((h,i)=>`
-        <a class="hubrow" href="deep_dive.html?ticker=${h.tk}">
-          <div class="lb-rank">${i+1}</div>
-          <div><span class="lb-tk">${h.tk}</span><span class="lb-nm">${h.nm}</span><div class="hub-th">${h.th.join(' · ')}</div></div>
-          <div class="hub-n">${h.th.length}</div>
-          <div class="lb-m"><b>${h.mom==null?'–':h.mom}</b></div>
-        </a>`).join('')}
-    </div>`;
-
-  // ---- theme cards grouped by umbrella category (category_order), hottest theme first within each ----
-  const cats=[]; const seen={};
-  themes.slice().sort((a,b)=>(a.category_order??99)-(b.category_order??99))
-        .forEach(t=>{ const c=t.category||'Other'; if(!seen[c]){ seen[c]=1; cats.push({name:c}); } });
-  const card=t=>{ const mm=momo[t.slug];
-    const mchip = mm==null ? '' :
-      `<span style="color:${mm>55?'var(--green)':mm<45?'var(--red)':'var(--text2)'};font-weight:800">${mm>55?'▲ ':mm<45?'▼ ':'→ '}${mm}/100</span> <span style="color:var(--text2)">theme momentum</span>`;
-    return `
-    <a class="tcard" href="theme.html?theme=${t.slug}">
-      <div class="tname">${t.name}</div>
-      <div class="tdesc">${t.description||''}</div>
-      <div class="tstat">${mchip}</div>
-      <div class="tstat"><b>${nNodes[t.slug]||0}</b> links · <b>${nMembers[t.slug]||0}</b> companies</div>
-      <div class="texp">Explore the map →</div>
-    </a>`; };
-  document.getElementById('cats').innerHTML = cats.map(c=>{
-    const list = themes.filter(t=>(t.category||'Other')===c.name)
-                       .sort((a,b)=>(momo[b.slug]??-1e9)-(momo[a.slug]??-1e9));
-    return `<div class="catrow"><div class="cname">${c.name}</div><div class="cline"></div><div class="ccount">${list.length} theme${list.length>1?'s':''}</div></div>
-            <div class="grid">${list.map(card).join('')}</div>`;
-  }).join('');
-
   document.getElementById('foot').innerHTML =
-    'Themes are grouped into umbrella categories; within each, sorted by overall momentum (median member relative-strength trend). '
-    + 'The Top-10 leaderboard blends a multi-factor momentum composite with like-for-like value across every theme. '
-    + 'Each theme maps a real-world value chain to public US-listed companies from our ~1,900-stock universe. '
-    + 'Screens are relative and educational — not investment advice.';
+    `${THEMES.length} themes · ${Object.values(NMEMBERS).reduce((a,b)=>a+b,0)} mapped companies. ` +
+    `Theme momentum is the median 0-100 momentum score of a theme's in-universe companies, each scored ` +
+    `against the whole ~1,900-stock universe — 50 is the median stock, not a neutral return.` +
+    (ASOF?` As of ${ASOF}.`:'') +
+    ` Educational research data, not investment advice.`;
 }
+window.setSort = s => { sortBy = s; render(); };
+
 load().catch(e=>{ document.getElementById('cats').textContent='Failed to load: '+e.message; });
 </script>
 </body>
