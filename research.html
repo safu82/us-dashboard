@@ -253,7 +253,7 @@ async function load(){
   document.getElementById('etfboard').innerHTML = !etfRows.length ? '' :
     `<div class="board" style="margin-top:22px">
       <div class="btitle">📊 Strongest ETFs right now
-        <a href="etf-scan.html" style="float:right;font-size:12px;font-weight:600;color:var(--blue)">Full weekend scan →</a></div>
+        <a href="etf-scan.html" style="float:right;font-size:12px;font-weight:600;color:var(--blue)">Sector rotation board →</a></div>
       <div class="bsub">The top ${TEASER} buyable funds by the same 0-100 <b>momentum</b> score used across this site — scored against <b>each other</b>, so a diversified fund is measured versus other funds, not single stocks (▲ &gt;55, ▼ &lt;45). <b>RS</b> = rank within the ETF set. The <a href="etf-scan.html" style="color:var(--blue)">full board</a> covers all 55 funds with new highs, the 8/21 trend, performance versus SPY and QQQ, and how durably each has led.${eLatest?` As of ${eLatest}.`:''}</div>
       <div class="etftoggle btoggle">
         <button data-mode="all" onclick="setEtfBoard('all')">All</button>
