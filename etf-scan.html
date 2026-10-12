@@ -87,6 +87,14 @@
   .dur{font-size:11px;color:var(--text2);margin-left:5px;}
 
   .panel{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;margin-top:18px;}
+  /* Drill-down sits inside the table, directly under its own row. */
+  .drill{background:var(--bg);border-bottom:1px solid var(--border);
+         box-shadow:inset 0 2px 6px rgba(0,0,0,.35);}
+  .dwrap{padding:14px 16px 16px;border-left:3px solid var(--accent);}
+  .caret{color:var(--accent);font-weight:800;}
+  .chip .x{font-style:normal;font-size:10px;margin-left:6px;opacity:.8;}
+  .chip.clr{border-style:dashed;}
+  .chip.clr:hover{color:var(--text);border-color:var(--text2);}
   .ptitle{font-size:16px;font-weight:800;margin-bottom:3px;}
   .psub{font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:12px;}
   .srow{display:grid;grid-template-columns:1fr 60px 64px 1fr;gap:10px;padding:7px 8px;margin:0 -8px;border-bottom:1px solid var(--border);font-size:13px;align-items:center;border-radius:7px;}
@@ -172,12 +180,13 @@ function render(){
   document.getElementById('app').innerHTML = `
     <div class="bar">
       <span class="chip ${group==='all'?'on':''}" onclick="setGroup('all')">All ${ETFS.length}</span>
-      ${groups.map(g=>`<span class="chip ${group===g?'on':''}" onclick="setGroup('${g.replace(/'/g,"\\'")}')">${g}</span>`).join('')}
+      ${groups.map(g=>`<span class="chip ${group===g?'on':''}" onclick="setGroup('${g.replace(/'/g,"\\'")}')">${g}${group===g?'<i class="x">✕</i>':''}</span>`).join('')}
     </div>
     <div class="bar">
       <span class="ctx" style="margin-right:4px">Checks:</span>
       ${Object.entries(CHECKS).map(([k,c])=>
-        `<span class="chip q ${qActive.has(k)?'on':''}" onclick="toggleQ('${k}')">${c.label}</span>`).join('')}
+        `<span class="chip q ${qActive.has(k)?'on':''}" onclick="toggleQ('${k}')">${c.label}${qActive.has(k)?'<i class="x">✕</i>':''}</span>`).join('')}
+      ${(group!=='all'||qActive.size)?`<span class="chip clr" onclick="clearFilters()">Clear filters</span>`:''}
       <span class="spacer"></span>
       <span class="ctx">Sort</span>
       ${[['mom','Momentum'],['dur','Durability'],['spy','vs SPY'],['high','Near high']]
@@ -192,8 +201,13 @@ function render(){
       </div>
       ${rows.length? rows.map((r,i)=>{
         const d = r.top_decile_60d;
-        return `<div class="trow ${selected===r.symbol?'sel':''}" onclick="pick('${r.symbol}')">
-          <div class="rk">${i+1}</div>
+        const open = selected===r.symbol;
+        // The drill-down is injected directly beneath its own row rather than at
+        // the foot of the page: 54 rows up, a panel at the bottom gave no sign
+        // it had opened at all.
+        return `<div class="trow ${open?'sel':''}" onclick="pick('${r.symbol}')"
+                     title="${open?'Click to close':'Click to see the leading stocks in this fund'}">
+          <div class="rk">${open?'<span class="caret">▾</span>':i+1}</div>
           <div><a class="sym tv" href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(r.symbol)}"
                   target="_blank" rel="noopener" onclick="event.stopPropagation()"
                   title="Open ${r.symbol} on TradingView">${r.symbol} <span class="tvi">↗</span></a><span class="grp">${r.grp||''}</span>
@@ -204,7 +218,7 @@ function render(){
           <div class="r hide-s two"><span style="color:${col(r.vs_spy_20)}">${sg(r.vs_spy_20,0)}</span><span class="s" style="color:${col(r.vs_spy_60)}">${sg(r.vs_spy_60,0)}</span></div>
           <div class="r hide-s two"><span style="color:${col(r.vs_qqq_20)}">${sg(r.vs_qqq_20,0)}</span><span class="s" style="color:${col(r.vs_qqq_60)}">${sg(r.vs_qqq_60,0)}</span></div>
           <div class="r"><span class="bars"><i style="width:${Math.round((d??0)*100)}%"></i></span><span class="dur">${d==null?'–':Math.round(d*100)+'%'}</span></div>
-        </div>`;}).join('')
+        </div>${open?'<div id="drill" class="drill"></div>':''}`;}).join('')
         : `<div class="trow" style="grid-template-columns:1fr;color:var(--text2)">Nothing passes every selected check today. That is a real answer — it usually means no group is cleanly leading.</div>`}
     </div>
     <div class="ctx" style="margin-top:10px">
@@ -216,7 +230,6 @@ function render(){
       <b>Durability</b> = share of the last 60 sessions spent in the top 10% of the ETF ranking.
       ${ASOF?`As of ${ASOF}.`:''}
     </div>
-    <div id="drill"></div>
     <div id="emerging"></div>`;
 
   document.getElementById('foot').innerHTML =
@@ -288,17 +301,22 @@ async function emerging(){
   </div>`;
 }
 
-window.setGroup=g=>{group=g;render();};
+// Group and check chips both toggle: clicking the one that is already on turns
+// it back off. Sort is a single choice, so it has nothing to turn off.
+window.setGroup=g=>{group = (group===g ? 'all' : g); render();};
 window.setSort=s=>{sortBy=s;render();};
 window.toggleQ=k=>{qActive.has(k)?qActive.delete(k):qActive.add(k);render();};
 window.pick=s=>{selected = selected===s?null:s; render();};
+window.clearFilters=()=>{group='all'; qActive.clear(); render();};
 
 // --- drill-down: the names inside the fund we can actually score ------------
 async function drill(sym){
   const e = ETFS.find(r=>r.symbol===sym);
+  // The host only exists while a row is open, and a filter change can close the
+  // row out from under an in-flight fetch.
   const host = document.getElementById('drill');
-  if(!e){ host.innerHTML=''; return; }
-  host.innerHTML = `<div class="panel"><div class="ptitle">${sym} — leaders</div><div class="psub">Loading…</div></div>`;
+  if(!host || !e) return;
+  host.innerHTML = `<div class="psub" style="padding:14px 16px">Loading the names inside ${sym}…</div>`;
 
   // Constituents come from OUR data, not the fund's published holdings: Yahoo
   // only exposes a top 10, and for thematic funds most of those are foreign
@@ -316,8 +334,8 @@ async function drill(sym){
     via = `the ${e.sector} sector`;
   }
   if(!tickers.length){
-    host.innerHTML = `<div class="panel"><div class="ptitle">${sym} — leaders</div>
-      <div class="psub">This fund is not mapped to a value chain or a sector in our data, so there is no scoreable constituent list. Use the chart.</div></div>`;
+    host.innerHTML = `<div class="dwrap"><div class="ptitle">${sym} — leaders</div>
+      <div class="psub">This fund is not mapped to a value chain or a sector in our data, so there is no scoreable constituent list. Open the chart from the ticker instead.</div></div>`;
     return;
   }
 
@@ -339,7 +357,8 @@ async function drill(sym){
   const top = rows.filter(r=>r.momentum_score!=null)
                   .sort((a,b)=>b.momentum_score-a.momentum_score).slice(0,12);
 
-  host.innerHTML = `<div class="panel">
+  if(document.getElementById('drill') !== host) return;   // row closed mid-fetch
+  host.innerHTML = `<div class="dwrap">
     <div class="ptitle">${sym} — leaders inside ${via}</div>
     <div class="psub">The strongest names we score in this fund's area, with any entry pattern that fired on ${sd}.
       Constituents come from our own mapping, not the fund's top-10 holdings — those are market-cap weighted and, for thematic funds, largely foreign tickers we cannot rank.</div>
