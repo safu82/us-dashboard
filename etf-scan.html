@@ -71,6 +71,12 @@
   .r{text-align:right;}
   .c{text-align:center;}
   .sym{font-weight:800;font-size:14px;}
+  /* The row click opens the drill-down, so the ticker itself carries the chart
+     link and stops the click from doing both. */
+  a.tv{display:inline-block;}
+  a.tv:hover{color:var(--blue);}
+  .tvi{opacity:0;font-size:10px;font-weight:400;vertical-align:2px;transition:opacity .12s;}
+  .trow:hover .tvi,a.tv:hover .tvi{opacity:.75;}
   .nm{color:var(--text2);font-size:11.5px;margin-top:1px;}
   .grp{display:inline-block;font-size:10px;color:var(--text2);border:1px solid var(--border);border-radius:5px;padding:1px 6px;margin-left:7px;vertical-align:1px;}
   .rk{color:var(--text2);font-size:12px;}
@@ -83,8 +89,10 @@
   .panel{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;margin-top:18px;}
   .ptitle{font-size:16px;font-weight:800;margin-bottom:3px;}
   .psub{font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:12px;}
-  .srow{display:grid;grid-template-columns:1fr 60px 64px 1fr;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;align-items:center;}
+  .srow{display:grid;grid-template-columns:1fr 60px 64px 1fr;gap:10px;padding:7px 8px;margin:0 -8px;border-bottom:1px solid var(--border);font-size:13px;align-items:center;border-radius:7px;}
   .srow:last-child{border-bottom:none;}
+  a.srow:hover{background:var(--bg3);}
+  a.sig:hover{background:var(--accent)!important;color:#fff!important;}
   .sig{display:inline-block;font-size:10px;background:#1a3a24;color:var(--green);border-radius:5px;padding:2px 6px;margin-right:4px;}
   .warn{display:inline-block;font-size:10px;background:#3a2a16;color:var(--orange);border-radius:5px;padding:2px 6px;}
   .foot{color:var(--text2);font-size:11px;margin-top:22px;line-height:1.6;}
@@ -186,7 +194,9 @@ function render(){
         const d = r.top_decile_60d;
         return `<div class="trow ${selected===r.symbol?'sel':''}" onclick="pick('${r.symbol}')">
           <div class="rk">${i+1}</div>
-          <div><span class="sym">${r.symbol}</span><span class="grp">${r.grp||''}</span>
+          <div><a class="sym tv" href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(r.symbol)}"
+                  target="_blank" rel="noopener" onclick="event.stopPropagation()"
+                  title="Open ${r.symbol} on TradingView">${r.symbol} <span class="tvi">↗</span></a><span class="grp">${r.grp||''}</span>
                <div class="nm">${(r.name||'').replace(/ ETF$| Trust$/,'')}</div></div>
           <div class="r mom" style="color:${r.momentum_score>55?'var(--green)':r.momentum_score<45?'var(--red)':'var(--text2)'}">${r.momentum_score}</div>
           <div class="r hide-s" style="color:${r.pct_from_high>=NEAR_HIGH?'var(--green)':'var(--text2)'}">${pc(r.pct_from_high)}</div>
@@ -271,7 +281,7 @@ async function emerging(){
         <div class="r rk">${r.n}</div>
         <div class="r" style="font-weight:700;color:${r.med>=85?'var(--green)':'var(--text2)'}">${r.med}</div>
         <div class="r" style="color:var(--orange)">${Math.round(r.gap*100)}% gap</div>
-        <div>${r.lead.map(x=>`<span class="sig" style="background:#1d2430;color:var(--text2)">${x.t} ${x.m}</span>`).join('')}</div>
+        <div>${r.lead.map(x=>`<a class="sig" style="background:#1d2430;color:var(--text2)" href="deep_dive.html?ticker=${x.t}" title="Deep dive on ${x.t}">${x.t} ${x.m}</a>`).join('')}</div>
       </div>`).join('')
       : '<div class="ctx">No hot industry is more than half unmapped today — coverage is keeping up.</div>'}
     <div class="ctx" style="margin-top:10px">Columns: names scored · median momentum · share in no theme · strongest unmapped names. A high gap on a hot group is a curation to-do, not a buy list — GICS industries split some real themes across several buckets.</div>
@@ -335,13 +345,13 @@ async function drill(sym){
       Constituents come from our own mapping, not the fund's top-10 holdings — those are market-cap weighted and, for thematic funds, largely foreign tickers we cannot rank.</div>
     ${top.map(r=>{
       const sigs=[...(SIGNALS[r.ticker]||[])];
-      return `<div class="srow">
+      return `<a class="srow" href="deep_dive.html?ticker=${r.ticker}">
         <div><b>${r.ticker}</b> <span class="nm" style="display:inline">${(NAMES[r.ticker]||'').slice(0,34)}</span></div>
         <div class="r" style="color:${r.momentum_score>55?'var(--green)':'var(--text2)'};font-weight:700">${r.momentum_score}</div>
         <div class="r rk">#${r.rs_rank??'–'}</div>
         <div>${sigs.length? sigs.map(s=>`<span class="sig">${s.replace(/_/g,' ')}</span>`).join('')
                            : '<span class="ctx" style="opacity:.5">no setup today</span>'}</div>
-      </div>`;}).join('')}
+      </a>`;}).join('')}
     <div class="ctx" style="margin-top:10px">Momentum here is scored against the whole ~1,900-stock universe, so it is not comparable with the fund scores above — those are scored against other funds.</div>
   </div>`;
 }
