@@ -120,15 +120,22 @@ def main():
     df['above_8_21'] = ((df['close'] > ema8) & (ema8 > ema21)).astype('object')
     df.loc[ema21.isna(), 'above_8_21'] = None
 
-    # "What is outperforming SPY / QQQ?" — 20-session return less the benchmark's
+    # "What is outperforming SPY / QQQ?" — N-session return less the benchmark's
     # over the same window, so it reads directly as excess return.
-    ret20 = df.groupby('symbol', group_keys=False)['close'].transform(
-        lambda s: s / s.shift(20) - 1)
-    df['ret_20'] = ret20
-    for bsym, col in (('SPY', 'vs_spy_20'), ('QQQ', 'vs_qqq_20')):
-        bench_ret = (df.loc[df['symbol'] == bsym, ['snapshot_date', 'ret_20']]
-                       .set_index('snapshot_date')['ret_20'])
-        df[col] = df['ret_20'] - df['snapshot_date'].map(bench_ret)
+    #
+    # Measured over two windows, because a fixed lookback is fragile at its
+    # boundary. On 2026-09-14 the whole cyber complex repriced 6-16% in one
+    # session; that day sat exactly on the edge of the 20-day window, so HACK
+    # read +19% one day and would read +10% the next on no price change at all.
+    # A 60-session window straddles different events, so when the two disagree
+    # sharply the number is tracking a single day rather than a trend.
+    g_close = df.groupby('symbol', group_keys=False)['close']
+    for n in (20, 60):
+        df[f'ret_{n}'] = g_close.transform(lambda s, n=n: s / s.shift(n) - 1)
+        for bsym, pre in (('SPY', 'vs_spy'), ('QQQ', 'vs_qqq')):
+            bench_ret = (df.loc[df['symbol'] == bsym, ['snapshot_date', f'ret_{n}']]
+                           .set_index('snapshot_date')[f'ret_{n}'])
+            df[f'{pre}_{n}'] = df[f'ret_{n}'] - df['snapshot_date'].map(bench_ret)
 
     # ── etf_rank: RS rank WITHIN the ranked ETF set per date (1 = strongest) ───
     print('Ranking ETF cross-section ...')
@@ -192,8 +199,9 @@ def main():
         'high_52w': _f(r.get('high_52w')), 'pct_from_high': _f(r.get('pct_from_high')),
         'above_8_21': (None if pd.isna(r.get('above_8_21'))
                        else bool(r.get('above_8_21'))),
-        'ret_20': _f(r.get('ret_20')),
+        'ret_20': _f(r.get('ret_20')), 'ret_60': _f(r.get('ret_60')),
         'vs_spy_20': _f(r.get('vs_spy_20')), 'vs_qqq_20': _f(r.get('vs_qqq_20')),
+        'vs_spy_60': _f(r.get('vs_spy_60')), 'vs_qqq_60': _f(r.get('vs_qqq_60')),
         'rank_pct': _f(r.get('rank_pct')),
         'top_decile_60d': _f(r.get('top_decile_60d')),
         'rank_vol_60d': _f(r.get('rank_vol_60d')),
@@ -208,16 +216,17 @@ def main():
              .dropna(subset=['momentum_score'])
              .sort_values('momentum_score', ascending=False))
     print(f'\nETF board — {latest}   (NH = % below 52w high, 8/21 = trend held, '
-          f'vSPY/vQQQ = 20d excess return, Top10 = share of last '
+          f'vQQQ 20d/60d = excess return over each window, Top10 = share of last '
           f'{STABILITY_WINDOW}d in the top decile)')
-    print(f'{"mom":>4} {"sym":<6}{"rank":>5}{"NH":>8}{"8/21":>6}{"vSPY":>8}{"vQQQ":>8}{"Top10":>7}')
+    print(f'{"mom":>4} {"sym":<6}{"rank":>5}{"NH":>8}{"8/21":>6}'
+          f'{"vQQQ20":>8}{"vQQQ60":>8}{"Top10":>7}')
     for _, r in board.iterrows():
         pct = lambda v, d=1: '  –  ' if pd.isna(v) else f'{v * 100:+.{d}f}%'
         td = r.get('top_decile_60d')
         print(f"{int(r['momentum_score']):>4} {r['symbol']:<6}{int(r['etf_rank']):>5}"
               f"{pct(r.get('pct_from_high')):>8}"
               f"{('yes' if r.get('above_8_21') else 'no'):>6}"
-              f"{pct(r.get('vs_spy_20')):>8}{pct(r.get('vs_qqq_20')):>8}"
+              f"{pct(r.get('vs_qqq_20')):>8}{pct(r.get('vs_qqq_60')):>8}"
               f"{('  –  ' if pd.isna(td) else f'{td*100:.0f}%'):>7}")
     print('\nDone.')
 

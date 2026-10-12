@@ -25,7 +25,8 @@
   .ctx b{color:var(--text);}
 
   .tbl{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
-  .thead,.trow{display:grid;grid-template-columns:42px 1fr 62px 66px 54px 70px 70px 76px;gap:8px;align-items:center;padding:9px 14px;}
+  .thead,.trow{display:grid;grid-template-columns:42px 1fr 58px 62px 48px 108px 108px 76px;gap:8px;align-items:center;padding:9px 14px;}
+  .two{font-size:12.5px;} .two .s{opacity:.55;font-size:11px;margin-left:4px;}
   .thead{background:var(--bg3);font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--text2);border-bottom:1px solid var(--border);}
   .trow{border-bottom:1px solid var(--border);font-size:13px;}
   .trow:last-child{border-bottom:none;}
@@ -138,7 +139,7 @@ function render(){
     <div class="tbl">
       <div class="thead">
         <div>#</div><div>ETF</div><div class="r">Mom</div><div class="r hide-s">52w</div>
-        <div class="c hide-s">8/21</div><div class="r hide-s">vSPY</div><div class="r hide-s">vQQQ</div>
+        <div class="c hide-s">8/21</div><div class="r hide-s">vSPY 20d·60d</div><div class="r hide-s">vQQQ 20d·60d</div>
         <div class="r">Durability</div>
       </div>
       ${rows.length? rows.map((r,i)=>{
@@ -150,8 +151,8 @@ function render(){
           <div class="r mom" style="color:${r.momentum_score>55?'var(--green)':r.momentum_score<45?'var(--red)':'var(--text2)'}">${r.momentum_score}</div>
           <div class="r hide-s" style="color:${r.pct_from_high>=NEAR_HIGH?'var(--green)':'var(--text2)'}">${pc(r.pct_from_high)}</div>
           <div class="c hide-s ${r.above_8_21?'yes':'no'}">${r.above_8_21==null?'–':r.above_8_21?'✓':'·'}</div>
-          <div class="r hide-s" style="color:${col(r.vs_spy_20)}">${sg(r.vs_spy_20)}</div>
-          <div class="r hide-s" style="color:${col(r.vs_qqq_20)}">${sg(r.vs_qqq_20)}</div>
+          <div class="r hide-s two"><span style="color:${col(r.vs_spy_20)}">${sg(r.vs_spy_20,0)}</span><span class="s" style="color:${col(r.vs_spy_60)}">${sg(r.vs_spy_60,0)}</span></div>
+          <div class="r hide-s two"><span style="color:${col(r.vs_qqq_20)}">${sg(r.vs_qqq_20,0)}</span><span class="s" style="color:${col(r.vs_qqq_60)}">${sg(r.vs_qqq_60,0)}</span></div>
           <div class="r"><span class="bars"><i style="width:${Math.round((d??0)*100)}%"></i></span><span class="dur">${d==null?'–':Math.round(d*100)+'%'}</span></div>
         </div>`;}).join('')
         : `<div class="trow" style="grid-template-columns:1fr;color:var(--text2)">Nothing passes every selected check today. That is a real answer — it usually means no group is cleanly leading.</div>`}
@@ -159,6 +160,9 @@ function render(){
     <div class="ctx" style="margin-top:10px">
       ${rows.length} of ${ETFS.length} funds${qActive.size?` pass ${[...qActive].map(k=>CHECKS[k].label.toLowerCase()).join(' + ')}`:''}.
       Benchmarks over the same 20 sessions: ${b('SPY')} · ${b('QQQ')}.
+      <b>vSPY / vQQQ</b> show excess return over <b>20 sessions</b> and, dimmed beside it, over <b>60</b>.
+      When the two disagree sharply the short window is straddling one big day rather than measuring a trend —
+      SKYY reads +5% on 20d and +22% on 60d, a three-month move that has cooled; PSI reads +2% and −4%, a bounce with nothing behind it.
       <b>Durability</b> = share of the last 60 sessions spent in the top 10% of the ETF ranking.
       ${ASOF?`As of ${ASOF}.`:''}
     </div>
