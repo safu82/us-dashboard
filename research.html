@@ -226,9 +226,14 @@ async function load(){
         tag: e.kind==='sector' ? (e.sector||'Sector') : (slugName[e.theme_slug]||e.theme_slug||'Theme'),
         mom: s.momentum_score, rank: s.etf_rank }; })
     .filter(r=>r.mom!=null);
+  // Teaser only — the full board (55 funds, the 8/21 / new-high / vs-SPY-QQQ
+  // checks and leadership durability) lives on etf-scan.html. This page is for
+  // exploring a theme; that one is for deciding where to start.
+  const TEASER = 5;
   window.setEtfBoard = function(mode){
     const list = etfRows.filter(r=> mode==='all' ? true : r.kind===mode)
-                        .sort((a,b)=> (b.mom-a.mom) || ((a.rank??999)-(b.rank??999)));
+                        .sort((a,b)=> (b.mom-a.mom) || ((a.rank??999)-(b.rank??999)))
+                        .slice(0, TEASER);
     document.querySelectorAll('.etftoggle button').forEach(b=>b.classList.toggle('on', b.dataset.mode===mode));
     document.getElementById('etfrows').innerHTML = list.map((r,i)=>{
       const col = r.mom>55?'var(--green)':r.mom<45?'var(--red)':'var(--text2)';
@@ -247,8 +252,9 @@ async function load(){
   };
   document.getElementById('etfboard').innerHTML = !etfRows.length ? '' :
     `<div class="board" style="margin-top:22px">
-      <div class="btitle">📊 Sector &amp; Theme ETF Momentum</div>
-      <div class="bsub">Buyable sector (SPDR) and thematic ETFs, ranked by the same 0-100 <b>momentum</b> score used across this site — but scored against <b>each other</b>, so a diversified fund is measured versus other funds, not single stocks. Higher = stronger trend (▲ &gt;55, ▼ &lt;45). <b>RS</b> = relative-strength rank within the ETF set (1 = strongest). Click any ETF to open its TradingView chart in a new tab.${eLatest?` As of ${eLatest}.`:''}</div>
+      <div class="btitle">📊 Strongest ETFs right now
+        <a href="etf-scan.html" style="float:right;font-size:12px;font-weight:600;color:var(--blue)">Full weekend scan →</a></div>
+      <div class="bsub">The top ${TEASER} buyable funds by the same 0-100 <b>momentum</b> score used across this site — scored against <b>each other</b>, so a diversified fund is measured versus other funds, not single stocks (▲ &gt;55, ▼ &lt;45). <b>RS</b> = rank within the ETF set. The <a href="etf-scan.html" style="color:var(--blue)">full board</a> covers all 55 funds with new highs, the 8/21 trend, performance versus SPY and QQQ, and how durably each has led.${eLatest?` As of ${eLatest}.`:''}</div>
       <div class="etftoggle btoggle">
         <button data-mode="all" onclick="setEtfBoard('all')">All</button>
         <button data-mode="sector" onclick="setEtfBoard('sector')">Sectors</button>

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Weekend Scan — ETF Board</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{--bg:#0d1117;--bg2:#161b22;--bg3:#1c2128;--border:#30363d;--text:#e6edf3;--text2:#8b949e;--green:#3fb950;--red:#f85149;--orange:#f0883e;--blue:#58a6ff;--accent:#1f6feb;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;}
+  a{color:inherit;text-decoration:none;}
+  .header{background:var(--bg2);border-bottom:1px solid var(--border);padding:20px 24px;}
+  .h-title{font-size:26px;font-weight:800;letter-spacing:-0.5px;}
+  .h-desc{font-size:13px;color:var(--text2);margin-top:6px;max-width:860px;line-height:1.55;}
+  .back{float:right;color:var(--text2);font-size:13px;border:1px solid var(--border);padding:6px 12px;border-radius:8px;}
+  .page{max-width:1240px;margin:0 auto;padding:24px;}
+
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 14px;}
+  .chip{background:var(--bg2);border:1px solid var(--border);color:var(--text2);border-radius:999px;padding:6px 13px;font-size:12.5px;cursor:pointer;white-space:nowrap;}
+  .chip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  .chip.q.on{background:var(--green);border-color:var(--green);color:#06230d;}
+  .spacer{flex:1;}
+  .ctx{font-size:12px;color:var(--text2);}
+  .ctx b{color:var(--text);}
+
+  .tbl{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+  .thead,.trow{display:grid;grid-template-columns:42px 1fr 62px 66px 54px 70px 70px 76px;gap:8px;align-items:center;padding:9px 14px;}
+  .thead{background:var(--bg3);font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--text2);border-bottom:1px solid var(--border);}
+  .trow{border-bottom:1px solid var(--border);font-size:13px;}
+  .trow:last-child{border-bottom:none;}
+  .trow:hover{background:var(--bg3);}
+  .trow.sel{background:#15233b;}
+  .r{text-align:right;}
+  .c{text-align:center;}
+  .sym{font-weight:800;font-size:14px;}
+  .nm{color:var(--text2);font-size:11.5px;margin-top:1px;}
+  .grp{display:inline-block;font-size:10px;color:var(--text2);border:1px solid var(--border);border-radius:5px;padding:1px 6px;margin-left:7px;vertical-align:1px;}
+  .rk{color:var(--text2);font-size:12px;}
+  .mom{font-weight:800;}
+  .yes{color:var(--green);} .no{color:var(--text2);opacity:.5;}
+  .bars{display:inline-block;width:40px;height:6px;background:var(--bg);border-radius:3px;overflow:hidden;vertical-align:middle;}
+  .bars i{display:block;height:100%;background:var(--blue);}
+  .dur{font-size:11px;color:var(--text2);margin-left:5px;}
+
+  .panel{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;margin-top:18px;}
+  .ptitle{font-size:16px;font-weight:800;margin-bottom:3px;}
+  .psub{font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:12px;}
+  .srow{display:grid;grid-template-columns:1fr 60px 64px 1fr;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;align-items:center;}
+  .srow:last-child{border-bottom:none;}
+  .sig{display:inline-block;font-size:10px;background:#1a3a24;color:var(--green);border-radius:5px;padding:2px 6px;margin-right:4px;}
+  .warn{display:inline-block;font-size:10px;background:#3a2a16;color:var(--orange);border-radius:5px;padding:2px 6px;}
+  .foot{color:var(--text2);font-size:11px;margin-top:22px;line-height:1.6;}
+  @media(max-width:760px){
+    .thead,.trow{grid-template-columns:34px 1fr 54px 56px 62px;}
+    .hide-s{display:none;}
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <a class="back" href="research.html">← Sector Research</a>
+  <div class="h-title">🔭 Weekend Scan</div>
+  <div class="h-desc">Find the sector. Find the leader. Wait for the setup. Every sector and thematic ETF ranked against the others, with the five checks that matter: at new highs, holding its 8/21 trend, beating SPY and QQQ, and <b>how durably</b> it has led. Momentum says strong today; durability separates a real trend from a one-week pop. Educational, not advice.</div>
+</div>
+<div class="page">
+  <div id="app">Loading…</div>
+  <div class="foot" id="foot"></div>
+</div>
+<script>
+const SB_URL='https://jblrurlpyplbquqibphh.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpibHJ1cmxweXBsYnF1cWlicGhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzNDY1NzAsImV4cCI6MjA5NDkyMjU3MH0.oYZarIlHqxpZY6ZWA0KRD9HoxYyv80otXKVNkpuNLRo';
+const sb = supabase.createClient(SB_URL, SB_KEY);
+
+// "At new highs" needs a tolerance — demanding an exact 52w high would show an
+// empty board on all but a handful of days.
+const NEAR_HIGH = -0.02;
+const pc = (v,d=1)=> v==null||!isFinite(v) ? '–' : (v*100).toFixed(d)+'%';
+const sg = (v,d=1)=> v==null||!isFinite(v) ? '–' : (v>0?'+':'')+(v*100).toFixed(d)+'%';
+const col = v => v==null?'var(--text2)':v>0?'var(--green)':v<0?'var(--red)':'var(--text2)';
+
+let ETFS=[], SNAP={}, BENCH={}, ASOF=null;
+let group='all', sortBy='mom', qActive=new Set(), selected=null;
+let THEME_MEMBERS={}, SECTOR_OF={}, NAMES={}, MOMO={}, SIGNALS={}, EARN={};
+
+async function load(){
+  const meta = (await sb.from('etfs').select('*').order('display_order')).data||[];
+  ASOF = (await sb.from('etf_snapshots').select('snapshot_date')
+            .order('snapshot_date',{ascending:false}).limit(1)).data?.[0]?.snapshot_date;
+  const snaps = ASOF ? ((await sb.from('etf_snapshots').select('*').eq('snapshot_date',ASOF)).data||[]) : [];
+  snaps.forEach(s=>SNAP[s.symbol]=s);
+  meta.forEach(m=>{ if(m.benchmark_only) BENCH[m.symbol]={...m,...(SNAP[m.symbol]||{})}; });
+  ETFS = meta.filter(m=>!m.benchmark_only && SNAP[m.symbol]?.momentum_score!=null)
+             .map(m=>({...m, ...SNAP[m.symbol]}));
+  render();
+}
+
+// --- the five checks -------------------------------------------------------
+const CHECKS = {
+  high : { label:'At new highs',      test:r=> r.pct_from_high!=null && r.pct_from_high>=NEAR_HIGH },
+  trend: { label:'Holding 8/21',      test:r=> r.above_8_21===true },
+  spy  : { label:'Beating SPY',       test:r=> r.vs_spy_20>0 },
+  qqq  : { label:'Beating QQQ',       test:r=> r.vs_qqq_20>0 },
+  lead : { label:'Durable leader',    test:r=> r.top_decile_60d!=null && r.top_decile_60d>=0.25 },
+};
+const passes = r => Object.keys(CHECKS).filter(k=>CHECKS[k].test(r)).length;
+
+function visible(){
+  let rows = ETFS.filter(r=> group==='all' || r.grp===group);
+  for(const k of qActive) rows = rows.filter(CHECKS[k].test);
+  const key = { mom:r=>-(r.momentum_score??-1),
+                dur:r=>-(r.top_decile_60d??-1),
+                spy:r=>-(r.vs_spy_20??-9),
+                high:r=>-(r.pct_from_high??-9) }[sortBy];
+  return rows.sort((a,b)=> key(a)-key(b) || (a.etf_rank??999)-(b.etf_rank??999));
+}
+
+function render(){
+  const groups = [...new Set(ETFS.map(r=>r.grp).filter(Boolean))].sort();
+  const rows = visible();
+  const b = s => BENCH[s] ? `${s} <b style="color:${col(BENCH[s].vs_spy_20??0)}">${sg(BENCH[s].ret_20)}</b>` : s;
+
+  document.getElementById('app').innerHTML = `
+    <div class="bar">
+      <span class="chip ${group==='all'?'on':''}" onclick="setGroup('all')">All ${ETFS.length}</span>
+      ${groups.map(g=>`<span class="chip ${group===g?'on':''}" onclick="setGroup('${g.replace(/'/g,"\\'")}')">${g}</span>`).join('')}
+    </div>
+    <div class="bar">
+      <span class="ctx" style="margin-right:4px">Checks:</span>
+      ${Object.entries(CHECKS).map(([k,c])=>
+        `<span class="chip q ${qActive.has(k)?'on':''}" onclick="toggleQ('${k}')">${c.label}</span>`).join('')}
+      <span class="spacer"></span>
+      <span class="ctx">Sort</span>
+      ${[['mom','Momentum'],['dur','Durability'],['spy','vs SPY'],['high','Near high']]
+        .map(([k,l])=>`<span class="chip ${sortBy===k?'on':''}" onclick="setSort('${k}')">${l}</span>`).join('')}
+    </div>
+
+    <div class="tbl">
+      <div class="thead">
+        <div>#</div><div>ETF</div><div class="r">Mom</div><div class="r hide-s">52w</div>
+        <div class="c hide-s">8/21</div><div class="r hide-s">vSPY</div><div class="r hide-s">vQQQ</div>
+        <div class="r">Durability</div>
+      </div>
+      ${rows.length? rows.map((r,i)=>{
+        const d = r.top_decile_60d;
+        return `<div class="trow ${selected===r.symbol?'sel':''}" onclick="pick('${r.symbol}')">
+          <div class="rk">${i+1}</div>
+          <div><span class="sym">${r.symbol}</span><span class="grp">${r.grp||''}</span>
+               <div class="nm">${(r.name||'').replace(/ ETF$| Trust$/,'')}</div></div>
+          <div class="r mom" style="color:${r.momentum_score>55?'var(--green)':r.momentum_score<45?'var(--red)':'var(--text2)'}">${r.momentum_score}</div>
+          <div class="r hide-s" style="color:${r.pct_from_high>=NEAR_HIGH?'var(--green)':'var(--text2)'}">${pc(r.pct_from_high)}</div>
+          <div class="c hide-s ${r.above_8_21?'yes':'no'}">${r.above_8_21==null?'–':r.above_8_21?'✓':'·'}</div>
+          <div class="r hide-s" style="color:${col(r.vs_spy_20)}">${sg(r.vs_spy_20)}</div>
+          <div class="r hide-s" style="color:${col(r.vs_qqq_20)}">${sg(r.vs_qqq_20)}</div>
+          <div class="r"><span class="bars"><i style="width:${Math.round((d??0)*100)}%"></i></span><span class="dur">${d==null?'–':Math.round(d*100)+'%'}</span></div>
+        </div>`;}).join('')
+        : `<div class="trow" style="grid-template-columns:1fr;color:var(--text2)">Nothing passes every selected check today. That is a real answer — it usually means no group is cleanly leading.</div>`}
+    </div>
+    <div class="ctx" style="margin-top:10px">
+      ${rows.length} of ${ETFS.length} funds${qActive.size?` pass ${[...qActive].map(k=>CHECKS[k].label.toLowerCase()).join(' + ')}`:''}.
+      Benchmarks over the same 20 sessions: ${b('SPY')} · ${b('QQQ')}.
+      <b>Durability</b> = share of the last 60 sessions spent in the top 10% of the ETF ranking.
+      ${ASOF?`As of ${ASOF}.`:''}
+    </div>
+    <div id="drill"></div>`;
+
+  document.getElementById('foot').innerHTML =
+    `Momentum is a 0-100 cross-sectional score over these ${ETFS.length} funds — relative-strength level and trend, 9- and 20-day EMA slopes, and price vs the 50-day. 50 is the median fund, not a neutral return. Durability is measured on rank percentile so it stays comparable as the fund list changes. Educational research data, not investment advice.`;
+  if(selected) drill(selected);
+}
+
+window.setGroup=g=>{group=g;render();};
+window.setSort=s=>{sortBy=s;render();};
+window.toggleQ=k=>{qActive.has(k)?qActive.delete(k):qActive.add(k);render();};
+window.pick=s=>{selected = selected===s?null:s; render();};
+
+// --- drill-down: the names inside the fund we can actually score ------------
+async function drill(sym){
+  const e = ETFS.find(r=>r.symbol===sym);
+  const host = document.getElementById('drill');
+  if(!e){ host.innerHTML=''; return; }
+  host.innerHTML = `<div class="panel"><div class="ptitle">${sym} — leaders</div><div class="psub">Loading…</div></div>`;
+
+  // Constituents come from OUR data, not the fund's published holdings: Yahoo
+  // only exposes a top 10, and for thematic funds most of those are foreign
+  // tickers we cannot score. Theme funds map to the curated value chain; sector
+  // funds to the GICS sector, which covers the full universe rather than a top 10.
+  let tickers = [], via = '';
+  if(e.theme_slug){
+    const m = (await sb.from('theme_members').select('ticker,note')
+                 .eq('theme_slug',e.theme_slug).eq('is_context',false)).data||[];
+    tickers = m.map(r=>r.ticker); m.forEach(r=>THEME_MEMBERS[r.ticker]=r.note);
+    via = `the ${e.theme_slug} value chain`;
+  } else if(e.sector){
+    const m = (await sb.from('us_stock_sectors').select('ticker').eq('sector',e.sector)).data||[];
+    tickers = m.map(r=>r.ticker);
+    via = `the ${e.sector} sector`;
+  }
+  if(!tickers.length){
+    host.innerHTML = `<div class="panel"><div class="ptitle">${sym} — leaders</div>
+      <div class="psub">This fund is not mapped to a value chain or a sector in our data, so there is no scoreable constituent list. Use the chart.</div></div>`;
+    return;
+  }
+
+  const sd = (await sb.from('daily_stock_snapshots').select('snapshot_date')
+               .not('momentum_score','is',null).order('snapshot_date',{ascending:false}).limit(1))
+               .data?.[0]?.snapshot_date;
+  const rows=[];
+  for(let i=0;i<tickers.length;i+=200){
+    const ch=tickers.slice(i,i+200);
+    const s=(await sb.from('daily_stock_snapshots').select('ticker,momentum_score,rs_rank')
+              .eq('snapshot_date',sd).in('ticker',ch)).data||[];
+    rows.push(...s);
+    const u=(await sb.from('us_stock_sectors').select('ticker,company_name').in('ticker',ch)).data||[];
+    u.forEach(r=>NAMES[r.ticker]=r.company_name);
+    const g=(await sb.from('entry_signals').select('ticker,pattern,alert_date')
+              .in('ticker',ch).gte('alert_date', sd)).data||[];
+    g.forEach(r=>{ (SIGNALS[r.ticker]=SIGNALS[r.ticker]||new Set()).add(r.pattern); });
+  }
+  const top = rows.filter(r=>r.momentum_score!=null)
+                  .sort((a,b)=>b.momentum_score-a.momentum_score).slice(0,12);
+
+  host.innerHTML = `<div class="panel">
+    <div class="ptitle">${sym} — leaders inside ${via}</div>
+    <div class="psub">The strongest names we score in this fund's area, with any entry pattern that fired on ${sd}.
+      Constituents come from our own mapping, not the fund's top-10 holdings — those are market-cap weighted and, for thematic funds, largely foreign tickers we cannot rank.</div>
+    ${top.map(r=>{
+      const sigs=[...(SIGNALS[r.ticker]||[])];
+      return `<div class="srow">
+        <div><b>${r.ticker}</b> <span class="nm" style="display:inline">${(NAMES[r.ticker]||'').slice(0,34)}</span></div>
+        <div class="r" style="color:${r.momentum_score>55?'var(--green)':'var(--text2)'};font-weight:700">${r.momentum_score}</div>
+        <div class="r rk">#${r.rs_rank??'–'}</div>
+        <div>${sigs.length? sigs.map(s=>`<span class="sig">${s.replace(/_/g,' ')}</span>`).join('')
+                           : '<span class="ctx" style="opacity:.5">no setup today</span>'}</div>
+      </div>`;}).join('')}
+    <div class="ctx" style="margin-top:10px">Momentum here is scored against the whole ~1,900-stock universe, so it is not comparable with the fund scores above — those are scored against other funds.</div>
+  </div>`;
+}
+
+load().catch(e=>{document.getElementById('app').innerHTML='Failed to load: '+e.message;});
+</script>
+</body>
+</html>

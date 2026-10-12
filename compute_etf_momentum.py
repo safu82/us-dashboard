@@ -60,12 +60,21 @@ def _f(v):
     return v.item() if hasattr(v, 'item') else v
 
 
+STABILITY_WINDOW = 60     # trailing sessions for the durability read
+TOP_DECILE = 0.10         # rank_pct at or below this counts as "leading"
+
+
 def main():
-    etfs = sb.table('etfs').select('symbol').execute().data or []
+    etfs = sb.table('etfs').select('symbol,benchmark_only').execute().data or []
     symbols = sorted({r['symbol'] for r in etfs})
+    # SPY/QQQ are the yardstick the checklist measures against, so they are fetched
+    # and stored but kept OUT of the percentile cross-section — leaving them in
+    # would have the market competing with its own sectors for rank.
+    bench_only = {r['symbol'] for r in etfs if r.get('benchmark_only')}
     if not symbols:
         sys.exit('etfs table empty — run seed_etfs.py first')
-    print(f'{len(symbols)} ETFs: {", ".join(symbols)}\n')
+    print(f'{len(symbols)} ETFs ({len(symbols) - len(bench_only)} ranked, '
+          f'{len(bench_only)} benchmark-only: {", ".join(sorted(bench_only)) or "none"})\n')
 
     # Benchmark closes for alkalyme_rs (same reference index as the stock pipeline).
     print(f'Downloading benchmark {BENCHMARK} ...')
@@ -93,12 +102,44 @@ def main():
         sys.exit('no ETF OHLC fetched — aborting')
 
     df = pd.DataFrame(rows).rename(columns={'ticker': 'symbol'})
-    _num(df, 'alkalyme_rs', 'close', 'ema_9', 'ema_20', 'ema_50')
+    _num(df, 'alkalyme_rs', 'close', 'ema_9', 'ema_20', 'ema_50', 'high_52w')
+    df = df.sort_values(['symbol', 'snapshot_date']).reset_index(drop=True)
 
-    # ── etf_rank: RS rank WITHIN the ETF set per date (1 = strongest) ──────────
+    # ── Weekend-checklist measures ────────────────────────────────────────────
+    # "What is making new highs?" — distance below the rolling 52-week high.
+    df['pct_from_high'] = df['close'] / df['high_52w'] - 1
+
+    # "What is holding its 8/21 trend?" — computed here rather than reusing the
+    # shared 9/20 EMAs, because 8/21 is the specific pair the method names and
+    # the stock pipeline's columns are not ours to repurpose.
+    g_sym = df.groupby('symbol', group_keys=False)['close']
+    ema8 = g_sym.transform(lambda s: s.ewm(span=8, adjust=False, min_periods=8).mean())
+    ema21 = g_sym.transform(lambda s: s.ewm(span=21, adjust=False, min_periods=21).mean())
+    # object dtype, not bool: the first 21 sessions per symbol have no EMA-21 yet
+    # and must stay None rather than silently reading as False.
+    df['above_8_21'] = ((df['close'] > ema8) & (ema8 > ema21)).astype('object')
+    df.loc[ema21.isna(), 'above_8_21'] = None
+
+    # "What is outperforming SPY / QQQ?" — 20-session return less the benchmark's
+    # over the same window, so it reads directly as excess return.
+    ret20 = df.groupby('symbol', group_keys=False)['close'].transform(
+        lambda s: s / s.shift(20) - 1)
+    df['ret_20'] = ret20
+    for bsym, col in (('SPY', 'vs_spy_20'), ('QQQ', 'vs_qqq_20')):
+        bench_ret = (df.loc[df['symbol'] == bsym, ['snapshot_date', 'ret_20']]
+                       .set_index('snapshot_date')['ret_20'])
+        df[col] = df['ret_20'] - df['snapshot_date'].map(bench_ret)
+
+    # ── etf_rank: RS rank WITHIN the ranked ETF set per date (1 = strongest) ───
     print('Ranking ETF cross-section ...')
-    df['etf_rank'] = (df.groupby('snapshot_date')['alkalyme_rs']
-                        .rank(ascending=False, method='min').astype('Int64'))
+    ranked = ~df['symbol'].isin(bench_only)
+    rs_for_rank = df['alkalyme_rs'].where(ranked)      # benchmarks excluded
+    df['etf_rank'] = (rs_for_rank.groupby(df['snapshot_date'])
+                                 .rank(ascending=False, method='min').astype('Int64'))
+    # Rank as a share of the ranked set. Absolute rank is not comparable once the
+    # universe grows (#5 of 28 and #5 of 55 are different things); this is.
+    df['rank_pct'] = df['etf_rank'].astype('float') / df['snapshot_date'].map(
+        df[ranked].groupby('snapshot_date')['symbol'].count())
 
     # ── momentum_score: identical 5-factor composite, over the ETF cross-section ─
     df = df.sort_values(['symbol', 'snapshot_date']).reset_index(drop=True)
@@ -113,11 +154,31 @@ def main():
         'f_e20':     df['ema_20'] / ema20_20 - 1,
         'f_px':      df['close'] / df['ema_50'] - 1,
     })
+    # Benchmarks are masked out before percentiling, not just excluded from the
+    # rank: leaving them in would let the market set the percentile its own
+    # sectors are measured against, and would hand SPY/QQQ a score computed
+    # against a pool they are not part of.
+    factors = factors.where(ranked, np.nan)
     pct = pd.DataFrame({c: factors[c].groupby(df['snapshot_date']).rank(pct=True) for c in factors})
     present = pct.notna().sum(axis=1)
     mom = (pct.mean(axis=1) * 100).round()
     mom[present < 3] = np.nan                       # need >=3 of 5 factors
     df['momentum_score'] = mom.astype('Int64')
+
+    # ── Leadership durability ─────────────────────────────────────────────────
+    # Momentum says "strong today"; it cannot tell a sector that has led for
+    # three months from one that popped this week. Over the trailing 60 sessions:
+    # how much of the time was this fund in the top decile, and how much did its
+    # rank move around. High momentum with low durability is a whipsaw to fade,
+    # not a trend to join. Measured on rank_pct so it survives universe changes.
+    print('Computing leadership durability ...')
+    gp = df.groupby('symbol', group_keys=False)['rank_pct']
+    df['top_decile_60d'] = gp.transform(
+        lambda s: s.le(TOP_DECILE).rolling(STABILITY_WINDOW, min_periods=20).mean())
+    df['rank_vol_60d'] = gp.transform(
+        lambda s: s.rolling(STABILITY_WINDOW, min_periods=20).std())
+    df.loc[df['symbol'].isin(bench_only),
+           ['top_decile_60d', 'rank_vol_60d']] = np.nan
 
     # ── Upsert ────────────────────────────────────────────────────────────────
     print('Pushing etf_snapshots ...')
@@ -128,6 +189,14 @@ def main():
         'ema_9': _f(r.get('ema_9')), 'ema_20': _f(r.get('ema_20')),
         'ema_50': _f(r.get('ema_50')), 'alkalyme_rs': _f(r.get('alkalyme_rs')),
         'etf_rank': _f(r.get('etf_rank')), 'momentum_score': _f(r.get('momentum_score')),
+        'high_52w': _f(r.get('high_52w')), 'pct_from_high': _f(r.get('pct_from_high')),
+        'above_8_21': (None if pd.isna(r.get('above_8_21'))
+                       else bool(r.get('above_8_21'))),
+        'ret_20': _f(r.get('ret_20')),
+        'vs_spy_20': _f(r.get('vs_spy_20')), 'vs_qqq_20': _f(r.get('vs_qqq_20')),
+        'rank_pct': _f(r.get('rank_pct')),
+        'top_decile_60d': _f(r.get('top_decile_60d')),
+        'rank_vol_60d': _f(r.get('rank_vol_60d')),
     } for _, r in df.iterrows()]
     for i in range(0, len(updates), 500):
         sb.table('etf_snapshots').upsert(
@@ -135,12 +204,21 @@ def main():
     print(f'  upserted {len(updates)} rows')
 
     latest = df['snapshot_date'].max()
-    board = (df[df['snapshot_date'] == latest]
+    board = (df[(df['snapshot_date'] == latest) & ~df['symbol'].isin(bench_only)]
              .dropna(subset=['momentum_score'])
              .sort_values('momentum_score', ascending=False))
-    print(f'\nETF momentum board — {latest}:')
+    print(f'\nETF board — {latest}   (NH = % below 52w high, 8/21 = trend held, '
+          f'vSPY/vQQQ = 20d excess return, Top10 = share of last '
+          f'{STABILITY_WINDOW}d in the top decile)')
+    print(f'{"mom":>4} {"sym":<6}{"rank":>5}{"NH":>8}{"8/21":>6}{"vSPY":>8}{"vQQQ":>8}{"Top10":>7}')
     for _, r in board.iterrows():
-        print(f"  {int(r['momentum_score']):>3}  {r['symbol']:<5} (etf_rank {int(r['etf_rank'])})")
+        pct = lambda v, d=1: '  –  ' if pd.isna(v) else f'{v * 100:+.{d}f}%'
+        td = r.get('top_decile_60d')
+        print(f"{int(r['momentum_score']):>4} {r['symbol']:<6}{int(r['etf_rank']):>5}"
+              f"{pct(r.get('pct_from_high')):>8}"
+              f"{('yes' if r.get('above_8_21') else 'no'):>6}"
+              f"{pct(r.get('vs_spy_20')):>8}{pct(r.get('vs_qqq_20')):>8}"
+              f"{('  –  ' if pd.isna(td) else f'{td*100:.0f}%'):>7}")
     print('\nDone.')
 
 
