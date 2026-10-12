@@ -162,11 +162,76 @@ function render(){
       <b>Durability</b> = share of the last 60 sessions spent in the top 10% of the ETF ranking.
       ${ASOF?`As of ${ASOF}.`:''}
     </div>
-    <div id="drill"></div>`;
+    <div id="drill"></div>
+    <div id="emerging"></div>`;
 
   document.getElementById('foot').innerHTML =
     `Momentum is a 0-100 cross-sectional score over these ${ETFS.length} funds — relative-strength level and trend, 9- and 20-day EMA slopes, and price vs the 50-day. 50 is the median fund, not a neutral return. Durability is measured on rank percentile so it stays comparable as the fund list changes. Educational research data, not investment advice.`;
   if(selected) drill(selected);
+  emerging();
+}
+
+// --- emerging groups: hot industries our taxonomy has no theme for ----------
+// A theme we have not thought of cannot show up on a board organised by themes.
+// Photonics was the worked example: CIEN 96, VIAV 96 and MTSI 95 were all scored
+// and all sat in no theme, so nothing surfaced them as a group. Rolling momentum
+// up by GICS industry needs no taxonomy of our own, and flagging how much of a
+// hot industry is unmapped turns "we missed it" into a visible to-do.
+let EMERGED = false;
+async function emerging(){
+  const host = document.getElementById('emerging');
+  if(!host || EMERGED) return;
+  EMERGED = true;
+
+  const sd = (await sb.from('daily_stock_snapshots').select('snapshot_date')
+               .not('momentum_score','is',null).order('snapshot_date',{ascending:false}).limit(1))
+               .data?.[0]?.snapshot_date;
+  const page = async (tbl, cols, f) => { const out=[]; for(let i=0;;i+=1000){
+      let q = sb.from(tbl).select(cols).range(i, i+999); if(f) q=f(q);
+      const {data} = await q; out.push(...(data||[]));
+      if(!data || data.length<1000) return out; } };
+
+  const [snaps, sectors, members] = await Promise.all([
+    page('daily_stock_snapshots','ticker,momentum_score', q=>q.eq('snapshot_date',sd).not('momentum_score','is',null)),
+    page('us_stock_sectors','ticker,industry,company_name'),
+    page('theme_members','ticker', q=>q.eq('is_context',false)),
+  ]);
+  const mapped = new Set(members.map(r=>r.ticker));
+  const ind = {}, nm = {};
+  sectors.forEach(r=>{ ind[r.ticker]=r.industry; nm[r.ticker]=r.company_name; });
+
+  const by = {};
+  snaps.forEach(s=>{
+    const i = ind[s.ticker]; if(!i) return;
+    (by[i] = by[i] || {n:0, mom:[], unmapped:0, lead:[]});
+    by[i].n++; by[i].mom.push(s.momentum_score);
+    if(!mapped.has(s.ticker)){ by[i].unmapped++; by[i].lead.push({t:s.ticker, m:s.momentum_score}); }
+  });
+  const med = a => { const s=[...a].sort((x,y)=>x-y), m=s.length>>1;
+                     return s.length%2 ? s[m] : Math.round((s[m-1]+s[m])/2); };
+
+  // Needs enough names to be a group, enough momentum to be worth a look, and
+  // enough of it uncovered that it is genuinely a gap rather than a theme we have.
+  const rows = Object.entries(by)
+    .map(([i,v])=>({industry:i, n:v.n, med:med(v.mom), gap:v.unmapped/v.n,
+                    lead:v.lead.sort((a,b)=>b.m-a.m).slice(0,6)}))
+    .filter(r=> r.n>=5 && r.med>=70 && r.gap>=0.5)
+    .sort((a,b)=> b.med-a.med).slice(0,8);
+
+  host.innerHTML = `<div class="panel">
+    <div class="ptitle">🛰 Emerging groups — running hot, not in any theme</div>
+    <div class="psub">Momentum rolled up by industry, which needs no taxonomy of our own, then filtered to groups where most names sit in none of the value chains. A theme you have not mapped cannot appear on a board organised by themes — this is the detector for the one you have not thought of yet. Five or more scored names, median momentum 70+, at least half unmapped.</div>
+    ${rows.length ? rows.map(r=>`
+      <div class="srow" style="grid-template-columns:1.5fr 54px 60px 70px 2fr">
+        <div><b>${r.industry}</b></div>
+        <div class="r rk">${r.n}</div>
+        <div class="r" style="font-weight:700;color:${r.med>=85?'var(--green)':'var(--text2)'}">${r.med}</div>
+        <div class="r" style="color:var(--orange)">${Math.round(r.gap*100)}% gap</div>
+        <div>${r.lead.map(x=>`<span class="sig" style="background:#1d2430;color:var(--text2)">${x.t} ${x.m}</span>`).join('')}</div>
+      </div>`).join('')
+      : '<div class="ctx">No hot industry is more than half unmapped today — coverage is keeping up.</div>'}
+    <div class="ctx" style="margin-top:10px">Columns: names scored · median momentum · share in no theme · strongest unmapped names. A high gap on a hot group is a curation to-do, not a buy list — GICS industries split some real themes across several buckets.</div>
+  </div>`;
 }
 
 window.setGroup=g=>{group=g;render();};
