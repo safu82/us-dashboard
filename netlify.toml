@@ -1,0 +1,43 @@
+# Netlify configuration for the PUBLIC portal (Sector Compass).
+#
+# The private dashboard (index.html, combined-dashboard.html, deep_dive.html)
+# is NOT deployed from here — it stays a manual upload to its own site, and
+# nothing in this file touches it.
+#
+# `publish = "portal"` means Netlify serves only that folder. The repo root,
+# including every page that carries a Supabase key, is never published by this
+# site. There is no build step: the page and its data are already static, and
+# the nightly scan commits a fresh portal/data, which is what triggers a deploy.
+
+[build]
+  publish = "portal"
+  command = ""
+
+[build.environment]
+  # Nothing to install. Stated explicitly so Netlify does not guess at a
+  # Python or Node build from files elsewhere in the repo.
+  NETLIFY_USE_YARN = "false"
+
+# The data bundle is rewritten every weeknight, so it must not be served from
+# cache after a deploy. The page itself is small and changes rarely, but the
+# same rule keeps a stale shell from pairing with fresh data.
+[[headers]]
+  for = "/data/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# Nothing here collects input or embeds anything, so the browser can be told to
+# allow very little. Scripts and styles are inline in the page, hence the
+# 'unsafe-inline' allowances; there are no external resources of any kind.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Content-Security-Policy = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data:; base-uri 'none'; form-action 'none'"
