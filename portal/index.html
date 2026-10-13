@@ -243,8 +243,9 @@ function fundDrill(f){
       seen.add(m.ticker); names.push(m);
     }));
     names.sort((a,b)=>b.mom-a.mom);
-    return `<div class="dw"><div class="ptitle">${f.symbol} — strongest names in ${esc(ch.name)}</div>
-      <div class="psub">From our own value-chain mapping, not the fund's holdings. <span style="cursor:pointer;color:var(--blue)" onclick="event.stopPropagation();openT('${ch.slug}')">See the whole chain →</span></div>
+    return `<div class="dw"><div class="ptitle">${esc(ch.name)} — strongest names we track</div>
+      <div class="psub"><b>${f.symbol}</b> is one fund that buys this theme. The list below is our own map of it, not the fund's holdings — the two overlap heavily but are not the same, because we include companies the fund may not hold and rank by momentum rather than by position size.
+      <span style="cursor:pointer;color:var(--blue)" onclick="event.stopPropagation();openT('${ch.slug}')">See the whole value chain →</span></div>
       ${shead()}
       ${names.slice(0,10).map(m=>`<div class="srow">
         <div><b>${m.ticker}</b> <span class="nm">${esc((m.company||'').slice(0,32))}</span></div>
@@ -253,12 +254,11 @@ function fundDrill(f){
         <div class="nm">${esc((m.why||'').slice(0,58))}</div></div>`).join('')}</div>`;
   }
   if(f.sector){
-    const top=D.leaders.top.filter(l=>true).slice(0,0); // sector funds have no curated chain
-    return `<div class="dw"><div class="ptitle">${f.symbol} — ${esc(f.sector)}</div>
-      <div class="psub">This is a broad sector fund. We map themes, not whole GICS sectors, so there is no curated company list for it — the ticker opens its chart.</div></div>`;
+    return `<div class="dw"><div class="ptitle">${esc(f.sector)}</div>
+      <div class="psub"><b>${f.symbol}</b> holds the whole ${esc(f.sector)} sector — hundreds of companies, chosen by size rather than by theme. We map specific themes rather than entire sectors, so there is no company list to show here. Use the <b>Themes</b> tab for the parts of this sector we do map, or the ticker for a chart.</div></div>`;
   }
   return `<div class="dw"><div class="ptitle">${f.symbol}</div>
-    <div class="psub">No value chain is mapped to this fund — a broad index or a commodity has no constituent story we could tell honestly. The ticker opens its chart.</div></div>`;
+    <div class="psub">A broad index or a commodity, with no theme behind it to map — there is no company list we could show honestly. The ticker opens its chart.</div></div>`;
 }
 
 function emerging(){
