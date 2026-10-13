@@ -81,6 +81,14 @@
     font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:var(--text2);
     border-bottom:1px solid var(--border);}
   .shead div[title]{cursor:help;border-bottom:1px dotted var(--text2);display:inline-block;}
+  /* Any column whose meaning is not obvious from its label carries an
+     explanation; the dotted rule is what tells you to go looking for it. */
+  .th .hlp{cursor:help;}
+  .th .hlp::after{content:'';display:block;border-bottom:1px dotted var(--text2);}
+  .xref{background:var(--bg3);border:1px solid var(--border);border-left:3px solid var(--accent);
+    border-radius:8px;padding:11px 13px;margin:0 0 14px;font-size:12.5px;color:var(--text2);line-height:1.55;}
+  .xref b{color:var(--text);}
+  .xlink{color:var(--blue);cursor:pointer;font-weight:600;}
   .pill{display:inline-block;font-size:10px;background:#1d2531;color:var(--text2);border-radius:5px;padding:2px 7px;margin-right:4px;}
   /* "in FUND" is a positive claim from published holdings. "not held" is only
      ever shown for funds that publish a complete file — from a top 10 we cannot
@@ -104,7 +112,7 @@
 <body>
 <header><div class="wrap">
   <div class="brand"><span class="logo">🧭</span><span class="bname">Sector Compass</span></div>
-  <div class="tag">Every US sector and thematic ETF ranked against the others, and 18 investment themes broken into the companies that actually make them work. Rebuilt every weeknight.</div>
+  <div class="tag">Three views of the same market, working from the outside in. <b>Rotation</b> ranks every sector and thematic ETF — real funds anyone can buy — to show where money is moving. <b>Themes</b> is our own map of what sits behind those trends: the stages of each value chain and the companies at every one. <b>Leaders</b> ranks individual companies across the whole market. Rebuilt every weeknight.</div>
   <nav>
     <button data-t="rotation" class="on" onclick="tab('rotation')">Rotation</button>
     <button data-t="themes" onclick="tab('themes')">Themes</button>
@@ -216,8 +224,16 @@ function rotation(){
       .map(([k,l])=>`<span class="chip ${sortBy===k?'on':''}" onclick="setSort('${k}')">${l}</span>`).join('')}
   </div>
   <div class="tbl">
-    <div class="th"><div>#</div><div>Fund</div><div class="r">Mom</div><div class="r hs">52w</div>
-      <div class="c hs">8/21</div><div class="r hs">vs SPY</div><div class="r hs">vs QQQ</div><div class="r">Durability</div></div>
+    <div class="th">
+      <div title="Position in the list as currently sorted — not a fixed ranking.">#</div>
+      <div>Fund</div>
+      <div class="r hlp" title="Fund momentum, 0-100, ranked against the other 53 funds — NOT against individual stocks. Higher is stronger; 50 is the middle fund.">Mom</div>
+      <div class="r hs hlp" title="How far below its own 52-week high the fund is trading. 0% means it is at a new high, so closer to zero is stronger.">From high</div>
+      <div class="c hs hlp" title="Short-term trend: a tick means the price closed above its 8-day average with the 8 above the 21. A dot means it has not.">8/21</div>
+      <div class="r hs hlp" title="Return minus the S&P 500's over the same window. Bright figure is 20 trading days, dimmed is 60. Positive means it beat the index.">vs SPY 20d·60d</div>
+      <div class="r hs hlp" title="Return minus the Nasdaq 100's over the same window. Bright figure is 20 trading days, dimmed is 60.">vs QQQ 20d·60d</div>
+      <div class="r hlp" title="Share of the last 60 trading days this fund spent in the top 10% of the board. The average fund scores about 10%, so anything above 25% is persistent leadership.">Durability</div>
+    </div>
     ${rows.length?rows.map((f,i)=>{
       const open=openFund===f.symbol;
       return `<div class="tr ${open?'sel':''}" onclick="pickFund('${f.symbol}')" title="${open?'Click to close':'Click for the companies inside'}">
@@ -358,7 +374,7 @@ function themes(){
   const ts=D.themes.themes;
   const card=t=>`<div class="card" onclick="openT('${t.slug}')">
     <div class="crow"><div class="cname">${esc(t.name)}</div>
-      <div class="cmom" style="color:${momCol(t.mom)}">${t.mom==null?'–':(t.mom>55?'▲ ':t.mom<45?'▼ ':'→ ')+t.mom}</div></div>
+      <div class="cmom" style="color:${momCol(t.mom)}" title="Median momentum of the ${t.companies} companies we map to this theme, each ranked against every US stock. Not the same scale as a fund's momentum on Rotation.">${t.mom==null?'–':(t.mom>55?'▲ ':t.mom<45?'▼ ':'→ ')+t.mom}</div></div>
     <div class="cdesc">${esc(t.description)}</div>
     <div class="cstat"><b>${t.links}</b> links · <b>${t.companies}</b> companies${themeSort!=='category'?` <span class="tagx">${esc(t.category||'')}</span>`:''}</div></div>`;
   let body;
@@ -375,21 +391,38 @@ function themes(){
     const list=[...ts].sort(themeSort==='mom'?(a,b)=>(b.mom??-1)-(a.mom??-1):(a,b)=>b.companies-a.companies);
     body=`<div class="grid">${list.map(card).join('')}</div>`;
   }
-  return `<div class="intro">Each theme broken into its value chain — the stages a trend has to pass through, and the listed companies at each one, with a one-line reason each belongs. Click any theme to open its map.</div>
+  return `<div class="intro">Each theme broken into its value chain — the stages a trend has to pass through, and the listed companies at each one, with a one-line reason each belongs. <b>This map is ours</b>, not an index or a fund's holdings: we decided what the stages are and which companies sit in them. The number on each card is the median momentum of its companies, measured against every US stock — so it is not on the same scale as a fund's momentum on <span class="xlink" onclick="tab('rotation')">Rotation</span>. Click any theme to open its map.</div>
     <div class="bar"><span class="lab">Sort</span>
       ${[['category','By category'],['mom','Hottest first'],['size','Most companies']]
         .map(([k,l])=>`<span class="chip ${themeSort===k?'on':''}" onclick="setThemeSort('${k}')">${l}</span>`).join('')}</div>${body}`;
 }
+
+// The two screens measure the same theme in different ways and routinely
+// disagree — crypto's companies score 21 while BITO scores 75 — because the
+// fund holds different things and is ranked against other funds. Showing both
+// with the reason turns a seeming contradiction into the actual insight.
+function themeFunds(slug){ return D.etfs.funds.filter(f=>f.theme===slug); }
 
 function chain(){
   const c=D.chains.chains[openTheme];
   if(!c) return '<div class="intro">Theme not found.</div>';
   const scored=c.links.filter(l=>l.mom!=null && !l.thin);
   const best=scored.length?scored.reduce((a,b)=>b.mom>a.mom?b:a):null;
+  const allMom=[]; c.links.forEach(l=>l.members.forEach(m=>{ if(!m.context&&m.mom!=null) allMom.push(m.mom); }));
+  allMom.sort((a,b)=>a-b);
+  const themeMom=allMom.length?allMom[allMom.length>>1]:null;
+  const funds=themeFunds(openTheme);
   return `<span class="back" onclick="closeT()">← All themes</span>
   <div class="panel" style="margin-top:0">
     <div class="ptitle">${esc(c.name)}</div>
     <div class="psub">${esc(c.description)}</div>
+    ${funds.length?`<div class="xref">
+      <b>Buyable as a fund:</b> ${funds.map(f=>`<span class="xlink" onclick="tab('rotation');pickFund('${f.symbol}')">${f.symbol}</span> <span style="opacity:.8">(fund momentum ${f.mom}, #${f.rank} of 54)</span>`).join(' · ')}.
+      ${themeMom!=null?`The companies we map here have a median momentum of <b>${themeMom}</b>${
+        funds.some(f=>Math.abs(f.mom-themeMom)>=20)
+        ? ` — a long way from the fund's score, and deliberately so. The two are ranked against different fields (${allMom.length} companies against every US stock; the fund against 53 other funds) and the fund may hold different things entirely from the companies we map.`
+        : `, measured against every US stock rather than against other funds, so the two numbers are not on the same scale.`}`:''}
+    </div>`:''}
     ${best?`<div class="psub" style="margin-bottom:16px">Strongest link right now: <b style="color:var(--green)">${esc(best.name)}</b> at ${best.mom}/100. Links are listed upstream to downstream — each stage feeds the next.</div>`:''}
     ${c.links.map(l=>`<div class="link">
       <div style="display:flex;align-items:baseline;gap:8px">
