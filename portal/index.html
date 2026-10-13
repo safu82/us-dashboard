@@ -85,10 +85,10 @@
   /* "in FUND" is a positive claim from published holdings. "not held" is only
      ever shown for funds that publish a complete file — from a top 10 we cannot
      tell absence from invisibility, so we say nothing. */
-  .inf{display:inline-block;font-size:9.5px;font-weight:700;background:rgba(37,99,235,.18);
-    color:var(--blue);border-radius:5px;padding:2px 6px;margin-right:6px;white-space:nowrap;cursor:help;}
   .notin{display:inline-block;font-size:9.5px;background:#20242c;color:var(--text2);
-    border-radius:5px;padding:2px 6px;margin-right:6px;white-space:nowrap;cursor:help;opacity:.75;}
+    border-radius:5px;padding:1px 6px;margin-left:6px;white-space:nowrap;opacity:.8;}
+  .shd{font-size:13px;font-weight:800;letter-spacing:-.1px;margin-bottom:3px;
+    padding-bottom:5px;border-bottom:2px solid var(--accent);display:inline-block;}
   .link{border-top:1px solid var(--border);padding:13px 0 4px;}
   .link:first-child{border-top:none;}
   .lname{font-weight:700;font-size:14px;}
@@ -149,9 +149,9 @@ const rsTitle = r => {
   const pct = Math.round((r / Math.max(uni(), 1)) * 100);
   return `${base}\n\nThis name is #${r} of ${n} — stronger than about ${100 - pct}% of the market.`;
 };
-const shead = () => `<div class="shead"><div>Company</div>
+const shead = (last="Why it's here") => `<div class="shead"><div>Company</div>
   <div class="r" title="0-100, scored against every US stock we cover. Higher is stronger; 50 is the median stock.">Mom</div>
-  <div class="r" title="${rsTitle()}">RS rank</div><div>Why it's here</div></div>`;
+  <div class="r" title="${rsTitle()}">RS rank</div><div>${last}</div></div>`;
 const tv=s=>`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(s)}`;
 const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
@@ -238,8 +238,66 @@ function rotation(){
   ${emerging()}`;
 }
 
+// Two separate lists, because they come from two different places and a reader
+// should never have to guess which. Section one is what the fund actually
+// holds, from the issuer or from Yahoo's top 10. Section two is what we map to
+// the theme that the fund's published holdings do not show.
 function fundDrill(f){
+  const S=D.stocks.stocks, H=f.holdings||{}, full=!!f.holdingsComplete;
   const ch=f.theme?D.chains.chains[f.theme]:null;
+  const whyOf={};
+  if(ch) ch.links.forEach(l=>l.members.forEach(m=>{ if(!whyOf[m.ticker]) whyOf[m.ticker]=m.why; }));
+
+  // What it holds, heaviest first — that is the fund's own ordering.
+  const holds=Object.entries(H).sort((a,b)=>(b[1]??0)-(a[1]??0)).map(([t,w])=>({
+    ticker:t, w, ...(S[t]||{}), inTheme: !!(f.theme && (S[t]?.themes||[]).includes(f.theme))}));
+
+  // Ours that its published holdings do not cover.
+  const extra = ch ? Object.keys(S).filter(t=>
+      (S[t].themes||[]).includes(f.theme) && H[t]==null && S[t].mom!=null)
+      .map(t=>({ticker:t, ...S[t], why:whyOf[t]}))
+      .sort((a,b)=>b.mom-a.mom) : [];
+
+  const stockRow=(r,extraCol)=>`<div class="srow">
+    <div><a class="sym" style="font-size:13px" href="${tv(r.ticker)}" target="_blank" rel="noopener"
+         onclick="event.stopPropagation()">${r.ticker} <span class="tvi">↗</span></a>
+      <span class="nm">${esc((r.company||'').slice(0,26))}</span></div>
+    <div class="r" style="font-weight:700;color:${momCol(r.mom)}">${r.mom??'–'}</div>
+    <div class="r nm" title="${r.mom==null?'':rsTitle(r.rsRank)}">${r.mom==null?'–':rs(r.rsRank)}</div>
+    <div class="nm">${extraCol}</div></div>`;
+
+  if(holds.length){
+    const src = full
+      ? `All ${holds.length} positions, from ${f.symbol}'s own daily holdings file.`
+      : `${f.symbol} publishes only its ten largest positions, so this is the top of the fund, not all of it.`;
+    const unscored = holds.filter(r=>r.mom==null).length;
+    return `<div class="dw">
+      <div class="ptitle">${f.symbol}${ch?` — ${esc(ch.name)}`:''}</div>
+
+      <div class="shd">What the fund holds</div>
+      <div class="psub">${src}${unscored?` ${unscored} of them sit outside our US universe — usually foreign listings — so they carry no score.`:''}</div>
+      ${shead('Weight')}
+      ${holds.map(r=>{
+        // The "not in our map" note only means something for a fund tied to a
+        // theme. A broad sector fund is not mapped to one, so every row would
+        // carry it and it would say nothing.
+        let note='';
+        if(r.mom==null) note=' <span class="notin">not in our universe</span>';
+        else if(f.theme && !r.inTheme) note=` <span class="notin">not in our ${esc(ch?ch.name.toLowerCase():f.theme)} map</span>`;
+        return stockRow(r, `<b style="color:var(--text)">${r.w==null?'–':(r.w*100).toFixed(1)+'%'}</b>${note}`);
+      }).join('')}
+
+      ${extra.length?`
+      <div class="shd" style="margin-top:18px">Also in this theme${ch?` — ${esc(ch.name)}`:''}</div>
+      <div class="psub">Companies we map to the theme that ${f.symbol}'s published holdings do not show.${
+        full?' Its file is complete, so the fund genuinely does not hold these.'
+           :' Only its top ten is published, so some of these may sit in the fund’s tail.'}
+        <span style="cursor:pointer;color:var(--blue)" onclick="event.stopPropagation();openT('${ch.slug}')">See the whole value chain →</span></div>
+      ${shead()}
+      ${extra.slice(0,12).map(r=>stockRow(r, esc((r.why||'').slice(0,46)))).join('')}`:''}
+    </div>`;
+  }
+
   if(ch){
     // A company can sit in more than one link of the same chain — Datadog is in
     // both cloud monitoring and observability — so flattening the links without

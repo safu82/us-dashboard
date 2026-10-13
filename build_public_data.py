@@ -241,6 +241,20 @@ def main():
     emerging.sort(key=lambda r: -r['mom'])
     write('emerging.json', {'asOf': stock_asof, 'groups': emerging[:8]})
 
+    # One lookup for every ticker the portal needs to render: theme members plus
+    # everything the funds hold. A fund holds names we map to no theme at all
+    # (AVGO is in CIBR but not in our cyber chain) and the drill-down has to be
+    # able to score those, so the chains alone are not enough.
+    needed = set(mapped) | {t for h in held.values() for t in h}
+    stocks = {}
+    for tk in sorted(needed):
+        sn, sec = snaps.get(tk), sectors.get(tk) or {}
+        stocks[tk] = {'company': sec.get('company_name'),
+                      'mom': (sn or {}).get('momentum_score'),
+                      'rsRank': (sn or {}).get('rs_rank'),
+                      'themes': sorted(mapped.get(tk, []))}
+    write('stocks.json', {'asOf': stock_asof, 'stocks': stocks})
+
     write('meta.json', {
         'stockAsOf': stock_asof, 'etfAsOf': etf_asof,
         'builtAt': datetime.now(timezone.utc).isoformat(timespec='seconds'),
