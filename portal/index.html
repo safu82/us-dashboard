@@ -82,6 +82,13 @@
     border-bottom:1px solid var(--border);}
   .shead div[title]{cursor:help;border-bottom:1px dotted var(--text2);display:inline-block;}
   .pill{display:inline-block;font-size:10px;background:#1d2531;color:var(--text2);border-radius:5px;padding:2px 7px;margin-right:4px;}
+  /* "in FUND" is a positive claim from published holdings. "not held" is only
+     ever shown for funds that publish a complete file — from a top 10 we cannot
+     tell absence from invisibility, so we say nothing. */
+  .inf{display:inline-block;font-size:9.5px;font-weight:700;background:rgba(37,99,235,.18);
+    color:var(--blue);border-radius:5px;padding:2px 6px;margin-right:6px;white-space:nowrap;cursor:help;}
+  .notin{display:inline-block;font-size:9.5px;background:#20242c;color:var(--text2);
+    border-radius:5px;padding:2px 6px;margin-right:6px;white-space:nowrap;cursor:help;opacity:.75;}
   .link{border-top:1px solid var(--border);padding:13px 0 4px;}
   .link:first-child{border-top:none;}
   .lname{font-weight:700;font-size:14px;}
@@ -243,15 +250,28 @@ function fundDrill(f){
       seen.add(m.ticker); names.push(m);
     }));
     names.sort((a,b)=>b.mom-a.mom);
+    const H=f.holdings||{}, full=!!f.holdingsComplete;
+    const shown=names.slice(0,12);
+    const inFund=shown.filter(m=>H[m.ticker]!=null).length;
+    // Only a complete issuer file lets us say a fund does NOT hold something.
+    // From a top 10, silence means "we cannot see that far down", not "absent".
+    const note = full
+      ? `<b>${inFund} of these ${shown.length}</b> are in ${f.symbol}'s published holdings; the rest are companies we map to the theme that the fund does not hold.`
+      : `${f.symbol} only publishes its ten largest positions, so we can mark those and say nothing about the rest — an unmarked name may still be in the fund's tail.`;
     return `<div class="dw"><div class="ptitle">${esc(ch.name)} — strongest names we track</div>
-      <div class="psub"><b>${f.symbol}</b> is one fund that buys this theme. The list below is our own map of it, not the fund's holdings — the two overlap heavily but are not the same, because we include companies the fund may not hold and rank by momentum rather than by position size.
+      <div class="psub"><b>${f.symbol}</b> is one fund that buys this theme; the list below is our own map of it, ranked by momentum rather than position size. ${note}
       <span style="cursor:pointer;color:var(--blue)" onclick="event.stopPropagation();openT('${ch.slug}')">See the whole value chain →</span></div>
       ${shead()}
-      ${names.slice(0,10).map(m=>`<div class="srow">
-        <div><b>${m.ticker}</b> <span class="nm">${esc((m.company||'').slice(0,32))}</span></div>
+      ${shown.map(m=>{
+        const w=H[m.ticker];
+        const badge = w!=null
+          ? `<span class="inf" title="${esc(f.symbol)} holds this${w?` — about ${(w*100).toFixed(1)}% of the fund`:''}">in ${esc(f.symbol)}${w?` ${(w*100).toFixed(1)}%`:''}</span>`
+          : (full?`<span class="notin" title="${esc(f.symbol)} publishes its full holdings and this name is not among them">not held</span>`:'');
+        return `<div class="srow">
+        <div><b>${m.ticker}</b> <span class="nm">${esc((m.company||'').slice(0,28))}</span></div>
         <div class="r" style="font-weight:700;color:${momCol(m.mom)}">${m.mom}</div>
         <div class="r nm" title="${rsTitle(m.rsRank)}">${rs(m.rsRank)}</div>
-        <div class="nm">${esc((m.why||'').slice(0,58))}</div></div>`).join('')}</div>`;
+        <div class="nm">${badge}${esc((m.why||'').slice(0,46))}</div></div>`;}).join('')}</div>`;
   }
   if(f.sector){
     return `<div class="dw"><div class="ptitle">${esc(f.sector)}</div>

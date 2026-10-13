@@ -119,6 +119,15 @@ def main():
         'ret_20,vs_spy_20,vs_qqq_20,ret_60,vs_spy_60,vs_qqq_60,top_decile_60d',
         lambda q: q.eq('snapshot_date', etf_asof))}
 
+    # Holdings, so the drill-down can mark which names a fund actually holds.
+    # `complete` travels with them: only a full issuer file licenses a statement
+    # that a fund does NOT hold something.
+    held, complete_for = {}, set()
+    for h in page('etf_holdings', 'etf,ticker,weight,complete'):
+        held.setdefault(h['etf'], {})[h['ticker']] = h.get('weight')
+        if h.get('complete'):
+            complete_for.add(h['etf'])
+
     funds, benchmarks = [], {}
     for sym, m in sorted(meta.items(), key=lambda kv: kv[1].get('display_order') or 999):
         s = esnap.get(sym)
@@ -131,7 +140,9 @@ def main():
                'trend821': s.get('above_8_21'),
                'vsSpy20': s.get('vs_spy_20'), 'vsQqq20': s.get('vs_qqq_20'),
                'vsSpy60': s.get('vs_spy_60'), 'vsQqq60': s.get('vs_qqq_60'),
-               'durability': s.get('top_decile_60d')}
+               'durability': s.get('top_decile_60d'),
+               'holdings': held.get(sym, {}),
+               'holdingsComplete': sym in complete_for}
         if m.get('benchmark_only'):
             benchmarks[sym] = {'symbol': sym, 'ret20': s.get('ret_20'),
                                'ret60': s.get('ret_60')}
