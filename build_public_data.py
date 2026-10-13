@@ -211,9 +211,15 @@ def main():
     # in the market had no theme, Everpure (P) among them at momentum 96 and
     # rank 2. Theme tags are shown where we have them and left blank where we
     # do not, which also makes the gap visible rather than silently excluding it.
+    # fetch_ohlc pulls QQQ into daily_stock_snapshots as a dashboard benchmark,
+    # so it is scored against the 1,930 stocks and would turn up in a list of
+    # "strongest individual names" as soon as its momentum cleared the cutoff.
+    # It sits at 84 today against a cutoff of 88, which is luck rather than
+    # design. Anything that is a fund on our own board is not an individual name.
+    funds_by_symbol = set(meta)
     leaders = []
     for tk, sn in snaps.items():
-        if sn.get('momentum_score') is None:
+        if sn.get('momentum_score') is None or tk in funds_by_symbol:
             continue
         sec = sectors.get(tk) or {}
         leaders.append({'ticker': tk, 'company': sec.get('company_name'),

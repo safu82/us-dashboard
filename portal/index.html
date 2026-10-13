@@ -430,7 +430,9 @@ function leaders(){
   const all=L.top, mappedOnly=all.filter(r=>r.themes.length);
   const list=(leadFilter==='themes'?mappedOnly:all).slice(0,40);
   const unmapped=all.slice(0,40).filter(r=>!r.themes.length).length;
-  return `<div class="intro">The strongest individual names in the US market. Momentum here is scored against all ${(L.universe||0).toLocaleString()} stocks we cover, so it is not comparable with the fund scores on Rotation.</div>
+  return `<div class="intro">The strongest individual companies in the US market — funds are excluded here; they have their own board on Rotation.
+    Momentum is the same 0-100 score used there, but a stock is ranked against the other ${(L.universe||0).toLocaleString()} stocks while a fund is ranked against the other 53 funds.
+    A 94 means "top 2% of my own group" in both places, so the two are not interchangeable: at that score the average stock moved about 13% over 20 sessions and the average fund about 7%, because a basket's winners and losers partly cancel.</div>
   <div class="panel" style="margin-top:0"><div class="ptitle">🏆 Strongest names in the market</div>
     <div class="psub">Top 40 by momentum, out of ${(L.universe||0).toLocaleString()} scored. Click a theme tag to open its value chain, or a ticker for a chart.
       ${leadFilter==='all'&&unmapped?`<b>${unmapped} of these ${Math.min(40,all.length)} sit in none of our themes yet</b> — they are here because they are strong, not because we have written them up.`:''}</div>
