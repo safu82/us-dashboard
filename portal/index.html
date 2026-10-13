@@ -168,8 +168,16 @@ const pev = r => r.pe==null ? '–'
 const peTitle = r => r.pe==null
   ? 'No usable P/E — the company made a loss over the period, which leaves the ratio meaningless.'
   : `P/E of ${r.pe} against a three-year average of ${(r.pe/(1+(r.peVsOwn||0))).toFixed(1)}`
-    + `, so ${r.peVsOwn>0?'about '+Math.round(r.peVsOwn*100)+'% more expensive':'about '+Math.abs(Math.round((r.peVsOwn||0)*100))+'% cheaper'} than its own recent history.`
-    + (r.mktCap?` Market value about $${r.mktCap>=1000?(r.mktCap/1000).toFixed(1)+'tn':r.mktCap.toFixed(1)+'bn'}.`:'');
+    + `, so ${r.peVsOwn>0?'about '+Math.round(r.peVsOwn*100)+'% more expensive':'about '+Math.abs(Math.round((r.peVsOwn||0)*100))+'% cheaper'} than its own recent history.`;
+
+// Market value, so a momentum score on a small company is not read the same way
+// as one on a mega-cap: the same 97 means something very different on $400m than
+// on $400bn. Stored in $bn; shown in whatever unit keeps it to three characters.
+const cap = v => v==null ? '–'
+  : v>=1000 ? '$'+(v/1000).toFixed(1)+'tn'
+  : v>=10   ? '$'+Math.round(v)+'bn'
+  : v>=1    ? '$'+v.toFixed(1)+'bn'
+  :           '$'+Math.round(v*1000)+'m';
 
 const shead = (last="Why it's here") => `<div class="shead"><div>Company</div>
   <div class="r" title="0-100, scored against every US stock we cover. Higher is stronger; 50 is the median stock.">Mom</div>
@@ -461,10 +469,11 @@ function chain(){
 function leaders(){
   const L=D.leaders;
   // Same widening as .srow: the rank carries its denominator and wraps at 60px.
-  const G='grid-template-columns:30px 1fr 46px 88px 92px 62px 1fr';
+  const G='grid-template-columns:30px 1fr 46px 88px 66px 90px 62px 0.9fr';
   const head=`<div class="shead" style="${G}"><div></div><div>Company</div>
     <div class="r" title="0-100, scored against every US stock we cover. Higher is stronger; 50 is the median stock.">Mom</div>
     <div class="r" title="${rsTitle()}">RS rank</div>
+    <div class="r" title="Total market value of the company. Worth reading alongside momentum: the same score means something very different on a $400m company than on a $400bn one — small companies move further on less, in both directions.">Size</div>
     <div class="r" title="Price-to-earnings now, and how far that sits from this company's OWN three-year average. Below its own average is not automatically cheap and above is not automatically expensive — but a high momentum score next to a P/E well above its own history tells you the market has already re-rated it. Blank where the company made a loss, which leaves the ratio meaningless.">P/E vs own</div>
     <div class="r" title="How far below its own 52-week high the share price is. 0% means it is at a new high.">From high</div>
     <div>Themes</div></div>`;
@@ -474,6 +483,7 @@ function leaders(){
          <span class="nm">${esc((r.company||'').slice(0,34))}</span></div>
     <div class="r" style="font-weight:800;color:${momCol(r.mom)}">${r.mom}</div>
     <div class="r nm" title="${rsTitle(r.rsRank)}">${rs(r.rsRank)}</div>
+    <div class="r nm">${cap(r.mktCap)}</div>
     <div class="r two" title="${peTitle(r)}">${pev(r)}</div>
     <div class="r nm" style="color:${r.fromHigh>=-0.02?'var(--green)':'var(--text2)'}">${r.fromHigh==null?'–':(r.fromHigh*100).toFixed(1)+'%'}</div>
     <div>${r.themes.length
