@@ -130,7 +130,7 @@
 <script src="data/data.js"></script>
 <script>
 const D = {};            // populated from window.PORTAL_DATA in boot()
-let TAB='rotation', group='all', checks=new Set(), sortBy='mom', openFund=null, openTheme=null, themeSort='category';
+let TAB='rotation', group='all', checks=new Set(), sortBy='mom', openFund=null, openTheme=null, themeSort='category', leadFilter='all';
 
 const pc=(v,d=1)=> v==null?'–':(v*100).toFixed(d)+'%';
 const sg=(v,d=0)=> v==null?'–':(v>0?'+':'')+(v*100).toFixed(d)+'%';
@@ -185,6 +185,7 @@ window.pickFund=s=>{openFund=openFund===s?null:s;render();};
 window.openT=s=>{openTheme=s;TAB='themes';window.scrollTo(0,0);render();};
 window.closeT=()=>{openTheme=null;render();};
 window.setThemeSort=s=>{themeSort=s;render();};
+window.setLead=s=>{leadFilter=s;render();};
 
 function render(){
   const v=document.getElementById('view');
@@ -412,7 +413,8 @@ function chain(){
 /* ---------- Leaders ---------- */
 function leaders(){
   const L=D.leaders;
-  const G='grid-template-columns:34px 1fr 56px 60px 1.2fr';
+  // Same widening as .srow: the rank carries its denominator and wraps at 60px.
+  const G='grid-template-columns:34px 1fr 50px 96px 1.2fr';
   const head=`<div class="shead" style="${G}"><div></div><div>Company</div>
     <div class="r" title="0-100, scored against every US stock we cover. Higher is stronger; 50 is the median stock.">Mom</div>
     <div class="r" title="${rsTitle()}">RS rank</div><div>Themes</div></div>`;
@@ -422,11 +424,21 @@ function leaders(){
          <span class="nm">${esc((r.company||'').slice(0,34))}</span></div>
     <div class="r" style="font-weight:800;color:${momCol(r.mom)}">${r.mom}</div>
     <div class="r nm" title="${rsTitle(r.rsRank)}">${rs(r.rsRank)}</div>
-    <div>${r.themes.map(t=>`<span class="pill" style="cursor:pointer" onclick="openT('${t}')">${t}</span>`).join('')}</div></div>`;
-  return `<div class="intro">The strongest individual names across every theme we map, and the ones sitting in several themes at once. Momentum here is scored against the whole US universe, so it is not comparable with the fund scores on Rotation.</div>
-  <div class="panel" style="margin-top:0"><div class="ptitle">🏆 Strongest names across all themes</div>
-    <div class="psub">Top 40 by momentum. Click a theme tag to open its value chain, or a ticker for a chart.</div>
-    ${head}${L.top.slice(0,40).map(row).join('')}</div>
+    <div>${r.themes.length
+      ? r.themes.map(t=>`<span class="pill" style="cursor:pointer" onclick="openT('${t}')">${t}</span>`).join('')
+      : `<span class="nm" style="opacity:.55" title="Strong, but not mapped to any of our themes yet">${esc(r.industry||'—')}</span>`}</div></div>`;
+  const all=L.top, mappedOnly=all.filter(r=>r.themes.length);
+  const list=(leadFilter==='themes'?mappedOnly:all).slice(0,40);
+  const unmapped=all.slice(0,40).filter(r=>!r.themes.length).length;
+  return `<div class="intro">The strongest individual names in the US market. Momentum here is scored against all ${(L.universe||0).toLocaleString()} stocks we cover, so it is not comparable with the fund scores on Rotation.</div>
+  <div class="panel" style="margin-top:0"><div class="ptitle">🏆 Strongest names in the market</div>
+    <div class="psub">Top 40 by momentum, out of ${(L.universe||0).toLocaleString()} scored. Click a theme tag to open its value chain, or a ticker for a chart.
+      ${leadFilter==='all'&&unmapped?`<b>${unmapped} of these ${Math.min(40,all.length)} sit in none of our themes yet</b> — they are here because they are strong, not because we have written them up.`:''}</div>
+    <div class="bar">
+      <span class="chip ${leadFilter==='all'?'on':''}" onclick="setLead('all')">All stocks</span>
+      <span class="chip ${leadFilter==='themes'?'on':''}" onclick="setLead('themes')">Only in our themes</span>
+    </div>
+    ${head}${list.map(row).join('')}</div>
   <div class="panel"><div class="ptitle">🔗 In more than one theme</div>
     <div class="psub">One company catching several trends at once — structurally central to the map rather than a pure play on any single one.</div>
     ${head}${L.hubs.map(row).join('')}</div>`;

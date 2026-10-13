@@ -205,20 +205,28 @@ def main():
     for m in members:
         if not m.get('is_context'):
             mapped.setdefault(m['ticker'], set()).add(m['theme_slug'])
+    # Ranked over the WHOLE scored universe, not just the names we have mapped.
+    # Mapping covers about a fifth of it, so a leaderboard drawn from members
+    # only was missing most of the actual leaders: 27 of the 40 strongest stocks
+    # in the market had no theme, Everpure (P) among them at momentum 96 and
+    # rank 2. Theme tags are shown where we have them and left blank where we
+    # do not, which also makes the gap visible rather than silently excluding it.
     leaders = []
-    for tk, slugs in mapped.items():
-        sn = snaps.get(tk)
-        if not sn or sn.get('momentum_score') is None:
+    for tk, sn in snaps.items():
+        if sn.get('momentum_score') is None:
             continue
-        leaders.append({'ticker': tk,
-                        'company': (sectors.get(tk) or {}).get('company_name'),
+        sec = sectors.get(tk) or {}
+        leaders.append({'ticker': tk, 'company': sec.get('company_name'),
+                        'industry': sec.get('industry'),
                         'mom': sn['momentum_score'], 'rsRank': sn.get('rs_rank'),
-                        'themes': sorted(slugs)})
-    leaders.sort(key=lambda r: -r['mom'])
-    write('leaders.json', {'asOf': stock_asof,
-                           'top': leaders[:60],
-                           'hubs': sorted([l for l in leaders if len(l['themes']) >= 2],
-                                          key=lambda r: (-len(r['themes']), -r['mom']))[:15]})
+                        'themes': sorted(mapped.get(tk, []))})
+    leaders.sort(key=lambda r: (-r['mom'], r['rsRank'] or 9999))
+    write('leaders.json', {
+        'asOf': stock_asof,
+        'universe': len(leaders),
+        'top': leaders[:120],          # enough to filter down to the mapped subset
+        'hubs': sorted([l for l in leaders if len(l['themes']) >= 2],
+                       key=lambda r: (-len(r['themes']), -r['mom']))[:15]})
 
     # ── Emerging groups ───────────────────────────────────────────────────────
     buckets = {}
