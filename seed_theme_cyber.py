@@ -73,6 +73,8 @@ MEMBERS = {
         ('FTNT', 'Firewalls (Fortinet)', False),
         ('CHKP', 'Firewalls (Check Point)', False),
         ('CSCO', 'Networking & security', False),
+        ('FFIV', 'Application delivery & security (F5)', False),
+        ('ATEN', 'Application delivery & DDoS defence (A10)', False),
         # Removed 2026-10-01: delisted (acquired by HPE), Yahoo 404s the symbol.
         # ('JNPR', 'Networking', False),
     ],
@@ -81,6 +83,7 @@ MEMBERS = {
         ('NET',  'Cloud & edge security (Cloudflare)', False),
         ('PANW', 'Prisma Cloud', False),
         ('DDOG', 'Cloud monitoring & security (Datadog)', False),
+        ('NTSK', 'Cloud access security broker (Netskope)', False),
         ('WIZ',  'Cloud security (private)', True),
     ],
     'email_web': [

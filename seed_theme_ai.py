@@ -111,6 +111,9 @@ MEMBERS = {
         ('TER',  'Chip testing equipment', False),
         ('ONTO', 'Metrology & inspection', False),
         ('ACLS', 'Ion implantation equipment', False),
+        ('COHU', 'Test handlers & inspection', False),
+        ('PDFS', 'Yield analytics for fabs', False),
+        ('KEYS', 'Test & measurement across chip and network design', False),
     ],
     'compute': [
         ('NVDA', 'The GPU standard for AI training', False),
@@ -118,6 +121,7 @@ MEMBERS = {
         ('AVGO', 'Custom AI accelerators (ASICs) + networking silicon', False),
         ('MRVL', 'Custom AI silicon & interconnect', False),
         ('INTC', 'CPUs & accelerators', False),
+        ('SYNA', 'Edge-AI silicon & sensing', False),
     ],
     'foundry': [
         ('TSM',  'Makes most of the world\'s advanced AI chips', False),
@@ -131,6 +135,7 @@ MEMBERS = {
         ('STX',  'Hard-drive storage for data centers', False),
         ('WDC',  'Storage', False),
         ('SNDK', 'Flash storage', False),
+        ('NTAP', 'Enterprise storage for AI workloads', False),
         ('HXSCL', 'SK Hynix — HBM leader (foreign)', True),
     ],
     'packaging': [
@@ -143,12 +148,16 @@ MEMBERS = {
         ('CRDO', 'High-speed connectivity', False),
         ('CSCO', 'Networking', False),
         ('AVGO', 'Merchant switching silicon', False),
+        ('MXL',  'Interconnect & broadband silicon', False),
     ],
     'optical': [
         ('COHR', 'Optical transceivers & lasers', False),
         ('LITE', 'Lasers & optical components', False),
         ('FN',   'Optical module manufacturing', False),
         ('GLW',  'Optical fiber & glass', False),
+        ('CIEN', 'Optical transport — long-haul & data-center interconnect', False),
+        ('MTSI', 'RF & photonic components for optical links', False),
+        ('VIAV', 'Optical test & measurement; 3D sensing', False),
     ],
     'power_delivery': [
         ('MPWR', 'Power-management chips for AI boards', False),
@@ -156,12 +165,14 @@ MEMBERS = {
         ('POWI', 'Power semiconductors', False),
         ('ETN',  'Electrical power management for data centers', False),
         ('NVT',  'Electrical enclosures & connections', False),
+        ('ADI',  'Power management & signal chain on AI boards', False),
     ],
     'systems': [
         ('SMCI', 'AI server systems', False),
         ('DELL', 'AI servers', False),
         ('HPE',  'AI servers & HPC', False),
         ('CLS',  'ODM / contract manufacturing for AI hardware', False),
+        ('PENG', 'Builds & integrates AI compute clusters', False),
     ],
     'cooling': [
         ('VRT',  'Liquid cooling & data-center thermal (a key winner)', False),
