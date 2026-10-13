@@ -40,6 +40,18 @@ sb = create_client(URL, KEY)
 
 SSGA = ('https://www.ssga.com/us/en/intermediary/library-content/products/'
         'fund-data/etfs/us/holdings-daily-us-en-{}.xlsx')
+# ARK publish a plain daily CSV per fund at a stable path. Most other issuers
+# (Global X, First Trust, iShares, Invesco) put their download behind a page
+# that returns HTML to a plain request, so they would each need their own
+# scraper; those fall through to Yahoo's top 10 below.
+ARK = {
+    'ARKF': 'ARK_FINTECH_INNOVATION_ETF_ARKF_HOLDINGS.csv',
+    'ARKG': 'ARK_GENOMIC_REVOLUTION_ETF_ARKG_HOLDINGS.csv',
+    'ARKQ': 'ARK_AUTONOMOUS_TECH._%26_ROBOTICS_ETF_ARKQ_HOLDINGS.csv',
+    'ARKX': 'ARK_SPACE_EXPLORATION_%26_INNOVATION_ETF_ARKX_HOLDINGS.csv',
+}
+ARK_BASE = 'https://assets.ark-funds.com/fund-documents/funds-etf-csv/'
+ARK_MAX_AGE_DAYS = 14
 UA = {'User-Agent': 'Mozilla/5.0'}
 # A ticker with a dot-suffix or non-letter characters is a foreign listing
 # (6954.T, BHP.AX, CCO.TO) and will never be in a US scan universe.
@@ -68,6 +80,37 @@ def ssga_full(sym):
                     out.append((t, float(w) / 100.0))
             return out or None
     return None
+
+
+def ark_full(sym):
+    """Complete holdings from ARK's daily CSV, or None if not an ARK fund."""
+    if sym not in ARK:
+        return None
+    try:
+        req = urllib.request.Request(ARK_BASE + ARK[sym], headers=UA)
+        txt = urllib.request.urlopen(req, timeout=30).read().decode('utf-8', 'replace')
+        df = pd.read_csv(io.StringIO(txt))
+    except Exception:
+        return None
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    if 'ticker' not in cols or 'weight (%)' not in cols:
+        return None
+    # ARK's file is only useful if it is current. It carries its own as-of date,
+    # and a stale file would quietly mark live holdings as "not held".
+    if 'date' in cols:
+        d = pd.to_datetime(df[cols['date']].iloc[0], errors='coerce', format='mixed')
+        if pd.notna(d) and (pd.Timestamp.today() - d).days > ARK_MAX_AGE_DAYS:
+            print(f'      (ARK file dated {d.date()} — too old, falling back)', end=' ')
+            return None
+    out = []
+    for _, r in df.iterrows():
+        t = str(r[cols['ticker']]).strip().upper()
+        # Weights arrive as strings like "9.65%".
+        w = pd.to_numeric(str(r[cols['weight (%)']]).replace('%', '').strip(),
+                          errors='coerce')
+        if t and t not in ('NAN', '-', '') and pd.notna(w):
+            out.append((t, float(w) / 100.0))
+    return out or None
 
 
 def yahoo_top(sym):
@@ -105,7 +148,8 @@ def main():
     today = datetime.now(timezone.utc).date().isoformat()
     for e in sorted(etfs, key=lambda r: r['symbol']):
         sym = e['symbol']
-        hold, complete = ssga_full(sym), True
+        hold = ssga_full(sym) or ark_full(sym)
+        complete = hold is not None
         if hold is None:
             hold, complete = yahoo_top(sym), False
         if not hold:
