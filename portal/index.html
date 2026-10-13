@@ -157,6 +157,20 @@ const rsTitle = r => {
   const pct = Math.round((r / Math.max(uni(), 1)) * 100);
   return `${base}\n\nThis name is #${r} of ${n} — stronger than about ${100 - pct}% of the market.`;
 };
+// P/E shown next to its distance from the company's own three-year average.
+// The absolute figure has to be there: StoneCo's P/E of 4.8 reads as "+205%
+// versus its own history", which without the 4.8 beside it looks expensive
+// when the company is on five times earnings. A ratio off a small base
+// exaggerates, so the anchor matters.
+const pev = r => r.pe==null ? '–'
+  : `${r.pe}<span class="s" style="color:${r.peVsOwn>0?'var(--red)':'var(--green)'}">${
+      r.peVsOwn==null?'':(r.peVsOwn>0?'+':'')+Math.round(r.peVsOwn*100)+'%'}</span>`;
+const peTitle = r => r.pe==null
+  ? 'No usable P/E — the company made a loss over the period, which leaves the ratio meaningless.'
+  : `P/E of ${r.pe} against a three-year average of ${(r.pe/(1+(r.peVsOwn||0))).toFixed(1)}`
+    + `, so ${r.peVsOwn>0?'about '+Math.round(r.peVsOwn*100)+'% more expensive':'about '+Math.abs(Math.round((r.peVsOwn||0)*100))+'% cheaper'} than its own recent history.`
+    + (r.mktCap?` Market value about $${r.mktCap>=1000?(r.mktCap/1000).toFixed(1)+'tn':r.mktCap.toFixed(1)+'bn'}.`:'');
+
 const shead = (last="Why it's here") => `<div class="shead"><div>Company</div>
   <div class="r" title="0-100, scored against every US stock we cover. Higher is stronger; 50 is the median stock.">Mom</div>
   <div class="r" title="${rsTitle()}">RS rank</div><div>${last}</div></div>`;
@@ -447,16 +461,21 @@ function chain(){
 function leaders(){
   const L=D.leaders;
   // Same widening as .srow: the rank carries its denominator and wraps at 60px.
-  const G='grid-template-columns:34px 1fr 50px 96px 1.2fr';
+  const G='grid-template-columns:30px 1fr 46px 88px 92px 62px 1fr';
   const head=`<div class="shead" style="${G}"><div></div><div>Company</div>
     <div class="r" title="0-100, scored against every US stock we cover. Higher is stronger; 50 is the median stock.">Mom</div>
-    <div class="r" title="${rsTitle()}">RS rank</div><div>Themes</div></div>`;
+    <div class="r" title="${rsTitle()}">RS rank</div>
+    <div class="r" title="Price-to-earnings now, and how far that sits from this company's OWN three-year average. Below its own average is not automatically cheap and above is not automatically expensive — but a high momentum score next to a P/E well above its own history tells you the market has already re-rated it. Blank where the company made a loss, which leaves the ratio meaningless.">P/E vs own</div>
+    <div class="r" title="How far below its own 52-week high the share price is. 0% means it is at a new high.">From high</div>
+    <div>Themes</div></div>`;
   const row=(r,i)=>`<div class="srow" style="${G}">
     <div class="nm" style="text-align:center">${i+1}</div>
     <div><a class="sym" style="font-size:13px" href="${tv(r.ticker)}" target="_blank" rel="noopener">${r.ticker} <span class="tvi">↗</span></a>
          <span class="nm">${esc((r.company||'').slice(0,34))}</span></div>
     <div class="r" style="font-weight:800;color:${momCol(r.mom)}">${r.mom}</div>
     <div class="r nm" title="${rsTitle(r.rsRank)}">${rs(r.rsRank)}</div>
+    <div class="r two" title="${peTitle(r)}">${pev(r)}</div>
+    <div class="r nm" style="color:${r.fromHigh>=-0.02?'var(--green)':'var(--text2)'}">${r.fromHigh==null?'–':(r.fromHigh*100).toFixed(1)+'%'}</div>
     <div>${r.themes.length
       ? r.themes.map(t=>`<span class="pill" style="cursor:pointer" onclick="openT('${t}')">${t}</span>`).join('')
       : `<span class="nm" style="opacity:.55" title="Strong, but not mapped to any of our themes yet">${esc(r.industry||'—')}</span>`}</div></div>`;

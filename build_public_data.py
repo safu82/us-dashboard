@@ -105,10 +105,43 @@ def main():
     print(f'stocks as of {stock_asof} | ETFs as of {etf_asof}\n')
 
     snaps = {r['ticker']: r for r in page(
-        'daily_stock_snapshots', 'ticker,momentum_score,rs_rank',
+        'daily_stock_snapshots', 'ticker,momentum_score,rs_rank,close,high_52w',
         lambda q: q.eq('snapshot_date', stock_asof).not_.is_('momentum_score', 'null'))}
     sectors = {r['ticker']: r for r in page(
         'us_stock_sectors', 'ticker,company_name,sector,industry')}
+
+    # Valuation context. Momentum says what is working; it cannot say whether
+    # the price already reflects it. A P/E against the company's OWN three-year
+    # average answers that without comparing a software firm to a miner, and
+    # it is a figure we derive rather than a vendor's data republished.
+    funda = {r['ticker']: r for r in page(
+        'stock_fundamentals', 'ticker,pe_ttm,pe_3yr_avg,market_cap_usd')}
+
+    def valuation(tk):
+        f = funda.get(tk) or {}
+        pe, pe3 = f.get('pe_ttm'), f.get('pe_3yr_avg')
+        try:
+            pe, pe3 = float(pe), float(pe3)
+        except (TypeError, ValueError):
+            return None, None
+        if pe <= 0 or pe3 <= 0:
+            return None, None     # a loss-making year makes the ratio meaningless
+        return round(pe, 1), round(pe / pe3 - 1, 3)
+
+    def from_high(tk):
+        s = snaps.get(tk) or {}
+        try:
+            c, h = float(s.get('close')), float(s.get('high_52w'))
+            return round(c / h - 1, 4) if h > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def mkt_cap(tk):
+        v = (funda.get(tk) or {}).get('market_cap_usd')
+        try:
+            return round(float(v) / 1e9, 2)      # $bn
+        except (TypeError, ValueError):
+            return None
 
     # ── ETF board ─────────────────────────────────────────────────────────────
     meta = {r['symbol']: r for r in page(
@@ -222,9 +255,12 @@ def main():
         if sn.get('momentum_score') is None or tk in funds_by_symbol:
             continue
         sec = sectors.get(tk) or {}
+        pe, peVsOwn = valuation(tk)
         leaders.append({'ticker': tk, 'company': sec.get('company_name'),
                         'industry': sec.get('industry'),
                         'mom': sn['momentum_score'], 'rsRank': sn.get('rs_rank'),
+                        'pe': pe, 'peVsOwn': peVsOwn,
+                        'fromHigh': from_high(tk), 'mktCap': mkt_cap(tk),
                         'themes': sorted(mapped.get(tk, []))})
     leaders.sort(key=lambda r: (-r['mom'], r['rsRank'] or 9999))
     write('leaders.json', {
@@ -263,9 +299,12 @@ def main():
     stocks = {}
     for tk in sorted(needed):
         sn, sec = snaps.get(tk), sectors.get(tk) or {}
+        pe, peVsOwn = valuation(tk)
         stocks[tk] = {'company': sec.get('company_name'),
                       'mom': (sn or {}).get('momentum_score'),
                       'rsRank': (sn or {}).get('rs_rank'),
+                      'pe': pe, 'peVsOwn': peVsOwn,
+                      'fromHigh': from_high(tk), 'mktCap': mkt_cap(tk),
                       'themes': sorted(mapped.get(tk, []))}
     write('stocks.json', {'asOf': stock_asof, 'stocks': stocks})
 
