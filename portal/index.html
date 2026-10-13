@@ -69,9 +69,18 @@
   .panel{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;margin-top:16px;}
   .ptitle{font-size:16px;font-weight:800;margin-bottom:3px;}
   .psub{font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:12px;}
-  .srow{display:grid;grid-template-columns:1fr 54px 60px 1.4fr;gap:10px;padding:7px 8px;margin:0 -8px;
+  /* RS rank carries its denominator ("#116 / 1,930"), so the column needs room
+     for a four-digit rank without wrapping. */
+  .srow{display:grid;grid-template-columns:1fr 50px 96px 1.25fr;gap:10px;padding:7px 8px;margin:0 -8px;
     border-bottom:1px solid var(--border);font-size:13px;align-items:center;border-radius:7px;}
   .srow:last-child{border-bottom:none;}
+  /* Header for the stock tables. Momentum and RS rank sit side by side and run
+     in OPPOSITE directions — 98 is strong momentum, but #98 is a strong rank and
+     #980 is not — so both columns have to be named. */
+  .shead{display:grid;grid-template-columns:1fr 50px 96px 1.25fr;gap:10px;padding:0 8px 6px;margin:0 -8px;
+    font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:var(--text2);
+    border-bottom:1px solid var(--border);}
+  .shead div[title]{cursor:help;border-bottom:1px dotted var(--text2);display:inline-block;}
   .pill{display:inline-block;font-size:10px;background:#1d2531;color:var(--text2);border-radius:5px;padding:2px 7px;margin-right:4px;}
   .link{border-top:1px solid var(--border);padding:13px 0 4px;}
   .link:first-child{border-top:none;}
@@ -100,7 +109,11 @@
 <div class="wrap">
   <div id="view">Loading…</div>
   <footer>
-    <b>How to read this.</b> <b>Momentum</b> is a 0-100 score: each name is ranked against the whole ~1,900-stock US universe on relative-strength level and trend, 9- and 20-day EMA slopes, and price against its 50-day average. 50 is the median stock, not a neutral return — in a falling market a high score means falling less than everything else. ETFs are scored the same way but against <i>other ETFs</i>, so the two numbers are not comparable with each other. <b>Durability</b> is the share of the last 60 trading days a fund spent in the top 10% of the board; the average fund scores about 10%. <b>8/21</b> means the price closed above its 8-day EMA with the 8 above the 21.
+    <b>How to read this.</b> <b>Momentum</b> is a 0-100 score: each name is ranked against the whole ~1,900-stock US universe on relative-strength level and trend, 9- and 20-day EMA slopes, and price against its 50-day average. 50 is the median stock, not a neutral return — in a falling market a high score means falling less than everything else. ETFs are scored the same way but against <i>other ETFs</i>, so the two numbers are not comparable with each other.
+    <br><br>
+    <b>RS rank</b> is a position, not a score, and it runs the other way: <b>#1 is the strongest stock in the market</b>, so lower is better. It ranks a stock's price against the S&P 500 over the past few weeks, so #15 / 1,934 means only fourteen US stocks we cover were performing better. A name can hold a high momentum score and a middling RS rank at the same time — momentum rewards a trend that is improving, RS rewards one that is already ahead.
+    <br><br>
+    <b>Durability</b> is the share of the last 60 trading days a fund spent in the top 10% of the board; the average fund scores about 10%. <b>8/21</b> means the price closed above its 8-day EMA with the 8 above the 21.
     <br><br>
     Data is rebuilt each weeknight after the US close and is delayed, not live. Value chains are our own mapping and will not match any index or fund's holdings. <b>This is educational research, not investment advice, and not personalised to anyone.</b> Nothing here is a recommendation to buy or sell. Do your own work.
     <span id="built" style="display:block;margin-top:10px;opacity:.7"></span>
@@ -116,6 +129,22 @@ const pc=(v,d=1)=> v==null?'–':(v*100).toFixed(d)+'%';
 const sg=(v,d=0)=> v==null?'–':(v>0?'+':'')+(v*100).toFixed(d)+'%';
 const col=v=> v==null?'var(--text2)':v>0?'var(--green)':v<0?'var(--red)':'var(--text2)';
 const momCol=m=> m==null?'var(--text2)':m>55?'var(--green)':m<45?'var(--red)':'var(--text2)';
+
+// RS rank runs the opposite way to every other number on the page: #1 is the
+// strongest stock in the universe, not the weakest. Shown as "#15 / 1,934" so
+// the denominator makes the direction obvious without needing the footnote.
+const uni = () => (D.meta?.counts?.universe || 0);
+const rs = r => r==null ? '–' : `#${r}<span style="opacity:.45"> / ${uni().toLocaleString()}</span>`;
+const rsTitle = r => {
+  const n = uni().toLocaleString();
+  const base = `Relative-strength rank against all ${n} US stocks we cover, measured versus the S&P 500. #1 is the strongest in the market — lower is better, the opposite way round to the momentum score.`;
+  if (r == null) return base;
+  const pct = Math.round((r / Math.max(uni(), 1)) * 100);
+  return `${base}\n\nThis name is #${r} of ${n} — stronger than about ${100 - pct}% of the market.`;
+};
+const shead = () => `<div class="shead"><div>Company</div>
+  <div class="r" title="0-100, scored against every US stock we cover. Higher is stronger; 50 is the median stock.">Mom</div>
+  <div class="r" title="${rsTitle()}">RS rank</div><div>Why it's here</div></div>`;
 const tv=s=>`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(s)}`;
 const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
@@ -205,15 +234,22 @@ function rotation(){
 function fundDrill(f){
   const ch=f.theme?D.chains.chains[f.theme]:null;
   if(ch){
-    const names=[];
-    ch.links.forEach(l=>l.members.forEach(m=>{ if(!m.context&&m.mom!=null) names.push(m); }));
+    // A company can sit in more than one link of the same chain — Datadog is in
+    // both cloud monitoring and observability — so flattening the links without
+    // deduplicating listed it twice.
+    const seen=new Set(), names=[];
+    ch.links.forEach(l=>l.members.forEach(m=>{
+      if(m.context||m.mom==null||seen.has(m.ticker)) return;
+      seen.add(m.ticker); names.push(m);
+    }));
     names.sort((a,b)=>b.mom-a.mom);
     return `<div class="dw"><div class="ptitle">${f.symbol} — strongest names in ${esc(ch.name)}</div>
       <div class="psub">From our own value-chain mapping, not the fund's holdings. <span style="cursor:pointer;color:var(--blue)" onclick="event.stopPropagation();openT('${ch.slug}')">See the whole chain →</span></div>
+      ${shead()}
       ${names.slice(0,10).map(m=>`<div class="srow">
         <div><b>${m.ticker}</b> <span class="nm">${esc((m.company||'').slice(0,32))}</span></div>
         <div class="r" style="font-weight:700;color:${momCol(m.mom)}">${m.mom}</div>
-        <div class="r nm">#${m.rsRank??'–'}</div>
+        <div class="r nm" title="${rsTitle(m.rsRank)}">${rs(m.rsRank)}</div>
         <div class="nm">${esc((m.why||'').slice(0,58))}</div></div>`).join('')}</div>`;
   }
   if(f.sector){
@@ -284,11 +320,12 @@ function chain(){
         ${l.scored===0?'<span class="thin">no listed pure-plays</span>':''}
       </div>
       <div class="lmeta">${esc(l.what)}</div>
+      ${l.members.length?shead():''}
       ${l.members.map(m=>`<div class="srow">
         <div><a class="sym" style="font-size:13px" href="${tv(m.ticker)}" target="_blank" rel="noopener">${m.ticker} <span class="tvi">↗</span></a>
              <span class="nm">${esc((m.company||'').slice(0,30))}</span></div>
         <div class="r" style="font-weight:700;color:${momCol(m.mom)}">${m.context?'–':(m.mom??'–')}</div>
-        <div class="r nm">${m.context?'':'#'+(m.rsRank??'–')}</div>
+        <div class="r nm" title="${m.context?'':rsTitle(m.rsRank)}">${m.context?'':rs(m.rsRank)}</div>
         <div class="nm">${esc(m.why||'')}${m.context?' <span class="pill">not US-listed</span>':''}</div></div>`).join('')}
     </div>`).join('')}
   </div>`;
@@ -297,20 +334,24 @@ function chain(){
 /* ---------- Leaders ---------- */
 function leaders(){
   const L=D.leaders;
-  const row=(r,i)=>`<div class="srow" style="grid-template-columns:34px 1fr 56px 60px 1.2fr">
+  const G='grid-template-columns:34px 1fr 56px 60px 1.2fr';
+  const head=`<div class="shead" style="${G}"><div></div><div>Company</div>
+    <div class="r" title="0-100, scored against every US stock we cover. Higher is stronger; 50 is the median stock.">Mom</div>
+    <div class="r" title="${rsTitle()}">RS rank</div><div>Themes</div></div>`;
+  const row=(r,i)=>`<div class="srow" style="${G}">
     <div class="nm" style="text-align:center">${i+1}</div>
     <div><a class="sym" style="font-size:13px" href="${tv(r.ticker)}" target="_blank" rel="noopener">${r.ticker} <span class="tvi">↗</span></a>
          <span class="nm">${esc((r.company||'').slice(0,34))}</span></div>
     <div class="r" style="font-weight:800;color:${momCol(r.mom)}">${r.mom}</div>
-    <div class="r nm">#${r.rsRank??'–'}</div>
+    <div class="r nm" title="${rsTitle(r.rsRank)}">${rs(r.rsRank)}</div>
     <div>${r.themes.map(t=>`<span class="pill" style="cursor:pointer" onclick="openT('${t}')">${t}</span>`).join('')}</div></div>`;
   return `<div class="intro">The strongest individual names across every theme we map, and the ones sitting in several themes at once. Momentum here is scored against the whole US universe, so it is not comparable with the fund scores on Rotation.</div>
   <div class="panel" style="margin-top:0"><div class="ptitle">🏆 Strongest names across all themes</div>
     <div class="psub">Top 40 by momentum. Click a theme tag to open its value chain, or a ticker for a chart.</div>
-    ${L.top.slice(0,40).map(row).join('')}</div>
+    ${head}${L.top.slice(0,40).map(row).join('')}</div>
   <div class="panel"><div class="ptitle">🔗 In more than one theme</div>
     <div class="psub">One company catching several trends at once — structurally central to the map rather than a pure play on any single one.</div>
-    ${L.hubs.map(row).join('')}</div>`;
+    ${head}${L.hubs.map(row).join('')}</div>`;
 }
 
 try { boot(); }
