@@ -61,12 +61,32 @@ def med(xs):
     return round(statistics.median(xs)) if xs else None
 
 
+BUNDLE = {}      # everything written, also emitted as one JS file (see write_bundle)
+
+
 def write(name, obj):
     os.makedirs(OUT, exist_ok=True)
     p = os.path.join(OUT, name)
     with open(p, 'w', encoding='utf-8') as fh:
         json.dump(obj, fh, separators=(',', ':'), ensure_ascii=False)
+    BUNDLE[name.replace('.json', '')] = obj
     print(f'  {name:<16} {os.path.getsize(p)/1024:>7.1f} KB')
+
+
+def write_bundle():
+    """Same payloads as one JS file assigning window.PORTAL_DATA.
+
+    The page loads this with a <script> tag rather than fetching the JSON,
+    because fetch() is blocked under file:// — opening index.html by
+    double-clicking it would otherwise fail with no obvious cause. A script tag
+    works from the filesystem and from a CDN alike. The .json files stay: they
+    cost nothing and are a usable raw-data endpoint on their own."""
+    p = os.path.join(OUT, 'data.js')
+    with open(p, 'w', encoding='utf-8') as fh:
+        fh.write('window.PORTAL_DATA=')
+        json.dump(BUNDLE, fh, separators=(',', ':'), ensure_ascii=False)
+        fh.write(';')
+    print(f'  {"data.js":<16} {os.path.getsize(p)/1024:>7.1f} KB  (bundle, works from file://)')
 
 
 def main():
@@ -216,6 +236,7 @@ def main():
         'counts': {'themes': len(theme_rows), 'funds': len(funds),
                    'companies': len(mapped), 'universe': len(snaps)},
     })
+    write_bundle()
     print(f'\nDone. {len(theme_rows)} themes, {len(funds)} funds, {len(mapped)} mapped names.')
 
 

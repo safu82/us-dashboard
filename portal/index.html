@@ -107,8 +107,9 @@
   </footer>
 </div>
 
+<script src="data/data.js"></script>
 <script>
-const D = {};            // loaded JSON by name
+const D = {};            // populated from window.PORTAL_DATA in boot()
 let TAB='rotation', group='all', checks=new Set(), sortBy='mom', openFund=null, openTheme=null, themeSort='category';
 
 const pc=(v,d=1)=> v==null?'–':(v*100).toFixed(d)+'%';
@@ -127,10 +128,12 @@ const CHECKS={
   lead:{label:'Durable leader',t:f=>f.durability!=null&&f.durability>=0.25},
 };
 
-async function boot(){
-  const names=['meta','etfs','themes','chains','leaders','emerging'];
-  const got=await Promise.all(names.map(n=>fetch(`data/${n}.json`).then(r=>r.json())));
-  names.forEach((n,i)=>D[n]=got[i]);
+function boot(){
+  // Data arrives via the <script src="data/data.js"> tag above rather than
+  // fetch(), so the page also works when opened straight off disk — Chrome
+  // blocks fetch() under file:// and the failure looks like a broken build.
+  if(!window.PORTAL_DATA) throw new Error('data/data.js did not load');
+  Object.assign(D, window.PORTAL_DATA);
   document.getElementById('asof').textContent=`Data to ${D.meta.stockAsOf}`;
   document.getElementById('built').textContent=
     `${D.meta.counts.themes} themes · ${D.meta.counts.funds} funds · ${D.meta.counts.companies} mapped companies · scored against ${D.meta.counts.universe.toLocaleString()} US stocks. Built ${D.meta.builtAt.replace('T',' ').replace('+00:00','')} UTC.`;
@@ -310,9 +313,15 @@ function leaders(){
     ${L.hubs.map(row).join('')}</div>`;
 }
 
-boot().catch(e=>{document.getElementById('view').innerHTML=
-  '<div class="intro">Could not load the data. Please refresh — if it keeps failing the nightly build may not have run.</div>';
-  console.error(e);});
+try { boot(); }
+catch(e){
+  document.getElementById('view').innerHTML =
+    `<div class="intro">Could not load the data.<br><br>
+      If you opened this file directly, check that <code>data/data.js</code> sits next to it —
+      that one file carries everything the page shows. Otherwise the nightly build may not have run yet.
+      <br><br><span style="opacity:.6">${esc(e.message)}</span></div>`;
+  console.error(e);
+}
 </script>
 </body>
 </html>
