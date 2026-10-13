@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+"""Freeze the sector-research data into static JSON for the public portal.
+
+The public site gets no database access at all. It reads these files from a CDN,
+which means there is no key in its page source, nothing for a visitor to point
+at the portfolio project, and no load on Supabase from public traffic. The data
+moves once a day, so a live connection would buy nothing.
+
+What is deliberately NOT published:
+  analyst_ratings   TipRanks, licensed to us and not ours to redistribute
+  stock_fundamentals  raw P/S, margins and growth come from yfinance; only the
+                      percentile we compute from them goes out, never the inputs
+  holdings, transactions, cash_flows, portfolio_snapshots, paper_*  — personal
+  conviction_scores, entry_signals  — ours, but they drive the paper algo
+
+What IS published is our own: the hand-mapped value chains, and the momentum,
+rank and durability scores computed nightly from them.
+
+Writes portal/data/*.json. Run after compute_etf_momentum in the nightly chain.
+Env: SUPABASE_URL, SUPABASE_SERVICE_KEY.
+"""
+
+import json
+import os
+import statistics
+import sys
+from datetime import datetime, timezone
+
+from dotenv import load_dotenv
+from supabase import create_client
+
+BASE = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE, '.env'))
+OUT = os.path.join(BASE, 'portal', 'data')
+
+URL = os.environ.get('SUPABASE_URL')
+KEY = os.environ.get('SUPABASE_SERVICE_KEY')
+if not URL or not KEY:
+    sys.exit('ERROR: SUPABASE_URL and SUPABASE_SERVICE_KEY must be set')
+sb = create_client(URL, KEY)
+
+MIN_COVERAGE_MEMBERS = 3      # below this a link's median is close to one stock
+EMERGING_MIN_N, EMERGING_MIN_MOM, EMERGING_MIN_GAP = 5, 70, 0.5
+
+
+def page(table, cols, f=None, size=1000):
+    out, frm = [], 0
+    while True:
+        q = sb.table(table).select(cols)
+        if f:
+            q = f(q)
+        rows = q.range(frm, frm + size - 1).execute().data or []
+        out.extend(rows)
+        if len(rows) < size:
+            return out
+        frm += size
+
+
+def med(xs):
+    xs = [x for x in xs if x is not None]
+    return round(statistics.median(xs)) if xs else None
+
+
+def write(name, obj):
+    os.makedirs(OUT, exist_ok=True)
+    p = os.path.join(OUT, name)
+    with open(p, 'w', encoding='utf-8') as fh:
+        json.dump(obj, fh, separators=(',', ':'), ensure_ascii=False)
+    print(f'  {name:<16} {os.path.getsize(p)/1024:>7.1f} KB')
+
+
+def main():
+    print('=' * 64)
+    print('BUILD PUBLIC DATA  ', datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'))
+    print('=' * 64)
+
+    stock_asof = (sb.table('daily_stock_snapshots').select('snapshot_date')
+                  .not_.is_('momentum_score', 'null')
+                  .order('snapshot_date', desc=True).limit(1).execute().data)
+    etf_asof = (sb.table('etf_snapshots').select('snapshot_date')
+                .order('snapshot_date', desc=True).limit(1).execute().data)
+    if not stock_asof or not etf_asof:
+        sys.exit('no scored data to publish')
+    stock_asof, etf_asof = stock_asof[0]['snapshot_date'], etf_asof[0]['snapshot_date']
+    print(f'stocks as of {stock_asof} | ETFs as of {etf_asof}\n')
+
+    snaps = {r['ticker']: r for r in page(
+        'daily_stock_snapshots', 'ticker,momentum_score,rs_rank',
+        lambda q: q.eq('snapshot_date', stock_asof).not_.is_('momentum_score', 'null'))}
+    sectors = {r['ticker']: r for r in page(
+        'us_stock_sectors', 'ticker,company_name,sector,industry')}
+
+    # ── ETF board ─────────────────────────────────────────────────────────────
+    meta = {r['symbol']: r for r in page(
+        'etfs', 'symbol,name,kind,grp,sector,theme_slug,benchmark_only,display_order')}
+    esnap = {r['symbol']: r for r in page(
+        'etf_snapshots',
+        'symbol,momentum_score,etf_rank,pct_from_high,above_8_21,'
+        'ret_20,vs_spy_20,vs_qqq_20,ret_60,vs_spy_60,vs_qqq_60,top_decile_60d',
+        lambda q: q.eq('snapshot_date', etf_asof))}
+
+    funds, benchmarks = [], {}
+    for sym, m in sorted(meta.items(), key=lambda kv: kv[1].get('display_order') or 999):
+        s = esnap.get(sym)
+        if not s:
+            continue
+        row = {'symbol': sym, 'name': m.get('name'), 'group': m.get('grp'),
+               'kind': m.get('kind'), 'theme': m.get('theme_slug'),
+               'sector': m.get('sector'), 'mom': s.get('momentum_score'),
+               'rank': s.get('etf_rank'), 'fromHigh': s.get('pct_from_high'),
+               'trend821': s.get('above_8_21'),
+               'vsSpy20': s.get('vs_spy_20'), 'vsQqq20': s.get('vs_qqq_20'),
+               'vsSpy60': s.get('vs_spy_60'), 'vsQqq60': s.get('vs_qqq_60'),
+               'durability': s.get('top_decile_60d')}
+        if m.get('benchmark_only'):
+            benchmarks[sym] = {'symbol': sym, 'ret20': s.get('ret_20'),
+                               'ret60': s.get('ret_60')}
+        elif row['mom'] is not None:
+            funds.append(row)
+    write('etfs.json', {'asOf': etf_asof, 'funds': funds, 'benchmarks': benchmarks})
+
+    # ── Value chains ──────────────────────────────────────────────────────────
+    themes = page('themes', 'slug,name,description,category,category_order,display_order')
+    nodes = page('theme_nodes', 'theme_slug,node_key,name,short_label,layer,blurb')
+    members = page('theme_members', 'theme_slug,node_key,ticker,note,is_context')
+
+    by_node = {}
+    for m in members:
+        by_node.setdefault((m['theme_slug'], m['node_key']), []).append(m)
+
+    chains, theme_rows = {}, []
+    for t in sorted(themes, key=lambda x: (x.get('category_order') or 99,
+                                           x.get('display_order') or 99)):
+        links, all_scores = [], []
+        for n in sorted([x for x in nodes if x['theme_slug'] == t['slug']],
+                        key=lambda x: (x.get('layer') or 99, x['node_key'])):
+            rows, scores = [], []
+            for mm in sorted(by_node.get((t['slug'], n['node_key']), []),
+                             key=lambda r: r['ticker']):
+                tk, sn = mm['ticker'], snaps.get(mm['ticker'], {})
+                ctx = bool(mm.get('is_context'))
+                rows.append({'ticker': tk,
+                             'company': (sectors.get(tk) or {}).get('company_name'),
+                             'why': mm.get('note'),
+                             'mom': None if ctx else sn.get('momentum_score'),
+                             'rsRank': None if ctx else sn.get('rs_rank'),
+                             'context': ctx})
+                if not ctx and sn.get('momentum_score') is not None:
+                    scores.append(sn['momentum_score'])
+            all_scores += scores
+            links.append({'key': n['node_key'], 'name': n['name'],
+                          'short': n.get('short_label'), 'position': n.get('layer'),
+                          'what': n.get('blurb'), 'mom': med(scores),
+                          'scored': len(scores),
+                          'thin': len(scores) < MIN_COVERAGE_MEMBERS,
+                          'members': rows})
+        chains[t['slug']] = {'slug': t['slug'], 'name': t['name'],
+                             'description': t.get('description'),
+                             'category': t.get('category'), 'links': links}
+        theme_rows.append({'slug': t['slug'], 'name': t['name'],
+                           'description': t.get('description'),
+                           'category': t.get('category'),
+                           'mom': med(all_scores), 'links': len(links),
+                           'companies': sum(l['scored'] for l in links)})
+    write('themes.json', {'asOf': stock_asof, 'themes': theme_rows})
+    write('chains.json', {'asOf': stock_asof, 'chains': chains})
+
+    # ── Leaders ───────────────────────────────────────────────────────────────
+    # Momentum only. The blended board on the private site adds a value leg built
+    # from yfinance fundamentals; the inputs are not ours to republish and the
+    # percentile alone would need them explained, so the public cut stays on the
+    # score we compute ourselves.
+    mapped = {}
+    for m in members:
+        if not m.get('is_context'):
+            mapped.setdefault(m['ticker'], set()).add(m['theme_slug'])
+    leaders = []
+    for tk, slugs in mapped.items():
+        sn = snaps.get(tk)
+        if not sn or sn.get('momentum_score') is None:
+            continue
+        leaders.append({'ticker': tk,
+                        'company': (sectors.get(tk) or {}).get('company_name'),
+                        'mom': sn['momentum_score'], 'rsRank': sn.get('rs_rank'),
+                        'themes': sorted(slugs)})
+    leaders.sort(key=lambda r: -r['mom'])
+    write('leaders.json', {'asOf': stock_asof,
+                           'top': leaders[:60],
+                           'hubs': sorted([l for l in leaders if len(l['themes']) >= 2],
+                                          key=lambda r: (-len(r['themes']), -r['mom']))[:15]})
+
+    # ── Emerging groups ───────────────────────────────────────────────────────
+    buckets = {}
+    for tk, sn in snaps.items():
+        ind = (sectors.get(tk) or {}).get('industry')
+        if not ind:
+            continue
+        b = buckets.setdefault(ind, {'mom': [], 'unmapped': []})
+        b['mom'].append(sn['momentum_score'])
+        if tk not in mapped:
+            b['unmapped'].append({'ticker': tk, 'mom': sn['momentum_score']})
+    emerging = []
+    for ind, b in buckets.items():
+        n = len(b['mom'])
+        gap = len(b['unmapped']) / n if n else 0
+        m = med(b['mom'])
+        if n >= EMERGING_MIN_N and m and m >= EMERGING_MIN_MOM and gap >= EMERGING_MIN_GAP:
+            emerging.append({'industry': ind, 'n': n, 'mom': m, 'gap': round(gap, 2),
+                             'leaders': sorted(b['unmapped'], key=lambda r: -r['mom'])[:6]})
+    emerging.sort(key=lambda r: -r['mom'])
+    write('emerging.json', {'asOf': stock_asof, 'groups': emerging[:8]})
+
+    write('meta.json', {
+        'stockAsOf': stock_asof, 'etfAsOf': etf_asof,
+        'builtAt': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        'counts': {'themes': len(theme_rows), 'funds': len(funds),
+                   'companies': len(mapped), 'universe': len(snaps)},
+    })
+    print(f'\nDone. {len(theme_rows)} themes, {len(funds)} funds, {len(mapped)} mapped names.')
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sector Compass — US market themes, mapped</title>
+<meta name="description" content="Every US sector and thematic ETF ranked against the others, and 18 investment themes broken into their value chains. Updated daily. Educational, not advice.">
+<style>
+  :root{--bg:#0b0e14;--bg2:#141922;--bg3:#1b212c;--border:#2a323f;--text:#e8eef6;--text2:#8e9bad;--green:#3fb950;--red:#f85149;--orange:#f0883e;--blue:#58a6ff;--accent:#2563eb;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;font-size:14px;line-height:1.5;padding-bottom:40px;}
+  a{color:inherit;text-decoration:none;}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 20px;}
+
+  header{border-bottom:1px solid var(--border);background:linear-gradient(180deg,#121823,var(--bg));}
+  .brand{display:flex;align-items:center;gap:10px;padding:22px 0 6px;}
+  .logo{font-size:22px;}
+  .bname{font-size:21px;font-weight:800;letter-spacing:-.5px;}
+  .tag{color:var(--text2);font-size:13.5px;max-width:720px;padding-bottom:18px;}
+  nav{display:flex;gap:4px;}
+  nav button{background:none;border:none;border-bottom:2px solid transparent;color:var(--text2);
+    font:inherit;font-weight:600;font-size:14px;padding:10px 16px;cursor:pointer;}
+  nav button:hover{color:var(--text);}
+  nav button.on{color:var(--text);border-bottom-color:var(--accent);}
+  .asof{margin-left:auto;align-self:center;font-size:11.5px;color:var(--text2);}
+
+  .intro{color:var(--text2);font-size:13px;margin:18px 0 14px;max-width:860px;}
+  .bar{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}
+  .chip{background:var(--bg2);border:1px solid var(--border);color:var(--text2);border-radius:999px;
+    padding:6px 13px;font-size:12.5px;cursor:pointer;white-space:nowrap;}
+  .chip:hover{color:var(--text);}
+  .chip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  .chip .x{font-style:normal;font-size:10px;margin-left:6px;opacity:.85;}
+  .chip.clr{border-style:dashed;}
+  .sp{flex:1;}  .lab{font-size:12px;color:var(--text2);}
+
+  .tbl{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+  .th,.tr{display:grid;grid-template-columns:40px 1fr 56px 60px 44px 96px 96px 78px;gap:8px;align-items:center;padding:9px 14px;}
+  .th{background:var(--bg3);font-size:10.5px;letter-spacing:.4px;text-transform:uppercase;color:var(--text2);}
+  .tr{border-top:1px solid var(--border);font-size:13px;cursor:pointer;}
+  .tr:hover{background:var(--bg3);}
+  .tr.sel{background:#16233a;}
+  .r{text-align:right;} .c{text-align:center;}
+  .sym{font-weight:800;font-size:14px;}
+  .sym:hover{color:var(--blue);}
+  .tvi{opacity:0;font-size:10px;font-weight:400;vertical-align:2px;}
+  .tr:hover .tvi{opacity:.7;}
+  .nm{color:var(--text2);font-size:11.5px;}
+  .tagx{display:inline-block;font-size:9.5px;color:var(--text2);border:1px solid var(--border);
+    border-radius:5px;padding:1px 6px;margin-left:7px;vertical-align:1px;}
+  .two{font-size:12.5px;} .two .s{opacity:.5;font-size:11px;margin-left:4px;}
+  .bars{display:inline-block;width:38px;height:6px;background:var(--bg);border-radius:3px;overflow:hidden;vertical-align:middle;}
+  .bars i{display:block;height:100%;background:var(--blue);}
+  .dur{font-size:11px;color:var(--text2);margin-left:5px;}
+  .caret{color:var(--accent);font-weight:800;}
+  .drill{background:var(--bg);box-shadow:inset 0 2px 6px rgba(0,0,0,.4);}
+  .dw{padding:14px 16px 16px;border-left:3px solid var(--accent);}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:12px;}
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:11px;padding:14px 15px;
+    display:flex;flex-direction:column;gap:6px;cursor:pointer;transition:border-color .15s,transform .1s;}
+  .card:hover{border-color:var(--accent);transform:translateY(-2px);}
+  .crow{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .cname{font-size:15px;font-weight:800;letter-spacing:-.2px;line-height:1.25;}
+  .cmom{font-weight:800;font-size:13px;white-space:nowrap;}
+  .cdesc{font-size:12px;color:var(--text2);line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .cstat{font-size:11.5px;color:var(--text2);} .cstat b{color:var(--text);}
+
+  .panel{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;margin-top:16px;}
+  .ptitle{font-size:16px;font-weight:800;margin-bottom:3px;}
+  .psub{font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:12px;}
+  .srow{display:grid;grid-template-columns:1fr 54px 60px 1.4fr;gap:10px;padding:7px 8px;margin:0 -8px;
+    border-bottom:1px solid var(--border);font-size:13px;align-items:center;border-radius:7px;}
+  .srow:last-child{border-bottom:none;}
+  .pill{display:inline-block;font-size:10px;background:#1d2531;color:var(--text2);border-radius:5px;padding:2px 7px;margin-right:4px;}
+  .link{border-top:1px solid var(--border);padding:13px 0 4px;}
+  .link:first-child{border-top:none;}
+  .lname{font-weight:700;font-size:14px;}
+  .lmeta{font-size:11.5px;color:var(--text2);margin:2px 0 7px;}
+  .thin{color:var(--orange);font-size:10px;border:1px solid var(--orange);border-radius:5px;padding:0 5px;margin-left:6px;opacity:.75;}
+  .back{display:inline-block;color:var(--blue);font-size:13px;font-weight:600;margin-bottom:14px;cursor:pointer;}
+  footer{border-top:1px solid var(--border);margin-top:34px;padding:20px 0 0;color:var(--text2);font-size:11.5px;line-height:1.65;}
+  footer b{color:var(--text);}
+  .hide{display:none;}
+  @media(max-width:760px){ .th,.tr{grid-template-columns:32px 1fr 50px 58px;} .hs{display:none;} }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <div class="brand"><span class="logo">🧭</span><span class="bname">Sector Compass</span></div>
+  <div class="tag">Every US sector and thematic ETF ranked against the others, and 18 investment themes broken into the companies that actually make them work. Rebuilt every weeknight.</div>
+  <nav>
+    <button data-t="rotation" class="on" onclick="tab('rotation')">Rotation</button>
+    <button data-t="themes" onclick="tab('themes')">Themes</button>
+    <button data-t="leaders" onclick="tab('leaders')">Leaders</button>
+    <span class="asof" id="asof"></span>
+  </nav>
+</div></header>
+
+<div class="wrap">
+  <div id="view">Loading…</div>
+  <footer>
+    <b>How to read this.</b> <b>Momentum</b> is a 0-100 score: each name is ranked against the whole ~1,900-stock US universe on relative-strength level and trend, 9- and 20-day EMA slopes, and price against its 50-day average. 50 is the median stock, not a neutral return — in a falling market a high score means falling less than everything else. ETFs are scored the same way but against <i>other ETFs</i>, so the two numbers are not comparable with each other. <b>Durability</b> is the share of the last 60 trading days a fund spent in the top 10% of the board; the average fund scores about 10%. <b>8/21</b> means the price closed above its 8-day EMA with the 8 above the 21.
+    <br><br>
+    Data is rebuilt each weeknight after the US close and is delayed, not live. Value chains are our own mapping and will not match any index or fund's holdings. <b>This is educational research, not investment advice, and not personalised to anyone.</b> Nothing here is a recommendation to buy or sell. Do your own work.
+    <span id="built" style="display:block;margin-top:10px;opacity:.7"></span>
+  </footer>
+</div>
+
+<script>
+const D = {};            // loaded JSON by name
+let TAB='rotation', group='all', checks=new Set(), sortBy='mom', openFund=null, openTheme=null, themeSort='category';
+
+const pc=(v,d=1)=> v==null?'–':(v*100).toFixed(d)+'%';
+const sg=(v,d=0)=> v==null?'–':(v>0?'+':'')+(v*100).toFixed(d)+'%';
+const col=v=> v==null?'var(--text2)':v>0?'var(--green)':v<0?'var(--red)':'var(--text2)';
+const momCol=m=> m==null?'var(--text2)':m>55?'var(--green)':m<45?'var(--red)':'var(--text2)';
+const tv=s=>`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(s)}`;
+const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+
+const NEAR_HIGH=-0.02;
+const CHECKS={
+  high:{label:'At new highs', t:f=>f.fromHigh!=null&&f.fromHigh>=NEAR_HIGH},
+  trend:{label:'Holding 8/21', t:f=>f.trend821===true},
+  spy:{label:'Beating SPY',   t:f=>f.vsSpy20>0},
+  qqq:{label:'Beating QQQ',   t:f=>f.vsQqq20>0},
+  lead:{label:'Durable leader',t:f=>f.durability!=null&&f.durability>=0.25},
+};
+
+async function boot(){
+  const names=['meta','etfs','themes','chains','leaders','emerging'];
+  const got=await Promise.all(names.map(n=>fetch(`data/${n}.json`).then(r=>r.json())));
+  names.forEach((n,i)=>D[n]=got[i]);
+  document.getElementById('asof').textContent=`Data to ${D.meta.stockAsOf}`;
+  document.getElementById('built').textContent=
+    `${D.meta.counts.themes} themes · ${D.meta.counts.funds} funds · ${D.meta.counts.companies} mapped companies · scored against ${D.meta.counts.universe.toLocaleString()} US stocks. Built ${D.meta.builtAt.replace('T',' ').replace('+00:00','')} UTC.`;
+  render();
+}
+window.tab=t=>{TAB=t;openTheme=null;
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));render();};
+window.setGroup=g=>{group=(group===g?'all':g);render();};
+window.toggleCheck=k=>{checks.has(k)?checks.delete(k):checks.add(k);render();};
+window.setSort=s=>{sortBy=s;render();};
+window.clearF=()=>{group='all';checks.clear();render();};
+window.pickFund=s=>{openFund=openFund===s?null:s;render();};
+window.openT=s=>{openTheme=s;TAB='themes';window.scrollTo(0,0);render();};
+window.closeT=()=>{openTheme=null;render();};
+window.setThemeSort=s=>{themeSort=s;render();};
+
+function render(){
+  const v=document.getElementById('view');
+  v.innerHTML = TAB==='rotation'?rotation() : TAB==='themes'?(openTheme?chain():themes()) : leaders();
+}
+
+/* ---------- Rotation ---------- */
+function rotation(){
+  const all=D.etfs.funds, groups=[...new Set(all.map(f=>f.group).filter(Boolean))].sort();
+  let rows=all.filter(f=>group==='all'||f.group===group);
+  checks.forEach(k=>rows=rows.filter(CHECKS[k].t));
+  const key={mom:f=>-(f.mom??-1),dur:f=>-(f.durability??-1),spy:f=>-(f.vsSpy20??-9),high:f=>-(f.fromHigh??-9)}[sortBy];
+  rows=[...rows].sort((a,b)=>key(a)-key(b)||(a.rank??999)-(b.rank??999));
+  const b=s=>D.etfs.benchmarks[s]?`${s} <b style="color:${col(D.etfs.benchmarks[s].ret20)}">${sg(D.etfs.benchmarks[s].ret20,1)}</b>`:s;
+
+  return `
+  <div class="intro">Which part of the market money is actually moving into. Every fund is scored against the others, so a diversified ETF is measured against its peers rather than against single stocks. Click any fund to see the companies inside it; click its ticker for a chart.</div>
+  <div class="bar">
+    <span class="chip ${group==='all'?'on':''}" onclick="setGroup('all')">All ${all.length}</span>
+    ${groups.map(g=>`<span class="chip ${group===g?'on':''}" onclick="setGroup('${esc(g)}')">${esc(g)}${group===g?'<i class="x">✕</i>':''}</span>`).join('')}
+  </div>
+  <div class="bar">
+    <span class="lab">Checks</span>
+    ${Object.entries(CHECKS).map(([k,c])=>`<span class="chip ${checks.has(k)?'on':''}" onclick="toggleCheck('${k}')">${c.label}${checks.has(k)?'<i class="x">✕</i>':''}</span>`).join('')}
+    ${(group!=='all'||checks.size)?'<span class="chip clr" onclick="clearF()">Clear</span>':''}
+    <span class="sp"></span><span class="lab">Sort</span>
+    ${[['mom','Momentum'],['dur','Durability'],['spy','vs SPY'],['high','Near high']]
+      .map(([k,l])=>`<span class="chip ${sortBy===k?'on':''}" onclick="setSort('${k}')">${l}</span>`).join('')}
+  </div>
+  <div class="tbl">
+    <div class="th"><div>#</div><div>Fund</div><div class="r">Mom</div><div class="r hs">52w</div>
+      <div class="c hs">8/21</div><div class="r hs">vs SPY</div><div class="r hs">vs QQQ</div><div class="r">Durability</div></div>
+    ${rows.length?rows.map((f,i)=>{
+      const open=openFund===f.symbol;
+      return `<div class="tr ${open?'sel':''}" onclick="pickFund('${f.symbol}')" title="${open?'Click to close':'Click for the companies inside'}">
+        <div class="nm" style="text-align:center">${open?'<span class="caret">▾</span>':i+1}</div>
+        <div><a class="sym" href="${tv(f.symbol)}" target="_blank" rel="noopener" onclick="event.stopPropagation()"
+             title="Chart for ${f.symbol}">${f.symbol} <span class="tvi">↗</span></a><span class="tagx">${esc(f.group||'')}</span>
+          <div class="nm">${esc((f.name||'').replace(/ ETF$| Trust$/,''))}</div></div>
+        <div class="r" style="font-weight:800;color:${momCol(f.mom)}">${f.mom}</div>
+        <div class="r hs" style="color:${f.fromHigh>=NEAR_HIGH?'var(--green)':'var(--text2)'}">${pc(f.fromHigh)}</div>
+        <div class="c hs" style="color:${f.trend821?'var(--green)':'var(--text2)'};opacity:${f.trend821?1:.45}">${f.trend821==null?'–':f.trend821?'✓':'·'}</div>
+        <div class="r hs two"><span style="color:${col(f.vsSpy20)}">${sg(f.vsSpy20)}</span><span class="s" style="color:${col(f.vsSpy60)}">${sg(f.vsSpy60)}</span></div>
+        <div class="r hs two"><span style="color:${col(f.vsQqq20)}">${sg(f.vsQqq20)}</span><span class="s" style="color:${col(f.vsQqq60)}">${sg(f.vsQqq60)}</span></div>
+        <div class="r"><span class="bars"><i style="width:${Math.round((f.durability??0)*100)}%"></i></span><span class="dur">${f.durability==null?'–':Math.round(f.durability*100)+'%'}</span></div>
+      </div>${open?`<div class="drill">${fundDrill(f)}</div>`:''}`;}).join('')
+    :`<div class="tr" style="grid-template-columns:1fr;color:var(--text2);cursor:default">Nothing passes every selected check today — which is itself an answer: no group is cleanly leading.</div>`}
+  </div>
+  <div class="intro" style="margin-top:10px">${rows.length} of ${all.length} funds${checks.size?` pass ${[...checks].map(k=>CHECKS[k].label.toLowerCase()).join(' + ')}`:''}.
+    Benchmarks over the same 20 sessions: ${b('SPY')} · ${b('QQQ')}. <b>vs SPY / vs QQQ</b> show excess return over 20 sessions and, dimmed, over 60 — when the two disagree sharply the short window is straddling one big day rather than measuring a trend.</div>
+  ${emerging()}`;
+}
+
+function fundDrill(f){
+  const ch=f.theme?D.chains.chains[f.theme]:null;
+  if(ch){
+    const names=[];
+    ch.links.forEach(l=>l.members.forEach(m=>{ if(!m.context&&m.mom!=null) names.push(m); }));
+    names.sort((a,b)=>b.mom-a.mom);
+    return `<div class="dw"><div class="ptitle">${f.symbol} — strongest names in ${esc(ch.name)}</div>
+      <div class="psub">From our own value-chain mapping, not the fund's holdings. <span style="cursor:pointer;color:var(--blue)" onclick="event.stopPropagation();openT('${ch.slug}')">See the whole chain →</span></div>
+      ${names.slice(0,10).map(m=>`<div class="srow">
+        <div><b>${m.ticker}</b> <span class="nm">${esc((m.company||'').slice(0,32))}</span></div>
+        <div class="r" style="font-weight:700;color:${momCol(m.mom)}">${m.mom}</div>
+        <div class="r nm">#${m.rsRank??'–'}</div>
+        <div class="nm">${esc((m.why||'').slice(0,58))}</div></div>`).join('')}</div>`;
+  }
+  if(f.sector){
+    const top=D.leaders.top.filter(l=>true).slice(0,0); // sector funds have no curated chain
+    return `<div class="dw"><div class="ptitle">${f.symbol} — ${esc(f.sector)}</div>
+      <div class="psub">This is a broad sector fund. We map themes, not whole GICS sectors, so there is no curated company list for it — the ticker opens its chart.</div></div>`;
+  }
+  return `<div class="dw"><div class="ptitle">${f.symbol}</div>
+    <div class="psub">No value chain is mapped to this fund — a broad index or a commodity has no constituent story we could tell honestly. The ticker opens its chart.</div></div>`;
+}
+
+function emerging(){
+  const g=D.emerging.groups;
+  if(!g.length) return '';
+  return `<div class="panel"><div class="ptitle">🛰 Running hot, and not in any theme</div>
+    <div class="psub">Momentum rolled up by industry — no taxonomy of ours involved — filtered to groups where most names sit in none of our value chains. A theme nobody has mapped cannot show up on a board organised by themes, so this is where the next one tends to appear first.</div>
+    ${g.map(r=>`<div class="srow" style="grid-template-columns:1.4fr 46px 54px 72px 2fr">
+      <div><b>${esc(r.industry)}</b></div><div class="r nm">${r.n}</div>
+      <div class="r" style="font-weight:700;color:${momCol(r.mom)}">${r.mom}</div>
+      <div class="r" style="color:var(--orange)">${Math.round(r.gap*100)}% gap</div>
+      <div>${r.leaders.map(x=>`<span class="pill">${x.ticker} ${x.mom}</span>`).join('')}</div></div>`).join('')}
+    <div class="psub" style="margin:10px 0 0">Columns: names scored · median momentum · share in no theme · strongest unmapped names.</div></div>`;
+}
+
+/* ---------- Themes ---------- */
+function themes(){
+  const ts=D.themes.themes;
+  const card=t=>`<div class="card" onclick="openT('${t.slug}')">
+    <div class="crow"><div class="cname">${esc(t.name)}</div>
+      <div class="cmom" style="color:${momCol(t.mom)}">${t.mom==null?'–':(t.mom>55?'▲ ':t.mom<45?'▼ ':'→ ')+t.mom}</div></div>
+    <div class="cdesc">${esc(t.description)}</div>
+    <div class="cstat"><b>${t.links}</b> links · <b>${t.companies}</b> companies${themeSort!=='category'?` <span class="tagx">${esc(t.category||'')}</span>`:''}</div></div>`;
+  let body;
+  if(themeSort==='category'){
+    const cats=[...new Set(ts.map(t=>t.category||'Other'))];
+    body=cats.map(c=>{
+      const list=ts.filter(t=>(t.category||'Other')===c).sort((a,b)=>(b.mom??-1)-(a.mom??-1));
+      return `<div style="display:flex;align-items:baseline;gap:12px;margin:20px 0 10px">
+                <div style="font-size:15px;font-weight:800">${esc(c)}</div>
+                <div style="flex:1;height:1px;background:var(--border)"></div>
+                <div class="lab">${list.length} theme${list.length>1?'s':''}</div></div>
+              <div class="grid">${list.map(card).join('')}</div>`;}).join('');
+  } else {
+    const list=[...ts].sort(themeSort==='mom'?(a,b)=>(b.mom??-1)-(a.mom??-1):(a,b)=>b.companies-a.companies);
+    body=`<div class="grid">${list.map(card).join('')}</div>`;
+  }
+  return `<div class="intro">Each theme broken into its value chain — the stages a trend has to pass through, and the listed companies at each one, with a one-line reason each belongs. Click any theme to open its map.</div>
+    <div class="bar"><span class="lab">Sort</span>
+      ${[['category','By category'],['mom','Hottest first'],['size','Most companies']]
+        .map(([k,l])=>`<span class="chip ${themeSort===k?'on':''}" onclick="setThemeSort('${k}')">${l}</span>`).join('')}</div>${body}`;
+}
+
+function chain(){
+  const c=D.chains.chains[openTheme];
+  if(!c) return '<div class="intro">Theme not found.</div>';
+  const scored=c.links.filter(l=>l.mom!=null && !l.thin);
+  const best=scored.length?scored.reduce((a,b)=>b.mom>a.mom?b:a):null;
+  return `<span class="back" onclick="closeT()">← All themes</span>
+  <div class="panel" style="margin-top:0">
+    <div class="ptitle">${esc(c.name)}</div>
+    <div class="psub">${esc(c.description)}</div>
+    ${best?`<div class="psub" style="margin-bottom:16px">Strongest link right now: <b style="color:var(--green)">${esc(best.name)}</b> at ${best.mom}/100. Links are listed upstream to downstream — each stage feeds the next.</div>`:''}
+    ${c.links.map(l=>`<div class="link">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <div class="lname">${esc(l.name)}</div>
+        <div style="font-weight:800;color:${momCol(l.mom)}">${l.mom==null?'–':l.mom}</div>
+        ${l.thin&&l.scored>0?'<span class="thin">thin — '+l.scored+' name'+(l.scored>1?'s':'')+'</span>':''}
+        ${l.scored===0?'<span class="thin">no listed pure-plays</span>':''}
+      </div>
+      <div class="lmeta">${esc(l.what)}</div>
+      ${l.members.map(m=>`<div class="srow">
+        <div><a class="sym" style="font-size:13px" href="${tv(m.ticker)}" target="_blank" rel="noopener">${m.ticker} <span class="tvi">↗</span></a>
+             <span class="nm">${esc((m.company||'').slice(0,30))}</span></div>
+        <div class="r" style="font-weight:700;color:${momCol(m.mom)}">${m.context?'–':(m.mom??'–')}</div>
+        <div class="r nm">${m.context?'':'#'+(m.rsRank??'–')}</div>
+        <div class="nm">${esc(m.why||'')}${m.context?' <span class="pill">not US-listed</span>':''}</div></div>`).join('')}
+    </div>`).join('')}
+  </div>`;
+}
+
+/* ---------- Leaders ---------- */
+function leaders(){
+  const L=D.leaders;
+  const row=(r,i)=>`<div class="srow" style="grid-template-columns:34px 1fr 56px 60px 1.2fr">
+    <div class="nm" style="text-align:center">${i+1}</div>
+    <div><a class="sym" style="font-size:13px" href="${tv(r.ticker)}" target="_blank" rel="noopener">${r.ticker} <span class="tvi">↗</span></a>
+         <span class="nm">${esc((r.company||'').slice(0,34))}</span></div>
+    <div class="r" style="font-weight:800;color:${momCol(r.mom)}">${r.mom}</div>
+    <div class="r nm">#${r.rsRank??'–'}</div>
+    <div>${r.themes.map(t=>`<span class="pill" style="cursor:pointer" onclick="openT('${t}')">${t}</span>`).join('')}</div></div>`;
+  return `<div class="intro">The strongest individual names across every theme we map, and the ones sitting in several themes at once. Momentum here is scored against the whole US universe, so it is not comparable with the fund scores on Rotation.</div>
+  <div class="panel" style="margin-top:0"><div class="ptitle">🏆 Strongest names across all themes</div>
+    <div class="psub">Top 40 by momentum. Click a theme tag to open its value chain, or a ticker for a chart.</div>
+    ${L.top.slice(0,40).map(row).join('')}</div>
+  <div class="panel"><div class="ptitle">🔗 In more than one theme</div>
+    <div class="psub">One company catching several trends at once — structurally central to the map rather than a pure play on any single one.</div>
+    ${L.hubs.map(row).join('')}</div>`;
+}
+
+boot().catch(e=>{document.getElementById('view').innerHTML=
+  '<div class="intro">Could not load the data. Please refresh — if it keeps failing the nightly build may not have run.</div>';
+  console.error(e);});
+</script>
+</body>
+</html>
