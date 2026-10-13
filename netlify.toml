@@ -10,13 +10,22 @@
 # the nightly scan commits a fresh portal/data, which is what triggers a deploy.
 
 [build]
-  publish = "portal"
-  command = ""
+  # base matters more than it looks. Netlify runs its "Install dependencies"
+  # stage inside the base directory and decides what to install from the
+  # manifests it finds there. Left at the repo root it found runtime.txt
+  # (python-3.11.7) and requirements.txt, concluded this was a Python project,
+  # and failed trying to install the scanner's packages — which the site does
+  # not use and which have no business running on a deploy.
+  #
+  # portal/ holds index.html and data/ and nothing else, so there is nothing to
+  # detect and the stage passes straight through.
+  base = "portal"
 
-[build.environment]
-  # Nothing to install. Stated explicitly so Netlify does not guess at a
-  # Python or Node build from files elsewhere in the repo.
-  NETLIFY_USE_YARN = "false"
+  # Relative to base, so this is portal/ itself.
+  publish = "."
+
+  # No build: the page and its data are already static.
+  command = ""
 
 # The data bundle is rewritten every weeknight, so it must not be served from
 # cache after a deploy. The page itself is small and changes rarely, but the
