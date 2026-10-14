@@ -35,7 +35,7 @@
   .sp{flex:1;}  .lab{font-size:12px;color:var(--text2);}
 
   .tbl{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
-  .th,.tr{display:grid;grid-template-columns:40px 1fr 56px 60px 44px 96px 96px 78px;gap:8px;align-items:center;padding:9px 14px;}
+  .th,.tr{display:grid;grid-template-columns:40px 1fr 56px 58px 60px 44px 96px 96px 78px;gap:8px;align-items:center;padding:9px 14px;}
   .th{background:var(--bg3);font-size:10.5px;letter-spacing:.4px;text-transform:uppercase;color:var(--text2);}
   .tr{border-top:1px solid var(--border);font-size:13px;cursor:pointer;}
   .tr:hover{background:var(--bg3);}
@@ -106,7 +106,9 @@
   footer{border-top:1px solid var(--border);margin-top:34px;padding:20px 0 0;color:var(--text2);font-size:11.5px;line-height:1.65;}
   footer b{color:var(--text);}
   .hide{display:none;}
-  @media(max-width:760px){ .th,.tr{grid-template-columns:32px 1fr 50px 58px;} .hs{display:none;} }
+  /* The rank change survives to mobile: it is the column that says whether a
+     fund is arriving or leaving, which is the whole point of the board. */
+  @media(max-width:760px){ .th,.tr{grid-template-columns:30px 1fr 46px 52px 54px;} .hs{display:none;} }
 </style>
 </head>
 <body>
@@ -222,6 +224,42 @@ function render(){
   v.innerHTML = TAB==='rotation'?rotation() : TAB==='themes'?(openTheme?chain():themes()) : leaders();
 }
 
+/* Rank the board on whichever column is being sorted, for a given snapshot
+   ('now', or a key in f.hist like 'd1'/'d5'). Two deliberate choices:
+
+   Always the WHOLE fund set, never the filtered subset. "Moved up three" has
+   to mean three places on the board; a rank computed inside a six-fund filter
+   would change meaning every time a chip was clicked.
+
+   Ranks are derived here rather than published, so the ordering has exactly one
+   definition — the sort comparator below and this function read the same
+   fields, and a new sort column needs no change to the builder. */
+const NOWV={mom:f=>f.mom,dur:f=>f.durability,spy:f=>f.vsSpy20,high:f=>f.fromHigh};
+function rankOn(when){
+  const v=D.etfs.funds
+    .map(f=>[f.symbol, when==='now'?NOWV[sortBy](f):((f.hist||{})[when]||{})[sortBy]])
+    .filter(x=>x[1]!=null)
+    .sort((a,b)=>b[1]-a[1]);         // every sort key is "higher is stronger"
+  /* Equal scores must take an equal rank. Momentum is an integer spread over
+     54 funds, so ties are routine, and handing each tied fund the next number
+     down would have them trading places from one session to the next on sort
+     order alone — a fund would show a move of two or three with a score that
+     had not changed at all. Minimum-rank ties make a shown move a real one. */
+  const m={};
+  v.forEach((x,i)=>{m[x[0]] = (i && x[1]===v[i-1][1]) ? m[v[i-1][0]] : i+1;});
+  return m;
+}
+/* The session a lookback actually landed on, so the footer can name the dates
+   instead of claiming "a week" and quietly meaning four sessions. */
+const hd=k=>((D.etfs.histDates||{})[k])||'—';
+/* Rank falls as a fund strengthens, so then-minus-now is the improvement. */
+function dlt(now,then){
+  if(now==null||then==null) return '<span style="opacity:.3" title="No comparable score on that session">·</span>';
+  const d=then-now;
+  if(d===0) return '<span style="opacity:.45">–</span>';
+  return `<span style="color:var(--${d>0?'green':'red'})">${d>0?'▲':'▼'}${Math.abs(d)}</span>`;
+}
+
 /* ---------- Rotation ---------- */
 function rotation(){
   const all=D.etfs.funds, groups=[...new Set(all.map(f=>f.group).filter(Boolean))].sort();
@@ -229,6 +267,8 @@ function rotation(){
   checks.forEach(k=>rows=rows.filter(CHECKS[k].t));
   const key={mom:f=>-(f.mom??-1),dur:f=>-(f.durability??-1),spy:f=>-(f.vsSpy20??-9),high:f=>-(f.fromHigh??-9)}[sortBy];
   rows=[...rows].sort((a,b)=>key(a)-key(b)||(a.rank??999)-(b.rank??999));
+  const rNow=rankOn('now'), rD1=rankOn('d1'), rD5=rankOn('d5');
+  const SORTL={mom:'momentum',dur:'durability',spy:'excess return over the S&P',high:'proximity to its high'}[sortBy];
   const b=s=>D.etfs.benchmarks[s]?`${s} <b style="color:${col(D.etfs.benchmarks[s].ret20)}">${sg(D.etfs.benchmarks[s].ret20,1)}</b>`:s;
 
   return `
@@ -250,6 +290,7 @@ function rotation(){
       <div title="Position in the list as currently sorted — not a fixed ranking.">#</div>
       <div>Fund</div>
       <div class="r hlp" title="Fund momentum, 0-100, ranked against the other 53 funds — NOT against individual stocks. Higher is stronger; 50 is the middle fund.">Mom</div>
+      <div class="r hlp" title="How far this fund has moved on the column you are sorting by — right now ${SORTL}. Bright is the change since the previous session, dimmed is over the last five. ▲3 means it passed three funds, measured against all ${all.length} on the board rather than the ones left after filtering. A dot means there was no comparable score on that session.">Δ rank</div>
       <div class="r hs hlp" title="How far below its own 52-week high the fund is trading. 0% means it is at a new high, so closer to zero is stronger.">From high</div>
       <div class="c hs hlp" title="Short-term trend: a tick means the price closed above its 8-day average with the 8 above the 21. A dot means it has not.">8/21</div>
       <div class="r hs hlp" title="Return minus the S&P 500's over the same window. Bright figure is 20 trading days, dimmed is 60. Positive means it beat the index.">vs SPY 20d·60d</div>
@@ -264,6 +305,7 @@ function rotation(){
              title="Chart for ${f.symbol}">${f.symbol} <span class="tvi">↗</span></a><span class="tagx">${esc(f.group||'')}</span>
           <div class="nm">${esc((f.name||'').replace(/ ETF$| Trust$/,''))}</div></div>
         <div class="r" style="font-weight:800;color:${momCol(f.mom)}">${f.mom}</div>
+        <div class="r two">${dlt(rNow[f.symbol],rD1[f.symbol])}<span class="s">${dlt(rNow[f.symbol],rD5[f.symbol])}</span></div>
         <div class="r hs" style="color:${f.fromHigh>=NEAR_HIGH?'var(--green)':'var(--text2)'}">${pc(f.fromHigh)}</div>
         <div class="c hs" style="color:${f.trend821?'var(--green)':'var(--text2)'};opacity:${f.trend821?1:.45}">${f.trend821==null?'–':f.trend821?'✓':'·'}</div>
         <div class="r hs two"><span style="color:${col(f.vsSpy20)}">${sg(f.vsSpy20)}</span><span class="s" style="color:${col(f.vsSpy60)}">${sg(f.vsSpy60)}</span></div>
@@ -273,7 +315,8 @@ function rotation(){
     :`<div class="tr" style="grid-template-columns:1fr;color:var(--text2);cursor:default">Nothing passes every selected check today — which is itself an answer: no group is cleanly leading.</div>`}
   </div>
   <div class="intro" style="margin-top:10px">${rows.length} of ${all.length} funds${checks.size?` pass ${[...checks].map(k=>CHECKS[k].label.toLowerCase()).join(' + ')}`:''}.
-    Benchmarks over the same 20 sessions: ${b('SPY')} · ${b('QQQ')}. <b>vs SPY / vs QQQ</b> show excess return over 20 sessions and, dimmed, over 60 — when the two disagree sharply the short window is straddling one big day rather than measuring a trend.</div>
+    Benchmarks over the same 20 sessions: ${b('SPY')} · ${b('QQQ')}. <b>vs SPY / vs QQQ</b> show excess return over 20 sessions and, dimmed, over 60 — when the two disagree sharply the short window is straddling one big day rather than measuring a trend.
+    <b>Δ rank</b> re-ranks the board on whichever column you sort by and compares today with ${hd('d1')} and ${hd('d5')} — change the sort and the column follows it.</div>
   ${emerging()}`;
 }
 

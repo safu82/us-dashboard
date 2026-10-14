@@ -42,6 +42,11 @@ sb = create_client(URL, KEY)
 MIN_COVERAGE_MEMBERS = 3      # below this a link's median is close to one stock
 EMERGING_MIN_N, EMERGING_MIN_MOM, EMERGING_MIN_GAP = 5, 70, 0.5
 
+# Trading sessions back from the as-of date for the rank-change columns. Read
+# from the table rather than counted in calendar days: a holiday or a session
+# Yahoo never finalized would otherwise turn "a week ago" into four days ago.
+LOOKBACK = {'d1': 1, 'd5': 5}
+
 
 def page(table, cols, f=None, size=1000):
     out, frm = [], 0
@@ -59,6 +64,21 @@ def page(table, cols, f=None, size=1000):
 def med(xs):
     xs = [x for x in xs if x is not None]
     return round(statistics.median(xs)) if xs else None
+
+
+def etf_sessions(n):
+    """The n most recent snapshot_dates in etf_snapshots, newest first.
+
+    etf_snapshots carries ~56 rows per session, so asking for 80 per session
+    wanted stays inside one PostgREST page and still tolerates the set growing.
+    """
+    rows = (sb.table('etf_snapshots').select('snapshot_date')
+            .order('snapshot_date', desc=True).limit(80 * n).execute().data or [])
+    out = []
+    for r in rows:
+        if r['snapshot_date'] not in out:
+            out.append(r['snapshot_date'])
+    return out[:n]
 
 
 BUNDLE = {}      # everything written, also emitted as one JS file (see write_bundle)
@@ -152,6 +172,33 @@ def main():
         'ret_20,vs_spy_20,vs_qqq_20,ret_60,vs_spy_60,vs_qqq_60,top_decile_60d',
         lambda q: q.eq('snapshot_date', etf_asof))}
 
+    # Rank history. A score on its own does not say whether a fund is arriving
+    # or leaving, and the board can be sorted four different ways, so the useful
+    # question is the same in each case: where did this fund sit on THIS measure
+    # a day ago, and a week ago?
+    #
+    # Only the raw metric values go out, not ranks. The page ranks the full fund
+    # set itself for whichever column is active, which keeps one definition of
+    # the ordering instead of two that can drift, and means adding a sort column
+    # later needs no change here. The keys match the page's sort keys exactly.
+    sessions = etf_sessions(max(LOOKBACK.values()) + 1)
+    hist_dates = {lbl: (sessions[back] if len(sessions) > back else None)
+                  for lbl, back in LOOKBACK.items()}
+    hist = {}
+    for lbl, d in hist_dates.items():
+        if not d:
+            print(f'  no session {LOOKBACK[lbl]} back yet; {lbl} rank change omitted')
+            continue
+        hist[lbl] = {r['symbol']: {'mom': r.get('momentum_score'),
+                                   'dur': r.get('top_decile_60d'),
+                                   'spy': r.get('vs_spy_20'),
+                                   'high': r.get('pct_from_high')}
+                     for r in page('etf_snapshots',
+                                   'symbol,momentum_score,top_decile_60d,'
+                                   'vs_spy_20,pct_from_high',
+                                   lambda q, d=d: q.eq('snapshot_date', d))}
+    print(f'rank history: ' + ', '.join(f'{k}={v}' for k, v in hist_dates.items()))
+
     # Holdings, so the drill-down can mark which names a fund actually holds.
     # `complete` travels with them: only a full issuer file licenses a statement
     # that a fund does NOT hold something.
@@ -174,6 +221,7 @@ def main():
                'vsSpy20': s.get('vs_spy_20'), 'vsQqq20': s.get('vs_qqq_20'),
                'vsSpy60': s.get('vs_spy_60'), 'vsQqq60': s.get('vs_qqq_60'),
                'durability': s.get('top_decile_60d'),
+               'hist': {lbl: h[sym] for lbl, h in hist.items() if sym in h},
                'holdings': held.get(sym, {}),
                'holdingsComplete': sym in complete_for}
         if m.get('benchmark_only'):
@@ -181,7 +229,8 @@ def main():
                                'ret60': s.get('ret_60')}
         elif row['mom'] is not None:
             funds.append(row)
-    write('etfs.json', {'asOf': etf_asof, 'funds': funds, 'benchmarks': benchmarks})
+    write('etfs.json', {'asOf': etf_asof, 'histDates': hist_dates,
+                        'funds': funds, 'benchmarks': benchmarks})
 
     # ── Value chains ──────────────────────────────────────────────────────────
     themes = page('themes', 'slug,name,description,category,category_order,display_order')
