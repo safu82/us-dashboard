@@ -208,11 +208,17 @@ def main():
         if h.get('complete'):
             complete_for.add(h['etf'])
 
-    funds, benchmarks = [], {}
+    # Two boards, two pools. compute_etf_momentum ranks country funds in their
+    # own cross-section, so a country's momentum describes where it sits among
+    # countries and is not comparable with a sector fund's score. They are kept
+    # in separate files for the same reason they are ranked separately: so that
+    # nothing downstream can quietly concatenate them into one list.
+    funds, countries, benchmarks = [], [], {}
     for sym, m in sorted(meta.items(), key=lambda kv: kv[1].get('display_order') or 999):
         s = esnap.get(sym)
         if not s:
             continue
+        is_country = m.get('kind') == 'country'
         row = {'symbol': sym, 'name': m.get('name'), 'group': m.get('grp'),
                'kind': m.get('kind'), 'theme': m.get('theme_slug'),
                'sector': m.get('sector'), 'mom': s.get('momentum_score'),
@@ -221,16 +227,22 @@ def main():
                'vsSpy20': s.get('vs_spy_20'), 'vsQqq20': s.get('vs_qqq_20'),
                'vsSpy60': s.get('vs_spy_60'), 'vsQqq60': s.get('vs_qqq_60'),
                'durability': s.get('top_decile_60d'),
-               'hist': {lbl: h[sym] for lbl, h in hist.items() if sym in h},
-               'holdings': held.get(sym, {}),
-               'holdingsComplete': sym in complete_for}
+               'hist': {lbl: h[sym] for lbl, h in hist.items() if sym in h}}
+        if not is_country:
+            # Country funds hold non-US companies, which our stock universe does
+            # not score. An empty holdings map would read as "holds nothing"
+            # rather than "we cannot see inside this one", so it is left off.
+            row['holdings'] = held.get(sym, {})
+            row['holdingsComplete'] = sym in complete_for
         if m.get('benchmark_only'):
-            benchmarks[sym] = {'symbol': sym, 'ret20': s.get('ret_20'),
-                               'ret60': s.get('ret_60')}
+            benchmarks[sym] = {'symbol': sym, 'name': m.get('name'),
+                               'ret20': s.get('ret_20'), 'ret60': s.get('ret_60')}
         elif row['mom'] is not None:
-            funds.append(row)
+            (countries if is_country else funds).append(row)
     write('etfs.json', {'asOf': etf_asof, 'histDates': hist_dates,
                         'funds': funds, 'benchmarks': benchmarks})
+    write('countries.json', {'asOf': etf_asof, 'histDates': hist_dates,
+                             'countries': countries, 'benchmarks': benchmarks})
 
     # ── Value chains ──────────────────────────────────────────────────────────
     themes = page('themes', 'slug,name,description,category,category_order,display_order')
@@ -361,6 +373,7 @@ def main():
         'stockAsOf': stock_asof, 'etfAsOf': etf_asof,
         'builtAt': datetime.now(timezone.utc).isoformat(timespec='seconds'),
         'counts': {'themes': len(theme_rows), 'funds': len(funds),
+                   'countries': len(countries),
                    'companies': len(mapped), 'universe': len(snaps)},
     })
     write_bundle()

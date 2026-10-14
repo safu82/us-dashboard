@@ -63,10 +63,25 @@ def _f(v):
 STABILITY_WINDOW = 60     # trailing sessions for the durability read
 TOP_DECILE = 0.10         # rank_pct at or below this counts as "leading"
 
+# etfs.kind -> the cross-section a fund is ranked in. Sector and theme funds
+# have always shared one pool and keep it, so their ranks and history are
+# unchanged by the introduction of a second board.
+BOARDS = {'sector': 'us', 'theme': 'us', 'country': 'intl'}
+
 
 def main():
-    etfs = sb.table('etfs').select('symbol,benchmark_only').execute().data or []
+    etfs = sb.table('etfs').select('symbol,kind,benchmark_only').execute().data or []
     symbols = sorted({r['symbol'] for r in etfs})
+    # Which cross-section each fund is ranked in. Momentum is a percentile
+    # against the pool, so the pool IS the meaning of the score: ranking Brazil
+    # against a US software fund would quietly change what both numbers say.
+    # "Which theme is working" and "which country is working" are different
+    # questions and each needs its own denominator.
+    #
+    # Derived from kind rather than stored, which keeps this reversible and
+    # needs no migration. Anything unrecognised falls to the US board, so a new
+    # kind cannot silently create a pool of one fund that then scores 100.
+    board_of = {r['symbol']: BOARDS.get(r.get('kind'), 'us') for r in etfs}
     # SPY/QQQ are the yardstick the checklist measures against, so they are fetched
     # and stored but kept OUT of the percentile cross-section — leaving them in
     # would have the market competing with its own sectors for rank.
@@ -74,7 +89,12 @@ def main():
     if not symbols:
         sys.exit('etfs table empty — run seed_etfs.py first')
     print(f'{len(symbols)} ETFs ({len(symbols) - len(bench_only)} ranked, '
-          f'{len(bench_only)} benchmark-only: {", ".join(sorted(bench_only)) or "none"})\n')
+          f'{len(bench_only)} benchmark-only: {", ".join(sorted(bench_only)) or "none"})')
+    for b in sorted(set(board_of.values())):
+        pool = sorted(s for s in symbols
+                      if board_of.get(s, 'us') == b and s not in bench_only)
+        print(f'  board {b:<5} {len(pool):>3} ranked')
+    print()
 
     # Benchmark closes for alkalyme_rs (same reference index as the stock pipeline).
     print(f'Downloading benchmark {BENCHMARK} ...')
@@ -103,6 +123,7 @@ def main():
 
     df = pd.DataFrame(rows).rename(columns={'ticker': 'symbol'})
     _num(df, 'alkalyme_rs', 'close', 'ema_9', 'ema_20', 'ema_50', 'high_52w')
+    df['board'] = df['symbol'].map(board_of).fillna('us')
     df = df.sort_values(['symbol', 'snapshot_date']).reset_index(drop=True)
 
     # ── Weekend-checklist measures ────────────────────────────────────────────
@@ -141,12 +162,20 @@ def main():
     print('Ranking ETF cross-section ...')
     ranked = ~df['symbol'].isin(bench_only)
     rs_for_rank = df['alkalyme_rs'].where(ranked)      # benchmarks excluded
-    df['etf_rank'] = (rs_for_rank.groupby(df['snapshot_date'])
+    # Ranked within (date, board), so #1 means strongest on its own board. The
+    # US board's numbers are untouched by the arrival of a second one.
+    key = [df['snapshot_date'], df['board']]
+    df['etf_rank'] = (rs_for_rank.groupby(key)
                                  .rank(ascending=False, method='min').astype('Int64'))
     # Rank as a share of the ranked set. Absolute rank is not comparable once the
-    # universe grows (#5 of 28 and #5 of 55 are different things); this is.
-    df['rank_pct'] = df['etf_rank'].astype('float') / df['snapshot_date'].map(
-        df[ranked].groupby('snapshot_date')['symbol'].count())
+    # universe grows (#5 of 28 and #5 of 55 are different things); this is. It is
+    # also what makes rank_pct comparable ACROSS boards, where etf_rank is not:
+    # #5 of 54 funds and #5 of 24 countries are not the same standing.
+    #
+    # rs_for_rank is already NaN for benchmarks, so counting it per group gives
+    # the ranked pool size without having to re-filter and re-align.
+    df['rank_pct'] = (df['etf_rank'].astype('float')
+                      / rs_for_rank.groupby(key).transform('count'))
 
     # ── momentum_score: identical 5-factor composite, over the ETF cross-section ─
     df = df.sort_values(['symbol', 'snapshot_date']).reset_index(drop=True)
@@ -166,7 +195,11 @@ def main():
     # sectors are measured against, and would hand SPY/QQQ a score computed
     # against a pool they are not part of.
     factors = factors.where(ranked, np.nan)
-    pct = pd.DataFrame({c: factors[c].groupby(df['snapshot_date']).rank(pct=True) for c in factors})
+    # Percentiled within (date, board) for the same reason the rank is: a
+    # country fund's score has to describe where it sits among countries.
+    # df was re-sorted above, so the key is rebuilt here rather than reused.
+    bkey = [df['snapshot_date'], df['board']]
+    pct = pd.DataFrame({c: factors[c].groupby(bkey).rank(pct=True) for c in factors})
     present = pct.notna().sum(axis=1)
     mom = (pct.mean(axis=1) * 100).round()
     mom[present < 3] = np.nan                       # need >=3 of 5 factors
@@ -212,14 +245,22 @@ def main():
     print(f'  upserted {len(updates)} rows')
 
     latest = df['snapshot_date'].max()
-    board = (df[(df['snapshot_date'] == latest) & ~df['symbol'].isin(bench_only)]
-             .dropna(subset=['momentum_score'])
-             .sort_values('momentum_score', ascending=False))
-    print(f'\nETF board — {latest}   (NH = % below 52w high, 8/21 = trend held, '
-          f'vQQQ 20d/60d = excess return over each window, Top10 = share of last '
-          f'{STABILITY_WINDOW}d in the top decile)')
-    print(f'{"mom":>4} {"sym":<6}{"rank":>5}{"NH":>8}{"8/21":>6}'
-          f'{"vQQQ20":>8}{"vQQQ60":>8}{"Top10":>7}')
+    today = (df[(df['snapshot_date'] == latest) & ~df['symbol'].isin(bench_only)]
+             .dropna(subset=['momentum_score']))
+    for bname in sorted(today['board'].unique()):
+        rows_b = today[today['board'] == bname].sort_values('momentum_score',
+                                                            ascending=False)
+        print(f'\n{bname.upper()} board — {latest}, {len(rows_b)} ranked   '
+              f'(NH = % below 52w high, 8/21 = trend held, vQQQ 20d/60d = excess '
+              f'return over each window, Top10 = share of last '
+              f'{STABILITY_WINDOW}d in the top decile)')
+        print(f'{"mom":>4} {"sym":<6}{"rank":>5}{"NH":>8}{"8/21":>6}'
+              f'{"vQQQ20":>8}{"vQQQ60":>8}{"Top10":>7}')
+        print_board(rows_b)
+    print('\nDone.')
+
+
+def print_board(board):
     for _, r in board.iterrows():
         pct = lambda v, d=1: '  –  ' if pd.isna(v) else f'{v * 100:+.{d}f}%'
         td = r.get('top_decile_60d')
@@ -228,7 +269,6 @@ def main():
               f"{('yes' if r.get('above_8_21') else 'no'):>6}"
               f"{pct(r.get('vs_qqq_20')):>8}{pct(r.get('vs_qqq_60')):>8}"
               f"{('  –  ' if pd.isna(td) else f'{td*100:.0f}%'):>7}")
-    print('\nDone.')
 
 
 if __name__ == '__main__':

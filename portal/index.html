@@ -114,9 +114,10 @@
 <body>
 <header><div class="wrap">
   <div class="brand"><span class="logo">🧭</span><span class="bname">Sector Compass</span></div>
-  <div class="tag">Three views of the same market, working from the outside in. <b>Rotation</b> ranks every sector and thematic ETF — real funds anyone can buy — to show where money is moving. <b>Themes</b> is our own map of what sits behind those trends: the stages of each value chain and the companies at every one. <b>Leaders</b> ranks individual companies across the whole market. Rebuilt every weeknight.</div>
+  <div class="tag">Four views of the same market, working from the outside in. <b>Rotation</b> ranks every US sector and thematic ETF to show where money is moving. <b>Countries</b> asks the same question geographically, through US-listed single-country funds. <b>Themes</b> is our own map of what sits behind those trends: the stages of each value chain and the companies at every one. <b>Leaders</b> ranks individual companies across the whole market. Every fund here is US-listed and priced in dollars. Each board is scored against itself, so momentum is comparable down a column and never across tabs. Rebuilt every weeknight.</div>
   <nav>
     <button data-t="rotation" class="on" onclick="tab('rotation')">Rotation</button>
+    <button data-t="countries" onclick="tab('countries')">Countries</button>
     <button data-t="themes" onclick="tab('themes')">Themes</button>
     <button data-t="leaders" onclick="tab('leaders')">Leaders</button>
     <span class="asof" id="asof"></span>
@@ -204,10 +205,14 @@ function boot(){
   Object.assign(D, window.PORTAL_DATA);
   document.getElementById('asof').textContent=`Data to ${D.meta.stockAsOf}`;
   document.getElementById('built').textContent=
-    `${D.meta.counts.themes} themes · ${D.meta.counts.funds} funds · ${D.meta.counts.companies} mapped companies · scored against ${D.meta.counts.universe.toLocaleString()} US stocks. Built ${D.meta.builtAt.replace('T',' ').replace('+00:00','')} UTC.`;
+    `${D.meta.counts.themes} themes · ${D.meta.counts.funds} funds · ${D.meta.counts.countries??0} countries · ${D.meta.counts.companies} mapped companies · scored against ${D.meta.counts.universe.toLocaleString()} US stocks. Built ${D.meta.builtAt.replace('T',' ').replace('+00:00','')} UTC.`;
   render();
 }
-window.tab=t=>{TAB=t;openTheme=null;
+/* Rotation and Countries share the filter state but not the chips: the groups
+   on one are sectors and on the other regions, so a filter carried across
+   would match nothing and read as an empty board rather than a stale filter.
+   Clearing on every switch is the honest default. */
+window.tab=t=>{TAB=t;openTheme=null;openFund=null;group='all';checks.clear();
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));render();};
 window.setGroup=g=>{group=(group===g?'all':g);render();};
 window.toggleCheck=k=>{checks.has(k)?checks.delete(k):checks.add(k);render();};
@@ -221,7 +226,8 @@ window.setLead=s=>{leadFilter=s;render();};
 
 function render(){
   const v=document.getElementById('view');
-  v.innerHTML = TAB==='rotation'?rotation() : TAB==='themes'?(openTheme?chain():themes()) : leaders();
+  v.innerHTML = TAB==='rotation'?rotation() : TAB==='countries'?countries()
+              : TAB==='themes'?(openTheme?chain():themes()) : leaders();
 }
 
 /* Rank the board on whichever column is being sorted, for a given snapshot
@@ -235,8 +241,8 @@ function render(){
    definition — the sort comparator below and this function read the same
    fields, and a new sort column needs no change to the builder. */
 const NOWV={mom:f=>f.mom,dur:f=>f.durability,spy:f=>f.vsSpy20,high:f=>f.fromHigh};
-function rankOn(when){
-  const v=D.etfs.funds
+function rankOn(board,when){
+  const v=board
     .map(f=>[f.symbol, when==='now'?NOWV[sortBy](f):((f.hist||{})[when]||{})[sortBy]])
     .filter(x=>x[1]!=null)
     .sort((a,b)=>b[1]-a[1]);         // every sort key is "higher is stronger"
@@ -260,19 +266,44 @@ function dlt(now,then){
   return `<span style="color:var(--${d>0?'green':'red'})">${d>0?'▲':'▼'}${Math.abs(d)}</span>`;
 }
 
-/* ---------- Rotation ---------- */
+/* ---------- Rotation and Countries ----------
+   One table, two boards. They are rendered by the same function because they
+   are the same measurement, but they are never merged into one list: each is
+   ranked in its own cross-section, so a country's 91 and a sector fund's 91
+   each mean "top of my own board" and nothing more. o.noun carries the word
+   for a row so the copy stays honest in both. */
 function rotation(){
-  const all=D.etfs.funds, groups=[...new Set(all.map(f=>f.group).filter(Boolean))].sort();
+  return boardView({
+    all: D.etfs.funds, noun: 'fund', nounPlural: 'funds', head: 'Fund',
+    benchmarks: ['SPY','QQQ'], drill: true, data: D.etfs,
+    intro: `Which part of the market money is actually moving into. Every fund is scored against the others, so a diversified ETF is measured against its peers rather than against single stocks. Click any fund to see the companies inside it; click its ticker for a chart.`,
+    momTip: n=>`Fund momentum, 0-100, ranked against the other ${n-1} funds — NOT against individual stocks or against the countries board. Higher is stronger; 50 is the middle fund.`,
+    emptyMsg: `Nothing passes every selected check today — which is itself an answer: no group is cleanly leading.`,
+    after: ()=>emerging()});
+}
+function countries(){
+  return boardView({
+    all: D.countries.countries, noun: 'country', nounPlural: 'countries', head: 'Country',
+    benchmarks: ['ACWI','EFA','EEM'], drill: false, data: D.countries,
+    intro: `Where in the world money is moving, read through US-listed single-country funds — so every line is priced in dollars on the same calendar, and the comparison is clean. These are ranked against each other, not against the sector and theme funds on Rotation: a 90 here means top of the country board. Click a ticker for a chart.`,
+    momTip: n=>`Country momentum, 0-100, ranked against the other ${n-1} countries on this board — NOT against the funds on Rotation. Higher is stronger; 50 is the middle country.`,
+    emptyMsg: `No country passes every selected check today — which is itself an answer about how broad the move is.`,
+    after: ()=>''});
+}
+
+function boardView(o){
+  const all=o.all, groups=[...new Set(all.map(f=>f.group).filter(Boolean))].sort();
   let rows=all.filter(f=>group==='all'||f.group===group);
   checks.forEach(k=>rows=rows.filter(CHECKS[k].t));
   const key={mom:f=>-(f.mom??-1),dur:f=>-(f.durability??-1),spy:f=>-(f.vsSpy20??-9),high:f=>-(f.fromHigh??-9)}[sortBy];
   rows=[...rows].sort((a,b)=>key(a)-key(b)||(a.rank??999)-(b.rank??999));
-  const rNow=rankOn('now'), rD1=rankOn('d1'), rD5=rankOn('d5');
+  const rNow=rankOn(all,'now'), rD1=rankOn(all,'d1'), rD5=rankOn(all,'d5');
   const SORTL={mom:'momentum',dur:'durability',spy:'excess return over the S&P',high:'proximity to its high'}[sortBy];
-  const b=s=>D.etfs.benchmarks[s]?`${s} <b style="color:${col(D.etfs.benchmarks[s].ret20)}">${sg(D.etfs.benchmarks[s].ret20,1)}</b>`:s;
+  const bm=o.data.benchmarks||{};
+  const b=s=>bm[s]?`${s} <b style="color:${col(bm[s].ret20)}">${sg(bm[s].ret20,1)}</b>`:s;
 
   return `
-  <div class="intro">Which part of the market money is actually moving into. Every fund is scored against the others, so a diversified ETF is measured against its peers rather than against single stocks. Click any fund to see the companies inside it; click its ticker for a chart.</div>
+  <div class="intro">${o.intro}</div>
   <div class="bar">
     <span class="chip ${group==='all'?'on':''}" onclick="setGroup('all')">All ${all.length}</span>
     ${groups.map(g=>`<span class="chip ${group===g?'on':''}" onclick="setGroup('${esc(g)}')">${esc(g)}${group===g?'<i class="x">✕</i>':''}</span>`).join('')}
@@ -288,22 +319,22 @@ function rotation(){
   <div class="tbl">
     <div class="th">
       <div title="Position in the list as currently sorted — not a fixed ranking.">#</div>
-      <div>Fund</div>
-      <div class="r hlp" title="Fund momentum, 0-100, ranked against the other 53 funds — NOT against individual stocks. Higher is stronger; 50 is the middle fund.">Mom</div>
-      <div class="r hlp" title="How far this fund has moved on the column you are sorting by — right now ${SORTL}. Bright is the change since the previous session, dimmed is over the last five. ▲3 means it passed three funds, measured against all ${all.length} on the board rather than the ones left after filtering. A dot means there was no comparable score on that session.">Δ rank</div>
-      <div class="r hs hlp" title="How far below its own 52-week high the fund is trading. 0% means it is at a new high, so closer to zero is stronger.">From high</div>
+      <div>${o.head}</div>
+      <div class="r hlp" title="${o.momTip(all.length)}">Mom</div>
+      <div class="r hlp" title="How far this ${o.noun} has moved on the column you are sorting by — right now ${SORTL}. Bright is the change since the previous session, dimmed is over the last five. ▲3 means it passed three, measured against all ${all.length} on this board rather than the ones left after filtering. A dot means there was no comparable score on that session.">Δ rank</div>
+      <div class="r hs hlp" title="How far below its own 52-week high this ${o.noun} is trading. 0% means it is at a new high, so closer to zero is stronger.">From high</div>
       <div class="c hs hlp" title="Short-term trend: a tick means the price closed above its 8-day average with the 8 above the 21. A dot means it has not.">8/21</div>
       <div class="r hs hlp" title="Return minus the S&P 500's over the same window. Bright figure is 20 trading days, dimmed is 60. Positive means it beat the index.">vs SPY 20d·60d</div>
       <div class="r hs hlp" title="Return minus the Nasdaq 100's over the same window. Bright figure is 20 trading days, dimmed is 60.">vs QQQ 20d·60d</div>
-      <div class="r hlp" title="Share of the last 60 trading days this fund spent in the top 10% of the board. The average fund scores about 10%, so anything above 25% is persistent leadership.">Durability</div>
+      <div class="r hlp" title="Share of the last 60 trading days this ${o.noun} spent in the top 10% of its own board. The average scores about 10%, so anything above 25% is persistent leadership.">Durability</div>
     </div>
     ${rows.length?rows.map((f,i)=>{
-      const open=openFund===f.symbol;
-      return `<div class="tr ${open?'sel':''}" onclick="pickFund('${f.symbol}')" title="${open?'Click to close':'Click for the companies inside'}">
+      const open=o.drill&&openFund===f.symbol;
+      return `<div class="tr ${open?'sel':''}" ${o.drill?`onclick="pickFund('${f.symbol}')" title="${open?'Click to close':'Click for the companies inside'}"`:'style="cursor:default"'}>
         <div class="nm" style="text-align:center">${open?'<span class="caret">▾</span>':i+1}</div>
         <div><a class="sym" href="${tv(f.symbol)}" target="_blank" rel="noopener" onclick="event.stopPropagation()"
              title="Chart for ${f.symbol}">${f.symbol} <span class="tvi">↗</span></a><span class="tagx">${esc(f.group||'')}</span>
-          <div class="nm">${esc((f.name||'').replace(/ ETF$| Trust$/,''))}</div></div>
+          <div class="nm">${esc((f.name||'').replace(/^iShares MSCI /,'').replace(/ ETF$| Trust$/,''))}</div></div>
         <div class="r" style="font-weight:800;color:${momCol(f.mom)}">${f.mom}</div>
         <div class="r two">${dlt(rNow[f.symbol],rD1[f.symbol])}<span class="s">${dlt(rNow[f.symbol],rD5[f.symbol])}</span></div>
         <div class="r hs" style="color:${f.fromHigh>=NEAR_HIGH?'var(--green)':'var(--text2)'}">${pc(f.fromHigh)}</div>
@@ -312,12 +343,12 @@ function rotation(){
         <div class="r hs two"><span style="color:${col(f.vsQqq20)}">${sg(f.vsQqq20)}</span><span class="s" style="color:${col(f.vsQqq60)}">${sg(f.vsQqq60)}</span></div>
         <div class="r"><span class="bars"><i style="width:${Math.round((f.durability??0)*100)}%"></i></span><span class="dur">${f.durability==null?'–':Math.round(f.durability*100)+'%'}</span></div>
       </div>${open?`<div class="drill">${fundDrill(f)}</div>`:''}`;}).join('')
-    :`<div class="tr" style="grid-template-columns:1fr;color:var(--text2);cursor:default">Nothing passes every selected check today — which is itself an answer: no group is cleanly leading.</div>`}
+    :`<div class="tr" style="grid-template-columns:1fr;color:var(--text2);cursor:default">${o.emptyMsg}</div>`}
   </div>
-  <div class="intro" style="margin-top:10px">${rows.length} of ${all.length} funds${checks.size?` pass ${[...checks].map(k=>CHECKS[k].label.toLowerCase()).join(' + ')}`:''}.
-    Benchmarks over the same 20 sessions: ${b('SPY')} · ${b('QQQ')}. <b>vs SPY / vs QQQ</b> show excess return over 20 sessions and, dimmed, over 60 — when the two disagree sharply the short window is straddling one big day rather than measuring a trend.
-    <b>Δ rank</b> re-ranks the board on whichever column you sort by and compares today with ${hd('d1')} and ${hd('d5')} — change the sort and the column follows it.</div>
-  ${emerging()}`;
+  <div class="intro" style="margin-top:10px">${rows.length} of ${all.length} ${o.nounPlural}${checks.size?` pass ${[...checks].map(k=>CHECKS[k].label.toLowerCase()).join(' + ')}`:''}.
+    Benchmarks over the same 20 sessions: ${o.benchmarks.map(b).join(' · ')}. <b>vs SPY / vs QQQ</b> show excess return over 20 sessions and, dimmed, over 60 — when the two disagree sharply the short window is straddling one big day rather than measuring a trend.
+    <b>Δ rank</b> re-ranks this board on whichever column you sort by and compares today with ${hd('d1')} and ${hd('d5')} — change the sort and the column follows it.</div>
+  ${o.after()}`;
 }
 
 // Two separate lists, because they come from two different places and a reader
