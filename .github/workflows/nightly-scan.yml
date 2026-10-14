@@ -192,16 +192,35 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
+      #     A push race is the one failure worth tolerating here: another job or
+      #     a human can land a commit between our pull and our push. That is
+      #     retried. Everything else is a real fault - no write permission, a
+      #     rebase conflict, a rejection that survives three attempts - and the
+      #     step must fail so the job goes red and notify sends the FAILED
+      #     alert. This step used to carry a blanket continue-on-error, which
+      #     would have hidden a dead publish behind a green run while the
+      #     public site served the previous day's data indefinitely.
       - name: Publish portal data
         if: steps.ohlc.outputs.published == 'true'
-        continue-on-error: true    # a push race must not fail the scan
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add portal/data
-          git commit -m "Portal data: $(date -u +%Y-%m-%d)" || { echo "no change"; exit 0; }
-          git pull --rebase origin main
-          git push origin HEAD:main
+          git commit -m "Portal data: $(date -u +%Y-%m-%d)" || { echo "no change to publish"; exit 0; }
+          for attempt in 1 2 3; do
+            if ! git pull --rebase origin main; then
+              echo "::error::Rebase onto origin/main failed; portal/data conflicts with an upstream change."
+              exit 1
+            fi
+            if git push origin HEAD:main; then
+              echo "Published portal/data on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Push rejected on attempt ${attempt}; assuming a concurrent push and retrying."
+            sleep $(( attempt * 10 ))
+          done
+          echo "::error::Could not push portal/data after 3 attempts. The public site is serving stale data."
+          exit 1
 
   notify:
     name: Telegram notification
