@@ -114,7 +114,7 @@
 <body>
 <header><div class="wrap">
   <div class="brand"><span class="logo">🧭</span><span class="bname">Sector Compass</span></div>
-  <div class="tag">Three views of the same market, working from the outside in. <b>Funds</b> ranks the baskets you can actually buy — by sector and theme, or by country — to show where money is moving. <b>Themes</b> is our own map of what sits behind those trends: the stages of each value chain and the companies at every one. <b>Stocks</b> ranks individual companies across the whole market. Every fund here is US-listed and priced in dollars. Each board is scored against itself, so momentum is comparable down a column and never across boards. Rebuilt every weeknight.</div>
+  <div class="tag">Three views of the same market, working from the outside in. <b>Funds</b> ranks the baskets you can actually buy — by sector and theme, or by country — to show where money is moving. <b>Themes</b> is our own map of what sits behind those trends: the stages of each value chain and the companies at every one. <b>Stocks</b> ranks individual companies across the whole market. Everything here — every fund and every company — is <b>listed in the US</b> and priced in dollars, which is not the same as being American: Taiwan Semiconductor, ASML and Novo Nordisk are all in the maps. Each board is scored against itself, so momentum is comparable down a column and never across boards. Rebuilt every weeknight.</div>
   <nav>
     <button data-t="funds" class="on" onclick="tab('funds')">Funds</button>
     <button data-t="themes" onclick="tab('themes')">Themes</button>
@@ -510,7 +510,8 @@ function themes(){
     const list=[...ts].sort(themeSort==='mom'?(a,b)=>(b.mom??-1)-(a.mom??-1):(a,b)=>b.companies-a.companies);
     body=`<div class="grid">${list.map(card).join('')}</div>`;
   }
-  return `<div class="intro">Each theme broken into its value chain — the stages a trend has to pass through, and the listed companies at each one, with a one-line reason each belongs. <b>This map is ours</b>, not an index or a fund's holdings: we decided what the stages are and which companies sit in them. The number on each card is the median momentum of its companies, measured against every US stock — so it is not on the same scale as a fund's momentum on <span class="xlink" onclick="tab('funds')">Funds</span>. Click any theme to open its map.</div>
+  return `<div class="intro">Each theme broken into its value chain — the stages a trend has to pass through, and the listed companies at each one, with a one-line reason each belongs. <b>This map is ours</b>, not an index or a fund's holdings: we decided what the stages are and which companies sit in them. The number on each card is the median momentum of its companies, measured against every US-listed stock we cover — so it is not on the same scale as a fund's momentum on <span class="xlink" onclick="tab('funds')">Funds</span>. Click any theme to open its map.
+    <div class="xref" style="margin-top:12px">Every company in these maps is <b>listed in the US</b> — which is not the same as being American. Taiwan Semiconductor, ASML, Arm, Novo Nordisk, NXP and Rio Tinto are all in here through their US listings. What is missing is anything that trades only on its home exchange, so some genuine links are absent: Tokyo Electron and SK Hynix in the chip chain, for instance. Where a chain looks thin at one stage, that is often why.</div></div>
     <div class="bar"><span class="lab">Sort</span>
       ${[['category','By category'],['mom','Hottest first'],['size','Most companies']]
         .map(([k,l])=>`<span class="chip ${themeSort===k?'on':''}" onclick="setThemeSort('${k}')">${l}</span>`).join('')}</div>${body}`;
@@ -539,16 +540,16 @@ function chain(){
       <b>Buyable as a fund:</b> ${funds.map(f=>`<span class="xlink" onclick="goFund('${f.symbol}')">${f.symbol}</span> <span style="opacity:.8">(fund momentum ${f.mom}, #${f.rank} of 54)</span>`).join(' · ')}.
       ${themeMom!=null?`The companies we map here have a median momentum of <b>${themeMom}</b>${
         funds.some(f=>Math.abs(f.mom-themeMom)>=20)
-        ? ` — a long way from the fund's score, and deliberately so. The two are ranked against different fields (${allMom.length} companies against every US stock; the fund against 53 other funds) and the fund may hold different things entirely from the companies we map.`
-        : `, measured against every US stock rather than against other funds, so the two numbers are not on the same scale.`}`:''}
+        ? ` — a long way from the fund's score, and deliberately so. The two are ranked against different fields (${allMom.length} companies against every US-listed stock we cover; the fund against 53 other funds) and the fund may hold different things entirely from the companies we map.`
+        : `, measured against every US-listed stock we cover rather than against other funds, so the two numbers are not on the same scale.`}`:''}
     </div>`:''}
-    ${best?`<div class="psub" style="margin-bottom:16px">Strongest link right now: <b style="color:var(--green)">${esc(best.name)}</b> at ${best.mom}/100. Links are listed upstream to downstream — each stage feeds the next.</div>`:''}
+    ${best?`<div class="psub" style="margin-bottom:16px">Strongest link right now: <b style="color:var(--green)">${esc(best.name)}</b> at ${best.mom}/100. Links are listed upstream to downstream — each stage feeds the next. Only companies <b>listed in the US</b> can be scored here, foreign ones included where they have a US listing; a stage can look thin because its companies are private or trade only on a home exchange.</div>`:''}
     ${c.links.map(l=>`<div class="link">
       <div style="display:flex;align-items:baseline;gap:8px">
         <div class="lname">${esc(l.name)}</div>
         <div style="font-weight:800;color:${momCol(l.mom)}">${l.mom==null?'–':l.mom}</div>
         ${l.thin&&l.scored>0?'<span class="thin">thin — '+l.scored+' name'+(l.scored>1?'s':'')+'</span>':''}
-        ${l.scored===0?'<span class="thin">no listed pure-plays</span>':''}
+        ${l.scored===0?'<span class="thin" title="Either the companies at this stage are private, or they trade only on a home exchange outside the US. Both leave the stage unscored.">no US-listed pure-play</span>':''}
       </div>
       <div class="lmeta">${esc(l.what)}</div>
       ${l.members.length?shead():''}
@@ -589,7 +590,7 @@ function leaders(){
   const all=L.top, mappedOnly=all.filter(r=>r.themes.length);
   const list=(leadFilter==='themes'?mappedOnly:all).slice(0,40);
   const unmapped=all.slice(0,40).filter(r=>!r.themes.length).length;
-  return `<div class="intro">The strongest individual companies in the US market — funds are excluded here; they have their own board on Funds.
+  return `<div class="intro">The strongest individual companies listed in the US — which includes foreign ones through their US listings, so Taiwan Semiconductor and Novo Nordisk can appear here but a Tokyo- or Seoul-only listing cannot. Funds are excluded; they have their own board on Funds.
     Momentum is the same 0-100 score used there, but a stock is ranked against the other ${(L.universe||0).toLocaleString()} stocks while a fund is ranked against the other 53 funds.
     A 94 means "top 2% of my own group" in both places, so the two are not interchangeable: at that score the average stock moved about 13% over 20 sessions and the average fund about 7%, because a basket's winners and losers partly cancel.</div>
   <div class="panel" style="margin-top:0"><div class="ptitle">🏆 Strongest names in the market</div>
