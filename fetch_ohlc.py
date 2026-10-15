@@ -46,7 +46,13 @@ if not URL or not KEY:
     sys.exit('ERROR: SUPABASE_URL and SUPABASE_SERVICE_KEY must be set')
 
 HISTORY_PERIOD = '2y'      # enough to seed EMA(200) + weekly RSI
-STORE_DAYS = 90            # most recent N daily rows upserted per ticker
+# 90 calendar days came out at 62-63 trading sessions, which left no room for a
+# 60-session lookback: the portal's long return window needs the close 61 rows
+# back, and a holiday-compressed stretch around Thanksgiving and Christmas would
+# have taken the window under that and nulled the figure for every ticker at
+# once. 100 days gives about 69 sessions, so the margin survives the year end,
+# and costs roughly 11% more rows.
+STORE_DAYS = 100           # most recent N calendar days upserted per ticker
 BATCH_SIZE = 50            # tickers per yf.download call
 SLEEP_BATCH = 2            # seconds between batches
 BENCHMARK = '^GSPC'        # S&P 500 — Alkalyme RS reference index

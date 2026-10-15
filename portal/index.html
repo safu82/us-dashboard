@@ -81,6 +81,12 @@
     font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:var(--text2);
     border-bottom:1px solid var(--border);}
   .shead div[title]{cursor:help;border-bottom:1px dotted var(--text2);display:inline-block;}
+  /* The Leaders board carries its grid in CSS, not inline, so the media queries
+     at the foot of this sheet can reach it. Declared after .shead/.srow so it
+     overrides their narrower default. Columns drop in order of how much they
+     say about leadership: size and valuation first, then everything but the
+     name, the score and what the price actually did. */
+  .lhead,.lrow{grid-template-columns:30px 1fr 46px 92px 88px 66px 90px 62px 54px 0.9fr;}
   /* Any column whose meaning is not obvious from its label carries an
      explanation; the dotted rule is what tells you to go looking for it. */
   .th .hlp{cursor:help;}
@@ -114,13 +120,22 @@
   @media(max-width:1040px){
     .th,.tr{grid-template-columns:34px 1fr 50px 54px 82px 88px 88px 56px 68px;}
     .hm{display:none;}
+    .lhead,.lrow{grid-template-columns:28px 1fr 44px 86px 82px 58px 50px 0.8fr;}
+    .lm{display:none;}
   }
   /* At phone width, four columns. Five left the name about 70px at 360px wide,
      which is not enough for a ticker and a fund name, and an unreadable name
      costs more than a missing column. The rank change is the one that goes:
      the score says how strong, Return says whether it is actually going up,
      and those are the two a phone reader needs. */
-  @media(max-width:820px){ .th,.tr{grid-template-columns:26px 1fr 44px 76px;gap:6px;} .hs{display:none;} }
+  @media(max-width:820px){
+    .th,.tr{grid-template-columns:26px 1fr 44px 76px;gap:6px;}
+    .hs{display:none;}
+    /* Three columns, and the position number goes with the rest: in a list this
+       short, position is already told by the order. */
+    .lhead,.lrow{grid-template-columns:1fr 40px 76px;gap:8px;}
+    .ls{display:none;}
+  }
 </style>
 </head>
 <body>
@@ -161,6 +176,28 @@ let TAB='funds', fundBoard='sectors', group='all', checks=new Set(), sortBy='mom
 const pc=(v,d=1)=> v==null?'–':(v*100).toFixed(d)+'%';
 const sg=(v,d=0)=> v==null?'–':(v>0?'+':'')+(v*100).toFixed(d)+'%';
 const col=v=> v==null?'var(--text2)':v>0?'var(--green)':v<0?'var(--red)':'var(--text2)';
+/* Consecutive sessions closed within 10% of the 52-week high. The distinction
+   it draws is between a name that has HELD its highs and one that has just
+   bounced to them, which momentum alone scores identically. */
+const held=r=> r.bzStreak==null?'–'
+  : r.bzStreak>0?`<b style="color:var(--green)">${r.bzStreak}</b>`
+  : '<span style="opacity:.4">0</span>';
+const heldTitle=r=>{
+  if(r.bzStreak==null) return 'No streak recorded.';
+  if(r.bzStreak>0) return `Has closed within 10% of its 52-week high for ${r.bzStreak} session${r.bzStreak>1?'s':''} running.`;
+  return 'Has not closed within 10% of its 52-week high recently. Next to a '
+       + 'strong 20-session return that is the signature of a bounce rather '
+       + 'than sustained leadership — check From high for how far down it is.';
+};
+const retTitle=r=>{
+  const a=r.ret20, b=r.ret60;
+  if(a==null||b==null) return 'Not enough history stored for both windows.';
+  if(a>0.05&&b<0) return 'Up sharply over 20 sessions but DOWN over 60 — a '
+                       + 'bounce inside a longer decline, not a trend.';
+  if(a>0&&b>0) return 'Rising over both windows.';
+  if(a<0&&b>0) return 'Giving back part of a longer advance.';
+  return 'Down over both windows.';
+};
 const momCol=m=> m==null?'var(--text2)':m>55?'var(--green)':m<45?'var(--red)':'var(--text2)';
 
 // RS rank runs the opposite way to every other number on the page: #1 is the
@@ -615,25 +652,31 @@ function chain(){
 /* ---------- Leaders ---------- */
 function leaders(){
   const L=D.leaders;
-  // Same widening as .srow: the rank carries its denominator and wraps at 60px.
-  const G='grid-template-columns:30px 1fr 46px 88px 66px 90px 62px 0.9fr';
-  const head=`<div class="shead" style="${G}"><div></div><div>Company</div>
+  const rdl=k=>((L.retDates||{})[k])||null;
+  const winl=(n,k)=>rdl(k)?`${n} trading sessions, back to ${rdl(k)}`:`${n} trading sessions`;
+  // The grid lives in CSS rather than inline, because an inline style cannot be
+  // reached by the media queries that drop columns at narrower widths.
+  const head=`<div class="shead lhead"><div class="ls"></div><div>Company</div>
     <div class="r" title="0-100, scored against every US stock we cover. Higher is stronger; 50 is the median stock.">Mom</div>
-    <div class="r" title="${rsTitle()}">RS rank</div>
-    <div class="r" title="Total market value of the company. Worth reading alongside momentum: the same score means something very different on a $400m company than on a $400bn one — small companies move further on less, in both directions.">Size</div>
-    <div class="r" title="Price-to-earnings now, and how far that sits from this company's OWN three-year average. Below its own average is not automatically cheap and above is not automatically expensive — but a high momentum score next to a P/E well above its own history tells you the market has already re-rated it. Blank where the company made a loss, which leaves the ratio meaningless.">P/E vs own</div>
-    <div class="r" title="How far below its own 52-week high the share price is. 0% means it is at a new high.">From high</div>
-    <div>Themes</div></div>`;
-  const row=(r,i)=>`<div class="srow" style="${G}">
-    <div class="nm" style="text-align:center">${i+1}</div>
+    <div class="r" title="What the share price actually did, which the score does not tell you. Bright is ${winl(20,'d20')}; dimmed is ${winl(60,'d60')}. The two together are the point: a big bright figure next to a red dimmed one is a bounce inside a broken chart, not a trend — and it scores just as highly as sustained leadership.">Return 20·60</div>
+    <div class="r ls" title="${rsTitle()}">RS rank</div>
+    <div class="r lm ls" title="Total market value of the company. Worth reading alongside momentum: the same score means something very different on a $400m company than on a $400bn one — small companies move further on less, in both directions.">Size</div>
+    <div class="r lm ls" title="Price-to-earnings now, and how far that sits from this company's OWN three-year average. Below its own average is not automatically cheap and above is not automatically expensive — but a high momentum score next to a P/E well above its own history tells you the market has already re-rated it. Blank where the company made a loss, which leaves the ratio meaningless.">P/E vs own</div>
+    <div class="r ls" title="How far below its own 52-week high the share price is. 0% means it is at a new high.">From high</div>
+    <div class="r ls" title="Consecutive sessions this has closed within 10% of its own 52-week high — how long it has HELD up there, rather than how close it is today. A long run is sustained leadership. A zero beside a large 20-session return is the signature of a bounce: fewer than half the names scoring 90 or better have any run at all.">Held</div>
+    <div class="ls">Themes</div></div>`;
+  const row=(r,i)=>`<div class="srow lrow">
+    <div class="nm ls" style="text-align:center">${i+1}</div>
     <div><a class="sym" style="font-size:13px" href="${tv(r.ticker)}" target="_blank" rel="noopener">${r.ticker} <span class="tvi">↗</span></a>
          <span class="nm">${esc((r.company||'').slice(0,34))}</span></div>
     <div class="r" style="font-weight:800;color:${momCol(r.mom)}">${r.mom}</div>
-    <div class="r nm" title="${rsTitle(r.rsRank)}">${rs(r.rsRank)}</div>
-    <div class="r nm">${cap(r.mktCap)}</div>
-    <div class="r two" title="${peTitle(r)}">${pev(r)}</div>
-    <div class="r nm" style="color:${r.fromHigh>=-0.02?'var(--green)':'var(--text2)'}">${r.fromHigh==null?'–':(r.fromHigh*100).toFixed(1)+'%'}</div>
-    <div>${r.themes.length
+    <div class="r two" style="font-weight:600" title="${retTitle(r)}"><span style="color:${col(r.ret20)}">${sg(r.ret20,1)}</span><span class="s" style="color:${col(r.ret60)}">${sg(r.ret60)}</span></div>
+    <div class="r nm ls" title="${rsTitle(r.rsRank)}">${rs(r.rsRank)}</div>
+    <div class="r nm lm ls">${cap(r.mktCap)}</div>
+    <div class="r two lm ls" title="${peTitle(r)}">${pev(r)}</div>
+    <div class="r nm ls" style="color:${r.fromHigh>=-0.02?'var(--green)':'var(--text2)'}">${r.fromHigh==null?'–':(r.fromHigh*100).toFixed(1)+'%'}</div>
+    <div class="r nm ls" title="${heldTitle(r)}">${held(r)}</div>
+    <div class="ls">${r.themes.length
       ? r.themes.map(t=>`<span class="pill" style="cursor:pointer" onclick="openT('${t}')">${t}</span>`).join('')
       : `<span class="nm" style="opacity:.55" title="Strong, but not mapped to any of our themes yet">${esc(r.industry||'—')}</span>`}</div></div>`;
   const all=L.top, mappedOnly=all.filter(r=>r.themes.length);
@@ -641,7 +684,18 @@ function leaders(){
   const unmapped=all.slice(0,40).filter(r=>!r.themes.length).length;
   return `<div class="intro">The strongest individual companies listed in the US — which includes foreign ones through their US listings, so Taiwan Semiconductor and Novo Nordisk can appear here but a Tokyo- or Seoul-only listing cannot. Funds are excluded; they have their own board on Funds.
     Momentum is the same 0-100 score used there, but a stock is ranked against the other ${(L.universe||0).toLocaleString()} stocks while a fund is ranked against the other 53 funds.
-    A 94 means "top 2% of my own group" in both places, so the two are not interchangeable: at that score the average stock moved about 13% over 20 sessions and the average fund about 7%, because a basket's winners and losers partly cancel.</div>
+    A 94 means "top 2% of my own group" in both places, so the two are not interchangeable: at that score the average stock moved about 13% over 20 sessions and the average fund about 7%, because a basket's winners and losers partly cancel.
+    <div class="xref" style="margin-top:12px">A high score here does not distinguish a company that has led for months from one that has bounced hard inside a long decline — both look the same to a momentum measure. <b>Return</b> and <b>Held</b> are what separate them. ${(()=>{
+      const t=(L.top||[]).filter(r=>r.mom>=90);
+      const b=t.filter(r=>(r.ret60??0)<0&&(r.ret20??0)>0);
+      const h=t.filter(r=>(r.bzStreak??0)>0);
+      if(!t.length) return '';
+      const worst=b.slice().sort((x,y)=>(x.ret60??0)-(y.ret60??0))[0];
+      return `Of the <b>${t.length}</b> names scoring 90 or better today, <b>${h.length}</b> have actually been holding near their highs`
+        + (b.length?`, and <b>${b.length}</b> are up over 20 sessions while <b>down</b> over 60`
+            + (worst?` — ${worst.ticker} most of all, ${sg(worst.ret20,1)} over the month against ${sg(worst.ret60,1)} over three, ${pc(worst.fromHigh)} below its own high`:'')
+          :'');
+    })()}.</div></div>
   <div class="panel" style="margin-top:0"><div class="ptitle">🏆 Strongest names in the market</div>
     <div class="psub">Top 40 by momentum, out of ${(L.universe||0).toLocaleString()} scored. Click a theme tag to open its value chain, or a ticker for a chart.
       ${leadFilter==='all'&&unmapped?`<b>${unmapped} of these ${Math.min(40,all.length)} sit in none of our themes yet</b> — they are here because they are strong, not because we have written them up.`:''}</div>

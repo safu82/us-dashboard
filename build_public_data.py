@@ -75,6 +75,24 @@ def med(xs):
     return round(statistics.median(xs)) if xs else None
 
 
+def stock_sessions(n):
+    """The n most recent snapshot_dates in daily_stock_snapshots, newest first.
+
+    Anchored on QQQ, which fetch_ohlc pulls into the stock table as a dashboard
+    benchmark and which therefore has a row on every session the universe does.
+    Scanning for distinct dates is not an option here: one session is ~1,900
+    rows, so a quarter's worth would be a 130,000-row request to learn 60 dates.
+    """
+    rows = (sb.table('daily_stock_snapshots').select('snapshot_date')
+            .eq('ticker', 'QQQ').order('snapshot_date', desc=True)
+            .limit(n).execute().data or [])
+    out = []
+    for r in rows:
+        if r['snapshot_date'] not in out:
+            out.append(r['snapshot_date'])
+    return out[:n]
+
+
 def etf_sessions(n):
     """The n most recent snapshot_dates in etf_snapshots, newest first.
 
@@ -145,8 +163,50 @@ def main():
     print(f'stocks as of {stock_asof} | ETFs as of {etf_asof}\n')
 
     snaps = {r['ticker']: r for r in page(
-        'daily_stock_snapshots', 'ticker,momentum_score,rs_rank,close,high_52w',
+        'daily_stock_snapshots',
+        'ticker,momentum_score,rs_rank,close,high_52w,bz_streak',
         lambda q: q.eq('snapshot_date', stock_asof).not_.is_('momentum_score', 'null'))}
+
+    # Absolute return for stocks, over the same windows the fund board uses.
+    #
+    # The stock board does not have the fund board's problem — single-stock
+    # dispersion means the top of it has genuinely moved, and today not one of
+    # the 72 names scoring 90+ is down over 20 sessions. It has a different one:
+    # a violent bounce in a broken chart scores like sustained leadership.
+    # Wingstop on 2026-10-14 scored 92 on +21.6% over 20 sessions while being
+    # down 8.7% over 60 and trading 59% below its own high. The divergence
+    # between the two windows is the tell, which is why both are published.
+    stock_sess = stock_sessions(max(RET_WINDOWS) + 1)
+    stock_ret_dates = {f'd{w}': (stock_sess[w] if len(stock_sess) > w else None)
+                       for w in RET_WINDOWS}
+    past_close = {}
+    for w in RET_WINDOWS:
+        d = stock_ret_dates[f'd{w}']
+        if not d:
+            print(f'  only {len(stock_sess)} stock sessions stored; '
+                  f'{w}-session return unavailable')
+            continue
+        past_close[w] = {r['ticker']: r.get('close') for r in page(
+            'daily_stock_snapshots', 'ticker,close',
+            lambda q, d=d: q.eq('snapshot_date', d))}
+    print('stock return windows: '
+          + ', '.join(f'{k}={v}' for k, v in stock_ret_dates.items()))
+
+    def sret(tk, w):
+        """Null rather than a wrong number when a ticker lacks the history.
+
+        Tickers join the universe mid-window — the shallowest today has three
+        sessions — so the close simply is not there for them, and a return
+        measured from whatever bar happens to be oldest would be a different
+        window wearing the same label.
+        """
+        then = (past_close.get(w) or {}).get(tk)
+        now = (snaps.get(tk) or {}).get('close')
+        try:
+            now_c, then_c = float(now), float(then)
+        except (TypeError, ValueError):
+            return None
+        return round(now_c / then_c - 1, 6) if then_c > 0 else None
     sectors = {r['ticker']: r for r in page(
         'us_stock_sectors', 'ticker,company_name,sector,industry')}
 
@@ -396,10 +456,19 @@ def main():
                         'mom': sn['momentum_score'], 'rsRank': sn.get('rs_rank'),
                         'pe': pe, 'peVsOwn': peVsOwn,
                         'fromHigh': from_high(tk), 'mktCap': mkt_cap(tk),
+                        'ret20': sret(tk, 20), 'ret60': sret(tk, 60),
+                        # Consecutive sessions closed within 10% of the 52-week
+                        # high. Computed nightly since long before the portal
+                        # existed and never surfaced: it is the one field that
+                        # separates a name that has HELD its highs from one that
+                        # has just bounced to them. Only 47% of the names
+                        # scoring 90+ have any streak at all.
+                        'bzStreak': sn.get('bz_streak'),
                         'themes': sorted(mapped.get(tk, []))})
     leaders.sort(key=lambda r: (-r['mom'], r['rsRank'] or 9999))
     write('leaders.json', {
         'asOf': stock_asof,
+        'retDates': stock_ret_dates,
         'universe': len(leaders),
         'top': leaders[:120],          # enough to filter down to the mapped subset
         'hubs': sorted([l for l in leaders if len(l['themes']) >= 2],
@@ -440,6 +509,8 @@ def main():
                       'rsRank': (sn or {}).get('rs_rank'),
                       'pe': pe, 'peVsOwn': peVsOwn,
                       'fromHigh': from_high(tk), 'mktCap': mkt_cap(tk),
+                      'ret20': sret(tk, 20), 'ret60': sret(tk, 60),
+                      'bzStreak': (sn or {}).get('bz_streak'),
                       'themes': sorted(mapped.get(tk, []))}
     write('stocks.json', {'asOf': stock_asof, 'stocks': stocks})
 
