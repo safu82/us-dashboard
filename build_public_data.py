@@ -47,6 +47,11 @@ EMERGING_MIN_N, EMERGING_MIN_MOM, EMERGING_MIN_GAP = 5, 70, 0.5
 # Yahoo never finalized would otherwise turn "a week ago" into four days ago.
 LOOKBACK = {'d1': 1, 'd5': 5}
 
+# Trading sessions behind each return figure, matching compute_etf_momentum's
+# ret_20 / ret_60. Sessions, not calendar days: 20 is roughly a month and 60 is
+# roughly three, not two.
+RET_WINDOWS = (20, 60)
+
 
 def page(table, cols, f=None, size=1000):
     out, frm = [], 0
@@ -69,16 +74,27 @@ def med(xs):
 def etf_sessions(n):
     """The n most recent snapshot_dates in etf_snapshots, newest first.
 
-    etf_snapshots carries ~56 rows per session, so asking for 80 per session
-    wanted stays inside one PostgREST page and still tolerates the set growing.
+    Read off SPY, which is present on every session the board has (it is the
+    benchmark every vs_spy figure is computed against, so if it were missing the
+    board would already be broken). One row per session keeps this to a single
+    small request even when asking for a quarter's worth. Falls back to scanning
+    every symbol if SPY ever comes back short.
     """
-    rows = (sb.table('etf_snapshots').select('snapshot_date')
-            .order('snapshot_date', desc=True).limit(80 * n).execute().data or [])
-    out = []
-    for r in rows:
-        if r['snapshot_date'] not in out:
-            out.append(r['snapshot_date'])
-    return out[:n]
+    def distinct(rows):
+        out = []
+        for r in rows:
+            if r['snapshot_date'] not in out:
+                out.append(r['snapshot_date'])
+        return out[:n]
+
+    rows = (sb.table('etf_snapshots').select('snapshot_date').eq('symbol', 'SPY')
+            .order('snapshot_date', desc=True).limit(n).execute().data or [])
+    got = distinct(rows)
+    if len(got) >= n:
+        return got
+    return distinct(sb.table('etf_snapshots').select('snapshot_date')
+                    .order('snapshot_date', desc=True)
+                    .limit(80 * n).execute().data or [])
 
 
 BUNDLE = {}      # everything written, also emitted as one JS file (see write_bundle)
@@ -181,9 +197,19 @@ def main():
     # set itself for whichever column is active, which keeps one definition of
     # the ordering instead of two that can drift, and means adding a sort column
     # later needs no change here. The keys match the page's sort keys exactly.
-    sessions = etf_sessions(max(LOOKBACK.values()) + 1)
+    # Enough sessions to name the far end of the 60-session return window too.
+    sessions = etf_sessions(max(max(LOOKBACK.values()), *RET_WINDOWS) + 1)
     hist_dates = {lbl: (sessions[back] if len(sessions) > back else None)
                   for lbl, back in LOOKBACK.items()}
+    # The session each return window actually reaches back to. Published because
+    # "60d" reads as two calendar months and is nothing of the sort: 60 trading
+    # sessions is nearer three. Worse, a single-day anchor can land on a spike or
+    # a trough and make a falling fund read green — EWY on 2026-10-13 showed
+    # +2.3% over 60 sessions purely because the window started on 2026-07-20, a
+    # low in the middle of a slide. Naming the date is what lets a reader see
+    # that, and keeps the figure reproducible from any chart.
+    ret_dates = {f'd{w}': (sessions[w] if len(sessions) > w else None)
+                 for w in RET_WINDOWS}
     hist = {}
     for lbl, d in hist_dates.items():
         if not d:
@@ -198,7 +224,8 @@ def main():
                                    'symbol,momentum_score,top_decile_60d,'
                                    'vs_spy_20,ret_20,pct_from_high',
                                    lambda q, d=d: q.eq('snapshot_date', d))}
-    print(f'rank history: ' + ', '.join(f'{k}={v}' for k, v in hist_dates.items()))
+    print('rank history: ' + ', '.join(f'{k}={v}' for k, v in hist_dates.items()))
+    print('return windows: ' + ', '.join(f'{k}={v}' for k, v in ret_dates.items()))
 
     # Holdings, so the drill-down can mark which names a fund actually holds.
     # `complete` travels with them: only a full issuer file licenses a statement
@@ -245,8 +272,10 @@ def main():
         elif row['mom'] is not None:
             (countries if is_country else funds).append(row)
     write('etfs.json', {'asOf': etf_asof, 'histDates': hist_dates,
+                        'retDates': ret_dates,
                         'funds': funds, 'benchmarks': benchmarks})
     write('countries.json', {'asOf': etf_asof, 'histDates': hist_dates,
+                             'retDates': ret_dates,
                              'countries': countries, 'benchmarks': benchmarks})
 
     # ── Value chains ──────────────────────────────────────────────────────────
