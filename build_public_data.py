@@ -192,10 +192,11 @@ def main():
         hist[lbl] = {r['symbol']: {'mom': r.get('momentum_score'),
                                    'dur': r.get('top_decile_60d'),
                                    'spy': r.get('vs_spy_20'),
+                                   'ret': r.get('ret_20'),
                                    'high': r.get('pct_from_high')}
                      for r in page('etf_snapshots',
                                    'symbol,momentum_score,top_decile_60d,'
-                                   'vs_spy_20,pct_from_high',
+                                   'vs_spy_20,ret_20,pct_from_high',
                                    lambda q, d=d: q.eq('snapshot_date', d))}
     print(f'rank history: ' + ', '.join(f'{k}={v}' for k, v in hist_dates.items()))
 
@@ -224,6 +225,10 @@ def main():
                'sector': m.get('sector'), 'mom': s.get('momentum_score'),
                'rank': s.get('etf_rank'), 'fromHigh': s.get('pct_from_high'),
                'trend821': s.get('above_8_21'),
+               # Absolute return. Every other score on the board is relative to
+               # the pool, so without this a falling market still reads green:
+               # the leaders would simply be whatever fell least.
+               'ret20': s.get('ret_20'), 'ret60': s.get('ret_60'),
                'vsSpy20': s.get('vs_spy_20'), 'vsQqq20': s.get('vs_qqq_20'),
                'vsSpy60': s.get('vs_spy_60'), 'vsQqq60': s.get('vs_qqq_60'),
                'durability': s.get('top_decile_60d'),
