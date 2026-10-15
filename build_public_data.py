@@ -184,7 +184,7 @@ def main():
         'etfs', 'symbol,name,kind,grp,sector,theme_slug,benchmark_only,display_order')}
     esnap = {r['symbol']: r for r in page(
         'etf_snapshots',
-        'symbol,momentum_score,etf_rank,pct_from_high,above_8_21,'
+        'symbol,momentum_score,etf_rank,pct_from_high,above_8_21,close,'
         'ret_20,vs_spy_20,vs_qqq_20,ret_60,vs_spy_60,vs_qqq_60,top_decile_60d',
         lambda q: q.eq('snapshot_date', etf_asof))}
 
@@ -232,10 +232,13 @@ def main():
                                    'dur': r.get('top_decile_60d'),
                                    'spy': r.get('vs_spy_20'),
                                    'ret': r.get('ret_20'),
-                                   'high': r.get('pct_from_high')}
+                                   'high': r.get('pct_from_high'),
+                                   # Carried for the short-window move below,
+                                   # not for ranking. Nothing sorts on close.
+                                   'close': r.get('close')}
                      for r in page('etf_snapshots',
                                    'symbol,momentum_score,top_decile_60d,'
-                                   'vs_spy_20,ret_20,pct_from_high',
+                                   'vs_spy_20,ret_20,pct_from_high,close',
                                    lambda q, d=d: q.eq('snapshot_date', d))}
     print('rank history: ' + ', '.join(f'{k}={v}' for k, v in hist_dates.items()))
     print('return windows: ' + ', '.join(f'{k}={v}' for k, v in ret_dates.items()))
@@ -254,6 +257,21 @@ def main():
     # countries and is not comparable with a sector fund's score. They are kept
     # in separate files for the same reason they are ranked separately: so that
     # nothing downstream can quietly concatenate them into one list.
+    def move(sym, lbl, now_close):
+        """Return over the SAME window the rank change uses.
+
+        Derived from the two closes rather than stored, so the move and the
+        rank change can never describe different spans: both read the session
+        hist_dates named. A fund with no bar on that session gets nothing
+        rather than a figure silently measured over a different window.
+        """
+        then = (hist.get(lbl, {}).get(sym) or {}).get('close')
+        try:
+            now_c, then_c = float(now_close), float(then)
+        except (TypeError, ValueError):
+            return None
+        return round(now_c / then_c - 1, 6) if then_c > 0 else None
+
     funds, countries, benchmarks = [], [], {}
     for sym, m in sorted(meta.items(), key=lambda kv: kv[1].get('display_order') or 999):
         s = esnap.get(sym)
@@ -269,6 +287,11 @@ def main():
                # the pool, so without this a falling market still reads green:
                # the leaders would simply be whatever fell least.
                'ret20': s.get('ret_20'), 'ret60': s.get('ret_60'),
+               # The same two windows the rank change uses, so a move up the
+               # board can be read against what the price actually did over
+               # exactly that span. Five sessions is the week; one is the day.
+               'mv1': move(sym, 'd1', s.get('close')),
+               'mv5': move(sym, 'd5', s.get('close')),
                'vsSpy20': s.get('vs_spy_20'), 'vsQqq20': s.get('vs_qqq_20'),
                'vsSpy60': s.get('vs_spy_60'), 'vsQqq60': s.get('vs_qqq_60'),
                'durability': s.get('top_decile_60d'),
