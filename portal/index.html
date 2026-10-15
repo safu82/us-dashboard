@@ -276,8 +276,10 @@ const hd=k=>((D.etfs.histDates||{})[k])||'—';
 /* The session each return window reaches back to. Named everywhere the figure
    appears, because "60d" reads as two calendar months and is nearer three, and
    because a reader checking the number against a chart needs to know which bar
-   it started from. */
-const rd=k=>((D.etfs.retDates||{})[k])||'—';
+   it started from. The builder withholds the date rather than publish one that
+   might be off by a session, so this says nothing when it has nothing. */
+const rd=k=>((D.etfs.retDates||{})[k])||null;
+const win=(n,k)=>rd(k)?`${n} trading sessions, back to ${rd(k)}`:`${n} trading sessions`;
 /* A cross-sectional score cannot tell you what the market did, only where
    something stands inside it. Ranked against a field that is all falling, the
    leader is simply whatever fell least — and the board would stay green and
@@ -378,8 +380,8 @@ function boardView(o){
       <div>${o.head}</div>
       <div class="r hlp" title="${o.momTip(all.length)}">Mom</div>
       <div class="r hlp" title="How far this ${o.noun} has moved on the column you are sorting by — right now ${SORTL}. Bright is the change since the previous session, dimmed is over the last five. ▲3 means it passed three, measured against all ${all.length} on this board rather than the ones left after filtering. A dot means there was no comparable score on that session.">Δ rank</div>
-      <div class="r hlp" title="What this ${o.noun} ACTUALLY returned — not its standing against the others. The one column that does not care how everything else did: a ${o.noun} can rank near the top and still be red here, which means it fell less than the rest rather than rose. Bright is 20 trading sessions, back to ${rd('d20')}; dimmed is 60 sessions, back to ${rd('d60')} — sessions, not calendar days, so 60 is nearer three months than two. Both compare that day's close with the latest, which means a window starting on a spike or a trough can read very differently from the trend; check From high when the two disagree.">Return 20·60</div>
-      <div class="r hs hlp" title="Return minus the S&P 500's over the same windows — 20 sessions back to ${rd('d20')}, 60 back to ${rd('d60')}. Positive means it beat the index.">vs SPY 20·60</div>
+      <div class="r hlp" title="What this ${o.noun} ACTUALLY returned — not its standing against the others. The one column that does not care how everything else did: a ${o.noun} can rank near the top and still be red here, which means it fell less than the rest rather than rose. Bright is ${win(20,'d20')}; dimmed is ${win(60,'d60')} — sessions, not calendar days, so 60 is nearer three months than two. Both compare that day's close with the latest, which means a window starting on a spike or a trough can read very differently from the trend; check From high when the two disagree.">Return 20·60</div>
+      <div class="r hs hlp" title="Return minus the S&P 500's over the same windows — ${win(20,'d20')}, and ${win(60,'d60')}. Positive means it beat the index.">vs SPY 20·60</div>
       <div class="r hs hlp" title="How far below its own 52-week high this ${o.noun} is trading. 0% means it is at a new high, so closer to zero is stronger.">From high</div>
       <div class="c hs hlp" title="Short-term trend: a tick means the price closed above its 8-day average with the 8 above the 21. A dot means it has not.">8/21</div>
       <div class="r hs hlp" title="Return minus the Nasdaq 100's over the same window. Bright figure is 20 trading days, dimmed is 60.">vs QQQ 20d·60d</div>
@@ -404,7 +406,7 @@ function boardView(o){
     :`<div class="tr" style="grid-template-columns:1fr;color:var(--text2);cursor:default">${o.emptyMsg}</div>`}
   </div>
   <div class="intro" style="margin-top:10px">${rows.length} of ${all.length} ${o.nounPlural}${checks.size?` pass ${[...checks].map(k=>CHECKS[k].label.toLowerCase()).join(' + ')}`:''}.
-    Benchmarks over the same 20 sessions: ${o.benchmarks.map(b).join(' · ')}. <b>Return</b> is what the ${o.noun} actually did; <b>vs SPY / vs QQQ</b> subtract the index from it. Windows are <b>trading sessions, not calendar days</b>: the bright figure compares today's close with <b>${rd('d20')}</b> (20 sessions, about a month) and the dimmed one with <b>${rd('d60')}</b> (60 sessions, nearer three months than two). Each is a close-to-close comparison with a single day, so a window that happens to start on a spike or a trough can read very differently from the trend — <b>From high</b> is the check when a green return sits next to a deep drawdown.
+    Benchmarks over the same 20 sessions: ${o.benchmarks.map(b).join(' · ')}. <b>Return</b> is what the ${o.noun} actually did; <b>vs SPY / vs QQQ</b> subtract the index from it. Windows are <b>trading sessions, not calendar days</b>${rd('d20')&&rd('d60')?`: the bright figure compares today's close with <b>${rd('d20')}</b> (20 sessions, about a month) and the dimmed one with <b>${rd('d60')}</b> (60 sessions, nearer three months than two)`:`, so 20 is about a month and 60 is nearer three months than two`}. Each is a close-to-close comparison with a single day, so a window that happens to start on a spike or a trough can read very differently from the trend — <b>From high</b> is the check when a green return sits next to a deep drawdown.
     <b>Δ rank</b> re-ranks this board on whichever column you sort by and compares today with ${hd('d1')} and ${hd('d5')} — change the sort and the column follows it.</div>
   ${o.after()}`;
 }

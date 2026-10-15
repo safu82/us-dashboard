@@ -208,8 +208,21 @@ def main():
     # +2.3% over 60 sessions purely because the window started on 2026-07-20, a
     # low in the middle of a slide. Naming the date is what lets a reader see
     # that, and keeps the figure reproducible from any chart.
-    ret_dates = {f'd{w}': (sessions[w] if len(sessions) > w else None)
-                 for w in RET_WINDOWS}
+    #
+    # The offsets are counted off SPY's calendar, while ret_20/ret_60 are
+    # computed per symbol as N rows back in that symbol's own history. The two
+    # agree only while every fund has a bar on every session SPY does — true for
+    # all 83 today, and the normal case for US-listed funds. If SPY itself ever
+    # lags the board, every offset here is wrong by at least one session, so
+    # rather than publish a date that is quietly off by a day, publish none and
+    # let the page fall back to saying nothing.
+    if sessions and sessions[0] != etf_asof:
+        print(f'  WARNING: SPY newest is {sessions[0]} but board is {etf_asof}; '
+              'return-window dates withheld')
+        ret_dates = {f'd{w}': None for w in RET_WINDOWS}
+    else:
+        ret_dates = {f'd{w}': (sessions[w] if len(sessions) > w else None)
+                     for w in RET_WINDOWS}
     hist = {}
     for lbl, d in hist_dates.items():
         if not d:
