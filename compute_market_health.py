@@ -22,6 +22,10 @@ from datetime import datetime, timezone
 
 import pandas as pd
 from supabase import create_client
+
+# Patches postgrest to retry transient Supabase failures (gateway
+# errors, timeouts) instead of letting one kill the nightly chain.
+import sb_retry  # noqa: F401
 from dotenv import load_dotenv
 
 BASE = os.path.dirname(os.path.abspath(__file__))

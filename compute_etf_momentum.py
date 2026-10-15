@@ -28,6 +28,10 @@ import yfinance as yf
 from dotenv import load_dotenv
 from supabase import create_client
 
+# Patches postgrest to retry transient Supabase failures (gateway
+# errors, timeouts) instead of letting one kill the nightly chain.
+import sb_retry  # noqa: F401
+
 # Reuse the canonical indicator math + benchmark so ETF EMAs / alkalyme_rs match
 # the stock pipeline exactly (import-safe: fetch_ohlc guards sb/main under __main__).
 from fetch_ohlc import get_ticker_df, compute_records, BENCHMARK, HISTORY_PERIOD
