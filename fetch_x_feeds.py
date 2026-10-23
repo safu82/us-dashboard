@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+"""Collect posts from a short list of market accounts into feed_mentions.
+
+Second source, not the foundation. The RSS wires carry the primary reporting;
+these accounts add speed (the daily recaps land ~03:00 UTC, hours before the
+morning write-ups) and framing (which part of a print mattered). Counting is by
+DISTINCT SOURCE for exactly this reason — several of these accounts relay the
+same scoop within the hour, and counting posts would measure syndication.
+
+The five were chosen to do five different jobs, and they parse very differently:
+
+  amitisinvesting  8.8k-char numbered daily recap, ticker-dense
+  KobeissiLetter   macro one-liners, ZERO cashtags — flows, rates, deficits
+  MelvinInvests    semis and memory supply chain, often Samsung/SK Hynix,
+                   which are not US-listed and resolve to no ticker
+  eWhispers        earnings calendars, almost pure cashtag lists
+  CharlieBilello   market statistics, no cashtags, highly checkable claims
+
+So cashtag extraction alone would cover about a third of this. The shared
+matcher in feed_entities handles the rest.
+
+AUTHENTICATION. X serves nothing useful logged out, so this needs a session.
+Run `python fetch_x_feeds.py --login` ONCE: a browser opens, you log in by hand,
+and the session is saved to x_state.json. That file is a live credential — it is
+gitignored, and in CI it belongs in a secret, not the repo. No password is ever
+read, stored or typed by this script.
+
+A NOTE ON TERMS. Automated collection is against X's terms of service, and the
+account carrying the session is the one at risk. That argues for a short list
+polled once a day, which is what this is, rather than broad scraping. The RSS
+collector is the part with no such exposure, and it is deliberately the one the
+morning note can run without.
+
+Env: SUPABASE_URL, SUPABASE_SERVICE_KEY.
+Usage:
+  python fetch_x_feeds.py --login          # once, interactive
+  python fetch_x_feeds.py [--dry-run] [--days N] [--headed]
+"""
+
+import os
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+
+from dotenv import load_dotenv
+from supabase import create_client
+
+import sb_retry  # noqa: F401
+from feed_entities import build_patterns, entities, session_for
+
+BASE = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE, '.env'))
+STATE = os.path.join(BASE, 'x_state.json')
+
+URL = os.environ.get('SUPABASE_URL')
+KEY = os.environ.get('SUPABASE_SERVICE_KEY')
+
+HANDLES = {
+    'amitisinvesting': 'daily numbered recap',
+    'KobeissiLetter':  'macro, flows, rates',
+    'MelvinInvests':   'semis and memory supply chain',
+    'eWhispers':       'earnings calendar',
+    'CharlieBilello':  'market statistics',
+}
+
+PER_HANDLE = 25          # posts wanted before scrolling stops
+MAX_SCROLLS = 30
+SCROLL_WAIT = 1.4        # X's virtualiser needs a beat to render the next page
+BETWEEN_HANDLES = 6      # seconds; politeness, and it looks less like a bot
+MAX_EXPANDS = 6          # permalinks opened per handle to recover long posts
+
+# Collect what is rendered. X virtualises the timeline, so this runs after each
+# scroll and dedupes by permalink rather than reading the DOM once at the end.
+COLLECT_JS = """
+() => {
+  const out = [];
+  for (const a of document.querySelectorAll('article[data-testid="tweet"]')) {
+    const t = a.querySelector('time');
+    if (!t) continue;                      // no timestamp => promoted
+    let href = (t.closest('a')?.getAttribute('href') || '');
+    const m = href.match(/^\\/[^/]+\\/status\\/\\d+/);
+    if (!m) continue;
+    const metric = n => {
+      const e = a.querySelector(`[data-testid="${n}"]`);
+      return e ? e.innerText.trim().split('\\n')[0] : '';
+    };
+    out.push({
+      href: m[0],
+      when: t.getAttribute('datetime'),
+      likes: metric('like'),
+      truncated: !!a.querySelector('[data-testid="tweet-text-show-more-link"]'),
+      text: [...a.querySelectorAll('[data-testid="tweetText"]')]
+              .map(e => e.innerText).join('\\n')
+              .replace(/\\n\\$([A-Z.]+)\\n/g, ' $$$1 '),
+    });
+  }
+  return out;
+}
+"""
+
+# On a permalink, read the first article only: replies are other people's.
+FULL_JS = """
+() => {
+  const a = document.querySelector('article[data-testid="tweet"]');
+  if (!a) return null;
+  return [...a.querySelectorAll('[data-testid="tweetText"]')]
+           .map(e => e.innerText).join('\\n')
+           .replace(/\\n\\$([A-Z.]+)\\n/g, ' $$$1 ');
+}
+"""
+
+
+def do_login():
+    from playwright.sync_api import sync_playwright
+    print('A browser will open. Log in to X by hand; this waits for the home '
+          'timeline and then saves the session.\n')
+    with sync_playwright() as p:
+        b = p.chromium.launch(headless=False)
+        ctx = b.new_context()
+        page = ctx.new_page()
+        page.goto('https://x.com/login')
+        try:
+            page.wait_for_url('**/home', timeout=300000)
+        except Exception:
+            print('Did not reach the home timeline within 5 minutes; '
+                  'nothing saved.')
+            b.close()
+            return 1
+        ctx.storage_state(path=STATE)
+        b.close()
+    print(f'Saved session to {STATE}')
+    print('That file is a live credential. It is gitignored; keep it out of '
+          'anywhere shared, and put it in a secret if this ever runs in CI.')
+    return 0
+
+
+def collect(page, handle, cutoff):
+    page.goto(f'https://x.com/{handle}', wait_until='domcontentloaded')
+    page.wait_for_timeout(2600)
+    seen = {}
+    stale = 0
+    for _ in range(MAX_SCROLLS):
+        if len(seen) >= PER_HANDLE:
+            break
+        before = len(seen)
+        for p in page.evaluate(COLLECT_JS) or []:
+            if p['href'] not in seen:
+                seen[p['href']] = p
+        page.mouse.wheel(0, 2200)
+        page.wait_for_timeout(int(SCROLL_WAIT * 1000))
+        for p in page.evaluate(COLLECT_JS) or []:
+            if p['href'] not in seen:
+                seen[p['href']] = p
+        if len(seen) == before:
+            stale += 1
+            if stale >= 6:
+                break
+        else:
+            stale = 0
+
+    posts = []
+    for p in seen.values():
+        try:
+            when = datetime.fromisoformat(p['when'].replace('Z', '+00:00'))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        # A pinned post can be two years old and would otherwise be counted as
+        # today's news on every single run.
+        if when < cutoff:
+            continue
+        p['dt'] = when
+        posts.append(p)
+    posts.sort(key=lambda x: x['dt'], reverse=True)
+
+    # The timeline truncates long posts, and the long ones are the recaps where
+    # most of the tickers live — the 2026-10-22 recap was 8.8k characters and
+    # named twenty-odd names. Recovering a handful is worth the extra loads.
+    expanded = 0
+    for p in posts:
+        if expanded >= MAX_EXPANDS or not p.get('truncated'):
+            continue
+        try:
+            page.goto('https://x.com' + p['href'], wait_until='domcontentloaded')
+            page.wait_for_timeout(2200)
+            full = page.evaluate(FULL_JS)
+            if full and len(full) > len(p['text']):
+                p['text'] = full
+                expanded += 1
+        except Exception as e:
+            print(f'    expand failed {p["href"]}: {type(e).__name__}')
+    return posts, expanded
+
+
+def main():
+    if '--login' in sys.argv:
+        return do_login()
+    if not URL or not KEY:
+        sys.exit('ERROR: SUPABASE_URL and SUPABASE_SERVICE_KEY must be set')
+    if not os.path.exists(STATE):
+        sys.exit(f'No saved session at {STATE}.\n'
+                 'Run:  python fetch_x_feeds.py --login')
+
+    dry = '--dry-run' in sys.argv
+    days = 2
+    if '--days' in sys.argv:
+        days = int(sys.argv[sys.argv.index('--days') + 1])
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    sb = create_client(URL, KEY)
+    print('=' * 66)
+    print('X FEEDS  ', datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'))
+    print('=' * 66)
+
+    rows, frm = [], 0
+    while True:
+        r = (sb.table('us_stock_sectors').select('ticker,company_name')
+             .range(frm, frm + 999).execute().data or [])
+        rows.extend(r)
+        if len(r) < 1000:
+            break
+        frm += 1000
+    tickers, patterns, n_short = build_patterns(rows)
+    print(f'universe: {len(tickers)} tickers, {n_short} short forms\n')
+
+    from playwright.sync_api import sync_playwright
+    out, no_entity = [], 0
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless='--headed' not in sys.argv)
+        ctx = browser.new_context(storage_state=STATE,
+                                  viewport={'width': 1280, 'height': 2000})
+        page = ctx.new_page()
+        for i, (handle, role) in enumerate(HANDLES.items()):
+            try:
+                posts, expanded = collect(page, handle, cutoff)
+            except Exception as e:
+                print(f'  {handle:17} FAILED {type(e).__name__}: {str(e)[:90]}')
+                continue
+            hits = 0
+            for p in posts:
+                ents = entities(p['text'], tickers, patterns)
+                if not ents:
+                    no_entity += 1
+                    continue
+                hits += 1
+                for ent, typ, how, exc in ents:
+                    out.append({
+                        'source': f'x:{handle}', 'source_type': 'x',
+                        'item_url': 'https://x.com' + p['href'],
+                        'item_title': p['text'][:400],
+                        'published_at': p['dt'].isoformat(),
+                        'snapshot_date': session_for(p['dt']).isoformat(),
+                        'entity': ent, 'entity_type': typ,
+                        'matched_on': how, 'excerpt': exc[:300]})
+            print(f'  {handle:17} {len(posts):3} posts, {expanded} expanded, '
+                  f'{hits} tagged  ({role})')
+            if i < len(HANDLES) - 1:
+                time.sleep(BETWEEN_HANDLES)
+        browser.close()
+
+    print(f'\n{len(out)} mentions | {no_entity} posts matched nothing')
+    by_ent = {}
+    for r in out:
+        by_ent.setdefault(r['entity'], set()).add(r['source'])
+    top = sorted(by_ent.items(), key=lambda kv: -len(kv[1]))[:12]
+    print('\nmost-mentioned (distinct handles):')
+    for ent, srcs in top:
+        print(f'  {ent:8} {len(srcs)}  {", ".join(sorted(s[2:] for s in srcs))[:60]}')
+
+    if dry:
+        print('\n--dry-run: nothing written')
+        return 0
+    for i in range(0, len(out), 500):
+        sb.table('feed_mentions').upsert(
+            out[i:i + 500], on_conflict='source,item_url,entity').execute()
+    print(f'\nupserted {len(out)} rows')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

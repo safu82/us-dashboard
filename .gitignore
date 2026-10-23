@@ -235,3 +235,8 @@ previous_issue.md
 # (overrides the *.docx ignore above for this folder only).
 !newsletters/*.md
 !newsletters/*.docx
+
+
+# A saved X session. This is a live credential: anyone holding it is logged in
+# as the account. Never commit it; in CI it belongs in a secret.
+x_state.json
