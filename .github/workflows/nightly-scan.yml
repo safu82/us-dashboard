@@ -215,9 +215,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      - name: 13/13 build_morning_note.py
+      - name: 13/13 build_digest.py
         if: steps.ohlc.outputs.published == 'true'
-        run: python build_morning_note.py --telegram
+        run: python build_digest.py --telegram
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

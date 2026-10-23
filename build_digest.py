@@ -57,7 +57,10 @@ EVERGREEN = re.compile(
     r"\bmy\s+(top|favorite)\b|worth\s+buying|time\s+to\s+buy|"
     r"what\s+it\s+means\s+for|never\s+done\s+before|here'?s\s+what|"
     r"\bcould\s+(be|make|turn)\b|\bmillionaire\b|\bno-brainer\b|"
-    r"\bdown\s+\d+%\s+from\b|\bstill\s+own\b|\bshould\s+you\b)", re.I)
+    r"\bdown\s+\d+%\s+from\b|\bstill\s+own\b|\bshould\s+you\b|"
+    r"\bi'?d\s+buy\b|no\s+matter\s+what|buy\s+and\s+hold|"
+    r"\bthis\s+is\s+the\s+\d+\b|\bhold\s+forever\b|\bdividend\s+stock[s]?\s+to\b)",
+    re.I)
 
 MACRO_LABEL = {'US10Y': '10-year yield', 'FED': 'the Fed', 'BRENT': 'oil',
                'GOLD': 'gold', 'CPI': 'inflation', 'JOBS': 'jobs',
@@ -67,6 +70,125 @@ STOPWORDS = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to',
              'for', 'of', 'as', 'is', 'it', 'its', 'with', 'from', 'by',
              'after', 'amid', 'over', 'this', 'that', 'has', 'have', 'says',
              'said', 'new', 'more', 'than', 'what', 'how', 'why', 'be'}
+
+
+CSS = """
+:root{--bg:#0b0e14;--bg2:#141922;--bg3:#1b212c;--border:#2a323f;--text:#e8eef6;
+--text2:#8e9bad;--green:#3fb950;--red:#f85149;--blue:#58a6ff}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font:15px/1.6 -apple-system,
+BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;padding-bottom:50px}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:780px;margin:0 auto;padding:0 20px}
+header{border-bottom:1px solid var(--border);
+background:linear-gradient(180deg,#121823,var(--bg));padding:26px 0 20px;margin-bottom:24px}
+h1{font-size:23px;font-weight:800;letter-spacing:-.5px}
+.tape{color:var(--text2);font-size:13.5px;margin-top:9px;line-height:1.8}
+.tape b{color:var(--text);font-weight:700}
+.item{border-top:1px solid var(--border);padding:16px 0}
+.item:first-of-type{border-top:none}
+.hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:5px}
+.n{color:var(--text2);font-size:13px;min-width:18px}
+.sym{font-weight:800;font-size:16px}
+.sym:hover{color:var(--blue)}
+.co{color:var(--text2);font-size:12.5px}
+.mv{font-weight:800;font-size:15px;margin-left:auto}
+.src{font-size:11px;color:var(--text2);border:1px solid var(--border);
+border-radius:20px;padding:2px 9px}
+.hl{font-size:14.5px;line-height:1.55}
+.hl a:hover{color:var(--blue)}
+.alt{color:var(--text2);font-size:12.5px;margin-top:5px}
+.sec{font-size:12px;letter-spacing:.5px;text-transform:uppercase;
+color:var(--text2);margin:26px 0 4px;font-weight:700}
+.minor{display:grid;grid-template-columns:72px 62px 1fr;gap:10px;
+padding:7px 0;border-top:1px solid var(--border);font-size:13.5px;align-items:baseline}
+.minor .mv2{text-align:right;font-weight:700;font-size:13px}
+footer{color:var(--text2);font-size:11.5px;line-height:1.7;margin-top:28px;
+border-top:1px solid var(--border);padding-top:16px}
+@media(max-width:560px){.minor{grid-template-columns:62px 56px 1fr;gap:8px}
+.hl{font-size:14px}}
+"""
+
+
+def write_html(session, prev, tape, shown, rest, stories, arts, dropped,
+               label, pc):
+    """Same digest, somewhere you can just look at it.
+
+    Data is baked in: the private dashboard is a manual upload rather than a
+    git deploy, so a page that fetched would need a Supabase key in its source.
+    """
+    import html as _h
+    import webbrowser
+
+    def esc(s):
+        return _h.escape(str(s or ''))
+
+    def col(v):
+        return 'var(--text2)' if v is None else (
+            'var(--green)' if v > 0 else 'var(--red)' if v < 0 else 'var(--text2)')
+
+    def tv(t):
+        return f'https://www.tradingview.com/chart/?symbol={esc(t)}'
+
+    items = []
+    for i, s in enumerate(shown, 1):
+        sub, mv = s['subject'], s['move']
+        lab = label(sub)
+        tk = lab.split(' (')[0]
+        co = lab.split(' (')[1].rstrip(')') if ' (' in lab else ''
+        items.append(
+            f'<div class="item"><div class="hd"><span class="n">{i}</span>'
+            f'<a class="sym" href="{tv(tk)}" target="_blank" rel="noopener">{esc(tk)}</a>'
+            f'<span class="co">{esc(co)}</span>'
+            f'<span class="src">{s["n"]} sources</span>'
+            f'<span class="mv" style="color:{col(mv)}">{pc(mv) or ""}</span></div>'
+            f'<div class="hl"><a href="{esc(s["urls"][0])}" target="_blank" '
+            f'rel="noopener">{esc(s["headline"])}</a></div>'
+            + (f'<div class="alt">also: {esc(s["alt"][0][:120])}</div>' if s['alt'] else '')
+            + '</div>')
+
+    seen = {s['subject'] for s in shown}
+    minor = []
+    for s in sorted(rest, key=lambda x: -abs(x['move'] or 0)):
+        if s['subject'] in seen:
+            continue
+        seen.add(s['subject'])
+        lab = label(s['subject'])
+        tk = lab.split(' (')[0]
+        minor.append(
+            f'<div class="minor"><a class="sym" style="font-size:13.5px" '
+            f'href="{tv(tk)}" target="_blank" rel="noopener">{esc(tk)}</a>'
+            f'<span class="mv2" style="color:{col(s["move"])}">{pc(s["move"]) or "–"}</span>'
+            f'<a href="{esc(s["urls"][0])}" target="_blank" rel="noopener">'
+            f'{esc(s["headline"][:120])}</a></div>')
+        if len(minor) >= 12:
+            break
+
+    n_x = sum(1 for a in arts.values() if a['type'] == 'x')
+    body = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Market digest &mdash; {esc(session)}</title><style>{CSS}</style></head><body>
+<header><div class="wrap"><h1>Market digest</h1>
+<div class="tape">Session <b>{esc(session)}</b><br>{esc(' · '.join(tape))}</div>
+</div></header><div class="wrap">
+<div class="sec">Carried by more than one source</div>
+{''.join(items) or '<div class="item" style="color:var(--text2)">Nothing today was carried by more than one source.</div>'}
+<div class="sec">Also reported</div>
+{''.join(minor)}
+<footer>{len(stories)} stories from {len({a['source'] for a in arts.values()})} sources
+({len(arts) - n_x} wire, {n_x} X). {dropped} evergreen pieces filtered out.
+Moves are {esc(prev)} to {esc(session)} closes, from our own data.
+Items are ranked by how many <b>distinct sources</b> carried them, never by article
+count &mdash; one wire scoop becomes several stories within the hour.
+Headlines link to their publisher; nothing is reproduced beyond the title.</footer>
+</div></body></html>"""
+
+    out = os.path.join(BASE, 'digest.html')
+    with open(out, 'w', encoding='utf-8') as fh:
+        fh.write(body)
+    print(f'wrote {out} ({os.path.getsize(out)/1024:.1f} KB)', file=sys.stderr)
+    if '--open' in sys.argv:
+        webbrowser.open('file:///' + out.replace('\\', '/'))
 
 
 def page(table, cols, f=None, size=1000):
@@ -272,6 +394,10 @@ def main():
     note = '\n'.join(out)
     print(note)
     print(f'\n[{len(note.split())} words]', file=sys.stderr)
+
+    if '--html' in sys.argv or '--open' in sys.argv:
+        write_html(session, prev, tape, shown, rest, stories, arts, dropped,
+                   label, pc)
 
     if '--telegram' in sys.argv:
         tok, chat = os.environ.get('TELEGRAM_BOT_TOKEN'), os.environ.get('TELEGRAM_CHAT_ID')
