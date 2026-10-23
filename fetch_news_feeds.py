@@ -159,10 +159,20 @@ def main():
     if dry:
         print('\n--dry-run: nothing written')
         return
+
+    # Replace each article's entity set rather than merging into it. An upsert
+    # alone can only add and update, so when the matcher improves, the rows it
+    # used to get wrong stay behind: "Nasdaq takes a hit" kept tagging NDAQ long
+    # after the rule that produced it was removed, and a stale exchange operator
+    # sat at +7.5% in a digest about a selloff. Only articles seen in THIS run
+    # are cleared, so a feed being down cannot wipe yesterday's good rows.
+    urls = sorted({r['item_url'] for r in rows})
+    for i in range(0, len(urls), 100):
+        sb.table('feed_mentions').delete().in_('item_url', urls[i:i + 100]).execute()
     for i in range(0, len(rows), 500):
         sb.table('feed_mentions').upsert(
             rows[i:i + 500], on_conflict='source,item_url,entity').execute()
-    print(f'\nupserted {len(rows)} rows')
+    print(f'\nrewrote {len(rows)} rows across {len(urls)} articles')
 
 
 if __name__ == '__main__':

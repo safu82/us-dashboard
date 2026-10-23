@@ -43,7 +43,12 @@ NAME_STOPLIST = {'target', 'gap', 'block', 'match', 'on', 'key', 'all', 'how',
                  'trump', 'trade', 'jones', 'stanley', 'robert', 'telephone',
                  'commerce', 'public', 'service', 'western', 'eastern', 'north',
                  'south', 'east', 'west', 'central', 'summit', 'liberty',
-                 'premier', 'select', 'prime', 'pioneer', 'heritage', 'legacy'}
+                 'premier', 'select', 'prime', 'pioneer', 'heritage', 'legacy',
+                 # Index and exchange words that are also listed companies.
+                 # "Nasdaq takes a hit on AI spending fears" is about the index,
+                 # not about Nasdaq Inc, and tagging NDAQ there put a +7.5%
+                 # exchange operator at the top of a digest about a selloff.
+                 'nasdaq', 'dow', 'russell', 'invesco'}
 
 # Requiring market vocabulary near a short-form match costs nothing on a real
 # company story — they all say shares, earnings or revenue somewhere — and
