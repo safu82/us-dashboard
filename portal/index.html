@@ -115,6 +115,8 @@
   .dgtk{background:var(--bg3);border:1px solid var(--border);border-radius:6px;
     padding:3px 9px;font-size:12.5px;font-weight:700;}
   .dgtk:hover{color:var(--blue);border-color:var(--accent);}
+  .dgmm{font-weight:800;font-size:11px;margin-left:5px;}
+  .dgwhen{font-size:9px;color:var(--text2);margin-left:3px;vertical-align:2px;}
   .pill{display:inline-block;font-size:10px;background:#1d2531;color:var(--text2);border-radius:5px;padding:2px 7px;margin-right:4px;}
   /* "in FUND" is a positive claim from published holdings. "not held" is only
      ever shown for funds that publish a complete file — from a top 10 we cannot
@@ -428,11 +430,18 @@ function digest(){
       <a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.text)}</a>
       <span class="dgwho">@${esc(m.handle)}</span></div>`).join('')}`:''}
   ${(d.reporting&&d.reporting.length)?`
-    <div class="dgsec">Reporting ahead</div>
-    <div class="intro" style="margin:0 0 8px">Due to report. The only forward-looking
-      thing on this page; everything else describes a session that has closed.</div>
-    <div class="dgcal">${d.reporting.map(t=>
-      `<a class="dgtk" href="${tv(t)}" target="_blank" rel="noopener">${esc(t)}</a>`).join('')}</div>`:''}
+    <div class="dgsec">Reporting ${esc(d.reportingDate||'next')}</div>
+    <div class="intro" style="margin:0 0 8px">The only forward-looking thing on this
+      page — everything else describes a session that has closed. Sorted by momentum,
+      because a name already at the top of the board is where a surprise moves
+      something. <b>a</b> reports after the close, <b>p</b> before the open.</div>
+    <div class="dgcal">${d.reporting.map(c=>
+      `<a class="dgtk" href="${tv(c.symbol)}" target="_blank" rel="noopener"
+          title="${esc(c.company||'')}${c.mom!=null?` · momentum ${c.mom}`:''}${
+            c.eps!=null?` · consensus EPS ${c.eps}`:''}">${esc(c.symbol)}<span
+          class="dgmm" style="color:${c.mom==null?'var(--text2)':momCol(c.mom)}">${
+            c.mom==null?'–':c.mom}</span><span class="dgwhen">${
+            c.when==='after'?'a':c.when==='pre'?'p':''}</span></a>`).join('')}</div>`:''}
   <div class="intro" style="margin-top:14px">${c.stories||0} stories from ${c.sources||0}
     sources${c.filtered?`; ${c.filtered} opinion and listicle pieces filtered out`:''}.
     Only companies in the ${uni.toLocaleString()}-stock universe are tagged, so a story

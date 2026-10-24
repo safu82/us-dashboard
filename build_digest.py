@@ -197,7 +197,7 @@ Headlines link to their publisher; nothing is reproduced beyond the title.</foot
 
 
 def write_portal(session, prev, tape, shown, rest, stories, arts, dropped,
-                 names, macro_notes, reporting, closes):
+                 names, macro_notes, next_day, next_up):
     """portal/data/digest.json — what the Sector Compass page reads.
 
     Only wire headlines and links go out. A headline plus attribution plus a
@@ -240,7 +240,12 @@ def write_portal(session, prev, tape, shown, rest, stories, arts, dropped,
         'macro': [{'text': __import__('re').sub(r'\\s+', ' ', n['text'])[:260],
                    'handle': n['handle'], 'url': n['url']}
                   for n in macro_notes[:6]],
-        'reporting': [t for t in reporting if t in closes][:30],
+        'reportingDate': next_day,
+        'reporting': [{'symbol': c['symbol'], 'mom': c['mom'],
+                       'when': c['when_of_day'],
+                       'company': (c.get('company_name') or '')[:30],
+                       'eps': c.get('eps_estimate')}
+                      for c in next_up[:40]],
         'counts': {'stories': len(stories),
                    'sources': len({a['source'] for a in arts.values()}),
                    'wire': len(arts) - n_x, 'x': n_x, 'filtered': dropped},
@@ -313,9 +318,10 @@ def main():
             .order('snapshot_date', desc=True).limit(1).execute().data)
     prev = prev[0]['snapshot_date'] if prev else None
 
-    closes = {s['ticker']: s.get('close') for s in page(
-        'daily_stock_snapshots', 'ticker,close',
+    snap = {s['ticker']: s for s in page(
+        'daily_stock_snapshots', 'ticker,close,momentum_score',
         lambda x: x.eq('snapshot_date', session))}
+    closes = {t: s.get('close') for t, s in snap.items()}
     pcloses = {s['ticker']: s.get('close') for s in page(
         'daily_stock_snapshots', 'ticker,close',
         lambda x: x.eq('snapshot_date', prev))} if prev else {}
@@ -343,12 +349,20 @@ def main():
                  lambda x: x.eq('snapshot_date', session))
     macro_notes = sorted([n for n in notes if n['kind'] == 'macro'],
                          key=lambda n: n.get('posted_at') or '', reverse=True)
-    # The calendar is the only forward-looking thing here, so it is read from a
-    # window around the session rather than only the session itself: a Monday
-    # post lists the whole week.
-    cal = page('x_notes', 'handle,url,posted_at,text,tickers',
-               lambda x: x.eq('kind', 'calendar').gte('snapshot_date', session))
-    reporting = sorted({t for c in cal for t in (c.get('tickers') or [])})
+    # Who reports next. A raw list of two hundred names is not readable, so it
+    # is ranked by the score we already have: a company about to report that is
+    # already at the top of the board is the one where a surprise moves
+    # something you hold or watch.
+    cal = page('earnings_calendar',
+               'symbol,report_date,when_of_day,company_name,eps_estimate',
+               lambda x: x.gt('report_date', session).order('report_date'))
+    upcoming = []
+    for c in cal:
+        m = (snap.get(c['symbol']) or {}).get('momentum_score')
+        upcoming.append({**c, 'mom': m})
+    upcoming.sort(key=lambda c: (c['report_date'], -(c['mom'] or -1)))
+    next_day = upcoming[0]['report_date'] if upcoming else None
+    next_up = [c for c in upcoming if c['report_date'] == next_day]
 
     # Collapse to articles. One row per (source, url); the entities come along.
     arts = {}
@@ -520,10 +534,15 @@ def main():
             out.append(f"  {txt[:150]}  _@{n['handle']}_")
         out.append('')
 
-    if reporting:
-        known = [t for t in reporting if t in closes]
-        out.append(f"*Reporting ahead:* {', '.join(known[:18])}"
-                   + (f" _+{len(known) - 18} more_" if len(known) > 18 else ''))
+    if next_up:
+        strong = [c for c in next_up if (c['mom'] or 0) >= 80]
+        out.append(f"*Reporting {next_day}* — {len(next_up)} names we cover"
+                   + (f", {len(strong)} of them scoring 80+" if strong else ''))
+        for c in (strong or next_up)[:8]:
+            bit = {'pre': 'before the open', 'after': 'after the close'}.get(
+                c['when_of_day'], '')
+            out.append(f"  {c['symbol']:6} mom {c['mom'] if c['mom'] is not None else '–'}"
+                       + (f"  {bit}" if bit else ''))
         out.append('')
 
     n_x = sum(1 for a in arts.values() if a['type'] == 'x')
@@ -543,7 +562,7 @@ def main():
     # nightly chain commits portal/data and Netlify redeploys, so the digest
     # arrives on the site by itself. Nothing here has to be run by hand.
     write_portal(session, prev, tape, shown, rest, stories, arts, dropped,
-                 names, macro_notes, reporting, closes)
+                 names, macro_notes, next_day, next_up)
 
     if '--telegram' in sys.argv:
         tok, chat = os.environ.get('TELEGRAM_BOT_TOKEN'), os.environ.get('TELEGRAM_CHAT_ID')

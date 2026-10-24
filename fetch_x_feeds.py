@@ -123,11 +123,22 @@ FULL_JS = """
 
 
 def do_login():
+    """Save a session by hand. See the note on Google sign-in below.
+
+    Google refuses OAuth from a browser it detects as automated — "this browser
+    or app may not be secure" — which is a deliberate security control on their
+    side, not a bug to work around. So this does nothing to disguise itself. If
+    your X account signs in through Google, this path will not work, and the
+    answer is to drop it rather than to defeat the check.
+    """
     from playwright.sync_api import sync_playwright
-    print('A browser will open. Log in to X by hand; this waits for the home '
-          'timeline and then saves the session.\n')
+    print('A browser will open on X.\n')
+    print("  Sign in with X's OWN form — handle and password.")
+    print('  "Sign in with Google" will be refused: Google blocks sign-in from')
+    print('  an automated browser on purpose, and this makes no attempt to')
+    print('  look like anything else.\n')
     with sync_playwright() as p:
-        b = p.chromium.launch(headless=False)
+        b = p.chromium.launch(channel='chrome', headless=False)
         ctx = b.new_context()
         page = ctx.new_page()
         page.goto('https://x.com/login')
