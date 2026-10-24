@@ -108,6 +108,13 @@
   .dgt{font-size:14px;line-height:1.5;}
   .dgt a:hover{color:var(--blue);}
   .dga{color:var(--text2);font-size:12px;margin-top:4px;}
+  .dgmc{border-top:1px solid var(--border);padding:11px 0;font-size:13.5px;line-height:1.55;}
+  .dgmc a:hover{color:var(--blue);}
+  .dgwho{color:var(--text2);font-size:11.5px;margin-left:7px;white-space:nowrap;}
+  .dgcal{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0 2px;}
+  .dgtk{background:var(--bg3);border:1px solid var(--border);border-radius:6px;
+    padding:3px 9px;font-size:12.5px;font-weight:700;}
+  .dgtk:hover{color:var(--blue);border-color:var(--accent);}
   .pill{display:inline-block;font-size:10px;background:#1d2531;color:var(--text2);border-radius:5px;padding:2px 7px;margin-right:4px;}
   /* "in FUND" is a positive claim from published holdings. "not held" is only
      ever shown for funds that publish a complete file — from a top 10 we cannot
@@ -412,6 +419,20 @@ function digest(){
   <div class="dgsec">Also reported</div>
   ${(d.minor||[]).map(s=>item(s,null)).join('')
     || '<div class="intro">Nothing else matched our universe today.</div>'}
+  ${(d.macro&&d.macro.length)?`
+    <div class="dgsec">Macro</div>
+    <div class="intro" style="margin:0 0 8px">Claims about the market itself rather
+      than any one company — flows, rates, valuation. These name no ticker, so they
+      cannot be ranked by coverage and are simply carried, attributed.</div>
+    ${d.macro.map(m=>`<div class="dgmc">
+      <a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.text)}</a>
+      <span class="dgwho">@${esc(m.handle)}</span></div>`).join('')}`:''}
+  ${(d.reporting&&d.reporting.length)?`
+    <div class="dgsec">Reporting ahead</div>
+    <div class="intro" style="margin:0 0 8px">Due to report. The only forward-looking
+      thing on this page; everything else describes a session that has closed.</div>
+    <div class="dgcal">${d.reporting.map(t=>
+      `<a class="dgtk" href="${tv(t)}" target="_blank" rel="noopener">${esc(t)}</a>`).join('')}</div>`:''}
   <div class="intro" style="margin-top:14px">${c.stories||0} stories from ${c.sources||0}
     sources${c.filtered?`; ${c.filtered} opinion and listicle pieces filtered out`:''}.
     Only companies in the ${uni.toLocaleString()}-stock universe are tagged, so a story

@@ -38,6 +38,7 @@ Usage:
 """
 
 import os
+import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -55,12 +56,23 @@ STATE = os.path.join(BASE, 'x_state.json')
 URL = os.environ.get('SUPABASE_URL')
 KEY = os.environ.get('SUPABASE_SERVICE_KEY')
 
+# role decides how a post is USED, which matters more than who wrote it.
+#
+#   recap     split on its numbered items, entity-match each, and let them
+#             raise a story's source count in the digest. Only works for
+#             accounts that actually name tickers.
+#   macro     stored as a note. Tested against real posts, KobeissiLetter
+#             resolved to zero entities on five of five - buybacks at a record
+#             $1.3tn and market cap at 350% of GDP name no company - so
+#             counting entities would simply discard him.
+#   calendar  cashtags are companies DUE TO REPORT, not companies in the news.
+#             Forward-looking, and the only forward-looking thing we have.
 HANDLES = {
-    'amitisinvesting': 'daily numbered recap',
-    'KobeissiLetter':  'macro, flows, rates',
-    'MelvinInvests':   'semis and memory supply chain',
-    'eWhispers':       'earnings calendar',
-    'CharlieBilello':  'market statistics',
+    'amitisinvesting': {'role': 'recap',    'about': 'daily numbered recap'},
+    'KobeissiLetter':  {'role': 'macro',    'about': 'flows, rates, valuation'},
+    'MelvinInvests':   {'role': 'recap',    'about': 'semis and memory chain'},
+    'eWhispers':       {'role': 'calendar', 'about': 'who reports, and when'},
+    'CharlieBilello':  {'role': 'macro',    'about': 'market statistics'},
 }
 
 PER_HANDLE = 25          # posts wanted before scrolling stops
@@ -229,42 +241,91 @@ def main():
         ctx = browser.new_context(storage_state=STATE,
                                   viewport={'width': 1280, 'height': 2000})
         page = ctx.new_page()
-        for i, (handle, role) in enumerate(HANDLES.items()):
+        notes = []
+        for i, (handle, cfg) in enumerate(HANDLES.items()):
+            role = cfg['role']
             try:
                 posts, expanded = collect(page, handle, cutoff)
             except Exception as e:
                 print(f'  {handle:17} FAILED {type(e).__name__}: {str(e)[:90]}')
                 continue
-            hits = 0
+            hits, kept = 0, 0
             for p in posts:
-                ents = entities(p['text'], tickers, patterns)
-                if not ents:
-                    no_entity += 1
+                url = 'https://x.com' + p['href']
+                sess = session_for(p['dt']).isoformat()
+
+                if role == 'calendar':
+                    syms = sorted({m for m in re.findall(r'\$([A-Z]{1,5})\b', p['text'])
+                                   if m in tickers})
+                    if not syms:
+                        continue
+                    notes.append({'handle': handle, 'url': url,
+                                  'posted_at': p['dt'].isoformat(),
+                                  'snapshot_date': sess, 'kind': 'calendar',
+                                  'text': p['text'][:900], 'tickers': syms,
+                                  'item_no': 0})
+                    kept += 1
                     continue
-                hits += 1
-                for ent, typ, how, exc in ents:
-                    out.append({
-                        'source': f'x:{handle}', 'source_type': 'x',
-                        'item_url': 'https://x.com' + p['href'],
-                        'item_title': p['text'][:400],
-                        'published_at': p['dt'].isoformat(),
-                        'snapshot_date': session_for(p['dt']).isoformat(),
-                        'entity': ent, 'entity_type': typ,
-                        'matched_on': how, 'excerpt': exc[:300]})
+
+                if role == 'macro':
+                    # Kept whole and unparsed. The claim IS the content; there
+                    # is no company to attach it to, and splitting it would
+                    # leave a number with nothing around it.
+                    notes.append({'handle': handle, 'url': url,
+                                  'posted_at': p['dt'].isoformat(),
+                                  'snapshot_date': sess, 'kind': 'macro',
+                                  'text': p['text'][:900], 'tickers': None,
+                                  'item_no': 0})
+                    kept += 1
+                    continue
+
+                # role == 'recap'. A numbered recap is a dozen separate events
+                # sharing one URL, so split it: each item becomes its own
+                # candidate story and can be matched, counted and merged with
+                # whatever the wires carried. Stored whole as well, because the
+                # items a wire never ran are the reason to read him at all.
+                items = re.split(r'\n(?=\d{1,2}\.\s)', p['text'])
+                numbered = len(items) > 2
+                for n, body in enumerate(items):
+                    body = body.strip()
+                    if len(body) < 40:
+                        continue
+                    if numbered:
+                        notes.append({'handle': handle, 'url': url,
+                                      'posted_at': p['dt'].isoformat(),
+                                      'snapshot_date': sess, 'kind': 'recap',
+                                      'text': body[:900], 'tickers': None,
+                                      'item_no': n + 1})
+                        kept += 1
+                    ents = entities(body, tickers, patterns)
+                    if not ents:
+                        no_entity += 1
+                        continue
+                    hits += 1
+                    for ent, typ, how, exc in ents:
+                        out.append({
+                            'source': f'x:{handle}', 'source_type': 'x',
+                            # Items of one post need distinct URLs or they
+                            # collide on the (source, url, entity) key.
+                            'item_url': url + (f'#item{n}' if numbered else ''),
+                            'item_title': body[:400],
+                            'published_at': p['dt'].isoformat(),
+                            'snapshot_date': sess,
+                            'entity': ent, 'entity_type': typ,
+                            'matched_on': how, 'excerpt': exc[:300]})
             print(f'  {handle:17} {len(posts):3} posts, {expanded} expanded, '
-                  f'{hits} tagged  ({role})')
+                  f'{hits} tagged, {kept} notes  ({cfg["about"]})')
             if i < len(HANDLES) - 1:
                 time.sleep(BETWEEN_HANDLES)
         browser.close()
 
-    print(f'\n{len(out)} mentions | {no_entity} posts matched nothing')
-    by_ent = {}
-    for r in out:
-        by_ent.setdefault(r['entity'], set()).add(r['source'])
-    top = sorted(by_ent.items(), key=lambda kv: -len(kv[1]))[:12]
-    print('\nmost-mentioned (distinct handles):')
-    for ent, srcs in top:
-        print(f'  {ent:8} {len(srcs)}  {", ".join(sorted(s[2:] for s in srcs))[:60]}')
+    print(f'\n{len(out)} mentions, {len(notes)} notes | '
+          f'{no_entity} items matched nothing')
+    by_kind = {}
+    for n in notes:
+        by_kind[n['kind']] = by_kind.get(n['kind'], 0) + 1
+    print('notes by kind: ' + (', '.join(f'{k}={v}' for k, v in sorted(by_kind.items()))
+                               or 'none'))
 
     if dry:
         print('\n--dry-run: nothing written')
@@ -272,7 +333,10 @@ def main():
     for i in range(0, len(out), 500):
         sb.table('feed_mentions').upsert(
             out[i:i + 500], on_conflict='source,item_url,entity').execute()
-    print(f'\nupserted {len(out)} rows')
+    for i in range(0, len(notes), 200):
+        sb.table('x_notes').upsert(
+            notes[i:i + 200], on_conflict='url,item_no').execute()
+    print(f'\nupserted {len(out)} mentions and {len(notes)} notes')
     return 0
 
 

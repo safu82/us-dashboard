@@ -196,7 +196,8 @@ Headlines link to their publisher; nothing is reproduced beyond the title.</foot
         webbrowser.open('file:///' + out.replace('\\', '/'))
 
 
-def write_portal(session, prev, tape, shown, rest, stories, arts, dropped, names):
+def write_portal(session, prev, tape, shown, rest, stories, arts, dropped,
+                 names, macro_notes, reporting, closes):
     """portal/data/digest.json — what the Sector Compass page reads.
 
     Only wire headlines and links go out. A headline plus attribution plus a
@@ -236,6 +237,10 @@ def write_portal(session, prev, tape, shown, rest, stories, arts, dropped, names
         'tape': tape,
         'top': [pack(s) for s in shown],
         'minor': minor,
+        'macro': [{'text': __import__('re').sub(r'\\s+', ' ', n['text'])[:260],
+                   'handle': n['handle'], 'url': n['url']}
+                  for n in macro_notes[:6]],
+        'reporting': [t for t in reporting if t in closes][:30],
         'counts': {'stories': len(stories),
                    'sources': len({a['source'] for a in arts.values()}),
                    'wire': len(arts) - n_x, 'x': n_x, 'filtered': dropped},
@@ -330,6 +335,21 @@ def main():
                     'entity,entity_type,source,source_type,item_url,item_title',
                     lambda x: x.eq('snapshot_date', session))
 
+    # Notes from the followed accounts. These are not stories about a company
+    # and cannot be ranked by source count — a claim that buybacks hit a record
+    # $1.3tn names nobody — so they sit in their own sections rather than being
+    # forced through the counting and discarded.
+    notes = page('x_notes', 'handle,url,posted_at,kind,text,tickers,item_no',
+                 lambda x: x.eq('snapshot_date', session))
+    macro_notes = sorted([n for n in notes if n['kind'] == 'macro'],
+                         key=lambda n: n.get('posted_at') or '', reverse=True)
+    # The calendar is the only forward-looking thing here, so it is read from a
+    # window around the session rather than only the session itself: a Monday
+    # post lists the whole week.
+    cal = page('x_notes', 'handle,url,posted_at,text,tickers',
+               lambda x: x.eq('kind', 'calendar').gte('snapshot_date', session))
+    reporting = sorted({t for c in cal for t in (c.get('tickers') or [])})
+
     # Collapse to articles. One row per (source, url); the entities come along.
     arts = {}
     for m in mentions:
@@ -404,6 +424,20 @@ def main():
         m['alt'] = sorted(set(m['alt'] + [s['headline']] + s['alt'])
                           - {m['headline']}, key=len, reverse=True)
     stories = list(merged.values())
+
+    # Show a headline that is actually ABOUT the subject. Merging takes the
+    # longest, which is usually right and occasionally badly wrong: a stray
+    # match put a Spotify headline under Globe Life. Prefer one naming the
+    # ticker or the company, and fall back to length only when none does.
+    for s in stories:
+        pat = patterns.get(s['subject'], (None, None))[0]
+        cands = [s['headline']] + s['alt']
+        named = [h for h in cands
+                 if s['subject'] in h or (pat and pat.search(h))]
+        if named and named[0] != s['headline']:
+            best = max(named, key=len)
+            s['alt'] = [h for h in cands if h != best]
+            s['headline'] = best
     for s in stories:
         s['n'] = len(s['sources'])
         s['move'] = move(s['subject'])
@@ -479,6 +513,19 @@ def main():
                 break
         out.append('')
 
+    if macro_notes:
+        out.append('*Macro:*')
+        for n in macro_notes[:5]:
+            txt = re.sub(r'\s+', ' ', n['text']).replace('BREAKING: ', '')
+            out.append(f"  {txt[:150]}  _@{n['handle']}_")
+        out.append('')
+
+    if reporting:
+        known = [t for t in reporting if t in closes]
+        out.append(f"*Reporting ahead:* {', '.join(known[:18])}"
+                   + (f" _+{len(known) - 18} more_" if len(known) > 18 else ''))
+        out.append('')
+
     n_x = sum(1 for a in arts.values() if a['type'] == 'x')
     out.append(f"_{len(stories)} stories from {len({a['source'] for a in arts.values()})} "
                f"sources ({len(arts) - n_x} wire, {n_x} X); {dropped} evergreen "
@@ -495,7 +542,8 @@ def main():
     # Always write the portal payload. This is the version that matters: the
     # nightly chain commits portal/data and Netlify redeploys, so the digest
     # arrives on the site by itself. Nothing here has to be run by hand.
-    write_portal(session, prev, tape, shown, rest, stories, arts, dropped, names)
+    write_portal(session, prev, tape, shown, rest, stories, arts, dropped,
+                 names, macro_notes, reporting, closes)
 
     if '--telegram' in sys.argv:
         tok, chat = os.environ.get('TELEGRAM_BOT_TOKEN'), os.environ.get('TELEGRAM_CHAT_ID')

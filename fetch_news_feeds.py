@@ -190,7 +190,19 @@ def main():
                 skipped_old += 1
                 continue
             fetched_urls.add(it['link'])
+            # Strip the publisher's own name before matching. Google News
+            # repeats it in the description, and masthead words collide with
+            # company names: "The Globe and Mail" tagged Globe Life on a
+            # Spotify story, "Simply Wall Street" tagged Simply Good Foods on
+            # six different companies' earnings. The byline is not the subject.
             text = f"{it['title']} {it['desc']}"
+            pub = it.get('source') or ''
+            if pub:
+                text = re.sub(re.escape(pub), ' ', text, flags=re.I)
+                for word in pub.split():
+                    if len(word) > 3:
+                        text = re.sub(r'(?<![A-Za-z])' + re.escape(word)
+                                      + r'(?![A-Za-z])', ' ', text)
             ents = entities(text, tickers, patterns)
             if not ents:
                 no_entity += 1
