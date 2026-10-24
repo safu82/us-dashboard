@@ -197,7 +197,7 @@ Headlines link to their publisher; nothing is reproduced beyond the title.</foot
 
 
 def write_portal(session, prev, tape, shown, rest, stories, arts, dropped,
-                 names, macro_notes, next_day, next_up):
+                 names, next_day, next_up):
     """portal/data/digest.json — what the Sector Compass page reads.
 
     Only wire headlines and links go out. A headline plus attribution plus a
@@ -237,9 +237,6 @@ def write_portal(session, prev, tape, shown, rest, stories, arts, dropped,
         'tape': tape,
         'top': [pack(s) for s in shown],
         'minor': minor,
-        'macro': [{'text': __import__('re').sub(r'\\s+', ' ', n['text'])[:260],
-                   'handle': n['handle'], 'url': n['url']}
-                  for n in macro_notes[:6]],
         'reportingDate': next_day,
         'reporting': [{'symbol': c['symbol'], 'mom': c['mom'],
                        'when': c['when_of_day'],
@@ -341,14 +338,6 @@ def main():
                     'entity,entity_type,source,source_type,item_url,item_title',
                     lambda x: x.eq('snapshot_date', session))
 
-    # Notes from the followed accounts. These are not stories about a company
-    # and cannot be ranked by source count — a claim that buybacks hit a record
-    # $1.3tn names nobody — so they sit in their own sections rather than being
-    # forced through the counting and discarded.
-    notes = page('x_notes', 'handle,url,posted_at,kind,text,tickers,item_no',
-                 lambda x: x.eq('snapshot_date', session))
-    macro_notes = sorted([n for n in notes if n['kind'] == 'macro'],
-                         key=lambda n: n.get('posted_at') or '', reverse=True)
     # Who reports next. A raw list of two hundred names is not readable, so it
     # is ranked by the score we already have: a company about to report that is
     # already at the top of the board is the one where a surprise moves
@@ -527,13 +516,6 @@ def main():
                 break
         out.append('')
 
-    if macro_notes:
-        out.append('*Macro:*')
-        for n in macro_notes[:5]:
-            txt = re.sub(r'\s+', ' ', n['text']).replace('BREAKING: ', '')
-            out.append(f"  {txt[:150]}  _@{n['handle']}_")
-        out.append('')
-
     if next_up:
         strong = [c for c in next_up if (c['mom'] or 0) >= 80]
         out.append(f"*Reporting {next_day}* — {len(next_up)} names we cover"
@@ -562,7 +544,7 @@ def main():
     # nightly chain commits portal/data and Netlify redeploys, so the digest
     # arrives on the site by itself. Nothing here has to be run by hand.
     write_portal(session, prev, tape, shown, rest, stories, arts, dropped,
-                 names, macro_notes, next_day, next_up)
+                 names, next_day, next_up)
 
     if '--telegram' in sys.argv:
         tok, chat = os.environ.get('TELEGRAM_BOT_TOKEN'), os.environ.get('TELEGRAM_CHAT_ID')
