@@ -48,7 +48,14 @@ NAME_STOPLIST = {'target', 'gap', 'block', 'match', 'on', 'key', 'all', 'how',
                  # "Nasdaq takes a hit on AI spending fears" is about the index,
                  # not about Nasdaq Inc, and tagging NDAQ there put a +7.5%
                  # exchange operator at the top of a digest about a selloff.
-                 'nasdaq', 'dow', 'russell', 'invesco'}
+                 'nasdaq', 'dow', 'russell', 'invesco',
+                 # Company names that are also the adjectives financial writers
+                 # reach for. "Monster third-quarter earnings" is a description,
+                 # not Monster Beverage, and it put MNST third in a digest on a
+                 # story about SpaceX.
+                 'monster', 'titan', 'paramount', 'sterling', 'superior',
+                 'apex', 'pinnacle', 'element', 'signature', 'catalyst',
+                 'momentum', 'velocity', 'advance', 'standard', 'universal'}
 
 # Requiring market vocabulary near a short-form match costs nothing on a real
 # company story — they all say shares, earnings or revenue somewhere — and

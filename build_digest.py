@@ -63,7 +63,9 @@ EVERGREEN = re.compile(
     r"best-kept|little-known|\bnot\s+\w+\.\s*not\s+\w+\.|i'?d\s+consider|"
     r"\bsmall\s+position\b|\bsecret\b|\bhidden\s+gem\b|"
     r"is\s+the\s+[\w\s]{2,30}\s+a\s+buy|\bsurprising\b|\bdividend\s+king\b|"
-    r"\bstock\s+a\s+buy\b|\bbuy\s+now\b|\bthreatening\b)", re.I)
+    r"\bstock\s+a\s+buy\b|\bbuy\s+now\b|\bthreatening\b|"
+    r"too\s+late\s+to\s+buy|here'?s\s+the\s+answer|\bgf\s+value\b|"
+    r"\bprice\s+prediction\b|\bwhat\s+to\s+know\b|\bexplained\b)", re.I)
 
 MACRO_LABEL = {'US10Y': '10-year yield', 'FED': 'the Fed', 'BRENT': 'oil',
                'GOLD': 'gold', 'CPI': 'inflation', 'JOBS': 'jobs',
@@ -383,7 +385,27 @@ def main():
                         if a['title'] != max((x['title'] for x in c), key=len)],
             })
 
+    # One line per subject. The clustering above keeps genuinely separate
+    # events apart, which is right for counting but wrong for reading: AT&T
+    # falling on the SpaceX cell-site story came through as "Why AT&T Stock
+    # Plunged on Friday" and "AT&T Slides on SpaceX Cell-Site Talks", and
+    # printing both as items 3 and 7 reads like the digest is padding. Merged,
+    # it is one company having one day, carried by five outlets rather than
+    # three and two.
+    merged = {}
     for s in stories:
+        m = merged.get(s['subject'])
+        if not m:
+            merged[s['subject']] = s
+            continue
+        m['sources'] |= s['sources']
+        m['urls'] += s['urls']
+        # Keep the other angles as context, longest first.
+        m['alt'] = sorted(set(m['alt'] + [s['headline']] + s['alt'])
+                          - {m['headline']}, key=len, reverse=True)
+    stories = list(merged.values())
+    for s in stories:
+        s['n'] = len(s['sources'])
         s['move'] = move(s['subject'])
     stories.sort(key=lambda s: (-s['n'], -abs(s['move'] or 0)))
 
