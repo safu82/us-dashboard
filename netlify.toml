@@ -1,4 +1,9 @@
-# Netlify configuration for the PUBLIC portal (Sector Compass).
+# Netlify configuration for the PUBLIC portal (Market Compass).
+#
+# The site's Netlify subdomain is still us-sector-compass.netlify.app. Renaming
+# it would break every link already shared, and the name people see is the one
+# in the page, so the URL is deliberately left alone. A custom domain is the
+# right fix if this ever gets promoted properly.
 #
 # The private dashboard (index.html, combined-dashboard.html, deep_dive.html)
 # is NOT deployed from here — it stays a manual upload to its own site, and
