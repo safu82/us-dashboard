@@ -95,6 +95,19 @@
     border-radius:8px;padding:11px 13px;margin:0 0 14px;font-size:12.5px;color:var(--text2);line-height:1.55;}
   .xref b{color:var(--text);}
   .xlink{color:var(--blue);cursor:pointer;font-weight:600;}
+  /* Digest. Reads as a list, not a table: each item is a sentence with a
+     number attached, and the number is what the price did. */
+  .dgsec{font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);
+    font-weight:700;margin:22px 0 2px;}
+  .dg{border-top:1px solid var(--border);padding:13px 0;}
+  .dgh{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:4px;}
+  .dgn{color:var(--text2);font-size:12.5px;min-width:14px;}
+  .dgs{font-size:10.5px;color:var(--text2);border:1px solid var(--border);
+    border-radius:20px;padding:1px 8px;cursor:help;}
+  .dgm{margin-left:auto;font-size:14px;}
+  .dgt{font-size:14px;line-height:1.5;}
+  .dgt a:hover{color:var(--blue);}
+  .dga{color:var(--text2);font-size:12px;margin-top:4px;}
   .pill{display:inline-block;font-size:10px;background:#1d2531;color:var(--text2);border-radius:5px;padding:2px 7px;margin-right:4px;}
   /* "in FUND" is a positive claim from published holdings. "not held" is only
      ever shown for funds that publish a complete file — from a top 10 we cannot
@@ -141,9 +154,10 @@
 <body>
 <header><div class="wrap">
   <div class="brand"><span class="logo">🧭</span><span class="bname">Sector Compass</span></div>
-  <div class="tag">Three views of the same market, working from the outside in. <b>Funds</b> ranks the baskets you can actually buy — by sector and theme, or by country — to show where money is moving. <b>Themes</b> is our own map of what sits behind those trends: the stages of each value chain and the companies at every one. <b>Stocks</b> ranks individual companies across the whole market. Everything here — every fund and every company — is <b>listed in the US</b> and priced in dollars, which is not the same as being American: Taiwan Semiconductor, ASML and Novo Nordisk are all in the maps. Each board is scored against itself, so momentum is comparable down a column and never across boards. Rebuilt every weeknight.</div>
+  <div class="tag">Four views of the same market. <b>Digest</b> is what happened on the last session, gathered from the market wires and ordered by how many separate outlets carried each story. The other three work from the outside in. <b>Funds</b> ranks the baskets you can actually buy — by sector and theme, or by country — to show where money is moving. <b>Themes</b> is our own map of what sits behind those trends: the stages of each value chain and the companies at every one. <b>Stocks</b> ranks individual companies across the whole market. Everything here — every fund and every company — is <b>listed in the US</b> and priced in dollars, which is not the same as being American: Taiwan Semiconductor, ASML and Novo Nordisk are all in the maps. Each board is scored against itself, so momentum is comparable down a column and never across boards. Rebuilt every weeknight.</div>
   <nav>
-    <button data-t="funds" class="on" onclick="tab('funds')">Funds</button>
+    <button data-t="digest" class="on" onclick="tab('digest')">Digest</button>
+    <button data-t="funds" onclick="tab('funds')">Funds</button>
     <button data-t="themes" onclick="tab('themes')">Themes</button>
     <button data-t="stocks" onclick="tab('stocks')">Stocks</button>
     <span class="asof" id="asof"></span>
@@ -171,7 +185,7 @@ const D = {};            // populated from window.PORTAL_DATA in boot()
    two slicings of one question, not two questions, so they live under one tab
    with a toggle rather than competing for space in the nav. Keeping them as
    sibling tabs made "Funds" look like it meant "everything except countries". */
-let TAB='funds', fundBoard='sectors', group='all', checks=new Set(), sortBy='mom', openFund=null, openTheme=null, themeSort='category', leadFilter='all';
+let TAB='digest', fundBoard='sectors', group='all', checks=new Set(), sortBy='mom', openFund=null, openTheme=null, themeSort='category', leadFilter='all';
 
 const pc=(v,d=1)=> v==null?'–':(v*100).toFixed(d)+'%';
 const sg=(v,d=0)=> v==null?'–':(v>0?'+':'')+(v*100).toFixed(d)+'%';
@@ -288,7 +302,8 @@ window.setLead=s=>{leadFilter=s;render();};
 
 function render(){
   const v=document.getElementById('view');
-  v.innerHTML = TAB==='funds'?funds()
+  v.innerHTML = TAB==='digest'?digest()
+              : TAB==='funds'?funds()
               : TAB==='themes'?(openTheme?chain():themes()) : leaders();
 }
 
@@ -358,6 +373,49 @@ function dlt(now,then){
   const d=then-now;
   if(d===0) return '<span style="opacity:.45">–</span>';
   return `<span style="color:var(--${d>0?'green':'red'})">${d>0?'▲':'▼'}${Math.abs(d)}</span>`;
+}
+
+/* ---------- Digest: what happened, ranked by who carried it ----------
+   Ordering is the whole product. An item four outlets ran mattered more than
+   one a single feed ran, and counting distinct SOURCES makes that judgement
+   without anyone writing an opinion. Counting articles would not: one wire
+   scoop becomes several stories within the hour, which is syndication rather
+   than agreement.
+
+   Headlines link out and nothing is reproduced beyond the title. */
+function digest(){
+  const d=D.digest;
+  if(!d) return `<div class="intro">No digest has been built yet. It is written by the
+    nightly chain alongside the scores, so it appears after the next run.</div>`;
+  const mv=v=> v==null?'':`<span style="color:${col(v)};font-weight:800">${sg(v,1)}</span>`;
+  const item=(s,i)=>`<div class="dg">
+    <div class="dgh"><span class="dgn">${i==null?'':i}</span>
+      <a class="sym" href="${tv(s.subject)}" target="_blank" rel="noopener">${esc(s.subject)}</a>
+      <span class="nm">${esc(s.company||'')}</span>
+      ${s.sources>1?`<span class="dgs" title="Carried by ${esc((s.names||[]).join(', '))}">${s.sources} sources</span>`:''}
+      <span class="dgm">${mv(s.move)}</span></div>
+    <div class="dgt"><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.headline)}</a></div>
+    ${s.alt?`<div class="dga">also: ${esc(s.alt)}</div>`:''}</div>`;
+  const c=d.counts||{};
+  const uni=(D.meta&&D.meta.counts&&D.meta.counts.universe)||0;
+  return `
+  <div class="intro">What happened on the <b>${esc(d.asOf)}</b> session, gathered from the
+    market wires and ordered by how many <b>separate sources</b> carried each item — the
+    more outlets ran a story, the more it mattered. Moves are that session's close against
+    ${esc(d.prev)}, from our own data. Click a headline for the article.</div>
+  <div class="xref">${(d.tape||[]).map(t=>esc(t)).join(' &nbsp;·&nbsp; ')}</div>
+  <div class="dgsec">Carried by more than one source</div>
+  ${d.top&&d.top.length ? d.top.map((s,i)=>item(s,i+1)).join('')
+    : `<div class="intro" style="margin:0 0 6px">Nothing today was carried by more than one
+       source. On a quiet session that is itself the finding — there was no story the whole
+       market was following.</div>`}
+  <div class="dgsec">Also reported</div>
+  ${(d.minor||[]).map(s=>item(s,null)).join('')
+    || '<div class="intro">Nothing else matched our universe today.</div>'}
+  <div class="intro" style="margin-top:14px">${c.stories||0} stories from ${c.sources||0}
+    sources${c.filtered?`; ${c.filtered} opinion and listicle pieces filtered out`:''}.
+    Only companies in the ${uni.toLocaleString()}-stock universe are tagged, so a story
+    about a private or foreign-listed company will not appear here.</div>`;
 }
 
 /* ---------- Funds: two pools, one table ----------

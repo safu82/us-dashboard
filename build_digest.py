@@ -59,8 +59,11 @@ EVERGREEN = re.compile(
     r"\bcould\s+(be|make|turn)\b|\bmillionaire\b|\bno-brainer\b|"
     r"\bdown\s+\d+%\s+from\b|\bstill\s+own\b|\bshould\s+you\b|"
     r"\bi'?d\s+buy\b|no\s+matter\s+what|buy\s+and\s+hold|"
-    r"\bthis\s+is\s+the\s+\d+\b|\bhold\s+forever\b|\bdividend\s+stock[s]?\s+to\b)",
-    re.I)
+    r"\bthis\s+is\s+the\s+\d+\b|\bhold\s+forever\b|\bdividend\s+stock[s]?\s+to\b|"
+    r"best-kept|little-known|\bnot\s+\w+\.\s*not\s+\w+\.|i'?d\s+consider|"
+    r"\bsmall\s+position\b|\bsecret\b|\bhidden\s+gem\b|"
+    r"is\s+the\s+[\w\s]{2,30}\s+a\s+buy|\bsurprising\b|\bdividend\s+king\b|"
+    r"\bstock\s+a\s+buy\b|\bbuy\s+now\b|\bthreatening\b)", re.I)
 
 MACRO_LABEL = {'US10Y': '10-year yield', 'FED': 'the Fed', 'BRENT': 'oil',
                'GOLD': 'gold', 'CPI': 'inflation', 'JOBS': 'jobs',
@@ -189,6 +192,74 @@ Headlines link to their publisher; nothing is reproduced beyond the title.</foot
     print(f'wrote {out} ({os.path.getsize(out)/1024:.1f} KB)', file=sys.stderr)
     if '--open' in sys.argv:
         webbrowser.open('file:///' + out.replace('\\', '/'))
+
+
+def write_portal(session, prev, tape, shown, rest, stories, arts, dropped, names):
+    """portal/data/digest.json — what the Sector Compass page reads.
+
+    Only wire headlines and links go out. A headline plus attribution plus a
+    link to the publisher is what every aggregator does; reproducing a
+    commentator's own post would be republishing their work, so when X sources
+    are added they raise the source COUNT and are named, but nothing of theirs
+    is quoted here.
+    """
+    import json
+
+    def co(tk):
+        return (names.get(tk) or '').split(',')[0][:28]
+
+    def pack(s, with_alt=True):
+        d = {'subject': s['subject'], 'company': co(s['subject']),
+             'move': s['move'], 'sources': s['n'],
+             'names': sorted(x.split(':', 1)[1] for x in s['sources']),
+             'headline': s['headline'][:200], 'url': s['urls'][0]}
+        if with_alt and s['alt']:
+            d['alt'] = s['alt'][0][:140]
+        return d
+
+    seen = {s['subject'] for s in shown}
+    minor = []
+    for s in sorted(rest, key=lambda x: -abs(x['move'] or 0)):
+        if s['subject'] in seen:
+            continue
+        seen.add(s['subject'])
+        minor.append(pack(s, with_alt=False))
+        if len(minor) >= 14:
+            break
+
+    n_x = sum(1 for a in arts.values() if a['type'] == 'x')
+    out = {
+        'asOf': session, 'prev': prev,
+        'builtAt': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        'tape': tape,
+        'top': [pack(s) for s in shown],
+        'minor': minor,
+        'counts': {'stories': len(stories),
+                   'sources': len({a['source'] for a in arts.values()}),
+                   'wire': len(arts) - n_x, 'x': n_x, 'filtered': dropped},
+    }
+    d = os.path.join(BASE, 'portal', 'data')
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, 'digest.json')
+    with open(p, 'w', encoding='utf-8') as fh:
+        json.dump(out, fh, separators=(',', ':'), ensure_ascii=False)
+
+    # The page loads one bundle, so digest.json has to join it or the tab is
+    # empty on a CDN that has cached the old data.js.
+    js = os.path.join(d, 'data.js')
+    if os.path.exists(js):
+        raw = open(js, encoding='utf-8').read()
+        if raw.startswith('window.PORTAL_DATA=') and raw.rstrip().endswith(';'):
+            bundle = json.loads(raw[len('window.PORTAL_DATA='):].rstrip().rstrip(';'))
+            bundle['digest'] = out
+            with open(js, 'w', encoding='utf-8') as fh:
+                fh.write('window.PORTAL_DATA=')
+                json.dump(bundle, fh, separators=(',', ':'), ensure_ascii=False)
+                fh.write(';')
+            print(f'  portal/data/digest.json + data.js updated', file=sys.stderr)
+        else:
+            print('  WARNING: data.js not in the expected shape; digest not '
+                  'merged into the bundle', file=sys.stderr)
 
 
 def page(table, cols, f=None, size=1000):
@@ -398,6 +469,11 @@ def main():
     if '--html' in sys.argv or '--open' in sys.argv:
         write_html(session, prev, tape, shown, rest, stories, arts, dropped,
                    label, pc)
+
+    # Always write the portal payload. This is the version that matters: the
+    # nightly chain commits portal/data and Netlify redeploys, so the digest
+    # arrives on the site by itself. Nothing here has to be run by hand.
+    write_portal(session, prev, tape, shown, rest, stories, arts, dropped, names)
 
     if '--telegram' in sys.argv:
         tok, chat = os.environ.get('TELEGRAM_BOT_TOKEN'), os.environ.get('TELEGRAM_CHAT_ID')
