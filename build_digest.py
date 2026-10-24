@@ -77,126 +77,7 @@ STOPWORDS = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to',
              'said', 'new', 'more', 'than', 'what', 'how', 'why', 'be'}
 
 
-CSS = """
-:root{--bg:#0b0e14;--bg2:#141922;--bg3:#1b212c;--border:#2a323f;--text:#e8eef6;
---text2:#8e9bad;--green:#3fb950;--red:#f85149;--blue:#58a6ff}
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font:15px/1.6 -apple-system,
-BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;padding-bottom:50px}
-a{color:inherit;text-decoration:none}
-.wrap{max-width:780px;margin:0 auto;padding:0 20px}
-header{border-bottom:1px solid var(--border);
-background:linear-gradient(180deg,#121823,var(--bg));padding:26px 0 20px;margin-bottom:24px}
-h1{font-size:23px;font-weight:800;letter-spacing:-.5px}
-.tape{color:var(--text2);font-size:13.5px;margin-top:9px;line-height:1.8}
-.tape b{color:var(--text);font-weight:700}
-.item{border-top:1px solid var(--border);padding:16px 0}
-.item:first-of-type{border-top:none}
-.hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:5px}
-.n{color:var(--text2);font-size:13px;min-width:18px}
-.sym{font-weight:800;font-size:16px}
-.sym:hover{color:var(--blue)}
-.co{color:var(--text2);font-size:12.5px}
-.mv{font-weight:800;font-size:15px;margin-left:auto}
-.src{font-size:11px;color:var(--text2);border:1px solid var(--border);
-border-radius:20px;padding:2px 9px}
-.hl{font-size:14.5px;line-height:1.55}
-.hl a:hover{color:var(--blue)}
-.alt{color:var(--text2);font-size:12.5px;margin-top:5px}
-.sec{font-size:12px;letter-spacing:.5px;text-transform:uppercase;
-color:var(--text2);margin:26px 0 4px;font-weight:700}
-.minor{display:grid;grid-template-columns:72px 62px 1fr;gap:10px;
-padding:7px 0;border-top:1px solid var(--border);font-size:13.5px;align-items:baseline}
-.minor .mv2{text-align:right;font-weight:700;font-size:13px}
-footer{color:var(--text2);font-size:11.5px;line-height:1.7;margin-top:28px;
-border-top:1px solid var(--border);padding-top:16px}
-@media(max-width:560px){.minor{grid-template-columns:62px 56px 1fr;gap:8px}
-.hl{font-size:14px}}
-"""
-
-
-def write_html(session, prev, tape, shown, rest, stories, arts, dropped,
-               label, pc):
-    """Same digest, somewhere you can just look at it.
-
-    Data is baked in: the private dashboard is a manual upload rather than a
-    git deploy, so a page that fetched would need a Supabase key in its source.
-    """
-    import html as _h
-    import webbrowser
-
-    def esc(s):
-        return _h.escape(str(s or ''))
-
-    def col(v):
-        return 'var(--text2)' if v is None else (
-            'var(--green)' if v > 0 else 'var(--red)' if v < 0 else 'var(--text2)')
-
-    def tv(t):
-        return f'https://www.tradingview.com/chart/?symbol={esc(t)}'
-
-    items = []
-    for i, s in enumerate(shown, 1):
-        sub, mv = s['subject'], s['move']
-        lab = label(sub)
-        tk = lab.split(' (')[0]
-        co = lab.split(' (')[1].rstrip(')') if ' (' in lab else ''
-        items.append(
-            f'<div class="item"><div class="hd"><span class="n">{i}</span>'
-            f'<a class="sym" href="{tv(tk)}" target="_blank" rel="noopener">{esc(tk)}</a>'
-            f'<span class="co">{esc(co)}</span>'
-            f'<span class="src">{s["n"]} sources</span>'
-            f'<span class="mv" style="color:{col(mv)}">{pc(mv) or ""}</span></div>'
-            f'<div class="hl"><a href="{esc(s["urls"][0])}" target="_blank" '
-            f'rel="noopener">{esc(s["headline"])}</a></div>'
-            + (f'<div class="alt">also: {esc(s["alt"][0][:120])}</div>' if s['alt'] else '')
-            + '</div>')
-
-    seen = {s['subject'] for s in shown}
-    minor = []
-    for s in sorted(rest, key=lambda x: -abs(x['move'] or 0)):
-        if s['subject'] in seen:
-            continue
-        seen.add(s['subject'])
-        lab = label(s['subject'])
-        tk = lab.split(' (')[0]
-        minor.append(
-            f'<div class="minor"><a class="sym" style="font-size:13.5px" '
-            f'href="{tv(tk)}" target="_blank" rel="noopener">{esc(tk)}</a>'
-            f'<span class="mv2" style="color:{col(s["move"])}">{pc(s["move"]) or "–"}</span>'
-            f'<a href="{esc(s["urls"][0])}" target="_blank" rel="noopener">'
-            f'{esc(s["headline"][:120])}</a></div>')
-        if len(minor) >= 12:
-            break
-
-    n_x = sum(1 for a in arts.values() if a['type'] == 'x')
-    body = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Market digest &mdash; {esc(session)}</title><style>{CSS}</style></head><body>
-<header><div class="wrap"><h1>Market digest</h1>
-<div class="tape">Session <b>{esc(session)}</b><br>{esc(' · '.join(tape))}</div>
-</div></header><div class="wrap">
-<div class="sec">Carried by more than one source</div>
-{''.join(items) or '<div class="item" style="color:var(--text2)">Nothing today was carried by more than one source.</div>'}
-<div class="sec">Also reported</div>
-{''.join(minor)}
-<footer>{len(stories)} stories from {len({a['source'] for a in arts.values()})} sources
-({len(arts) - n_x} wire, {n_x} X). {dropped} evergreen pieces filtered out.
-Moves are {esc(prev)} to {esc(session)} closes, from our own data.
-Items are ranked by how many <b>distinct sources</b> carried them, never by article
-count &mdash; one wire scoop becomes several stories within the hour.
-Headlines link to their publisher; nothing is reproduced beyond the title.</footer>
-</div></body></html>"""
-
-    out = os.path.join(BASE, 'digest.html')
-    with open(out, 'w', encoding='utf-8') as fh:
-        fh.write(body)
-    print(f'wrote {out} ({os.path.getsize(out)/1024:.1f} KB)', file=sys.stderr)
-    if '--open' in sys.argv:
-        webbrowser.open('file:///' + out.replace('\\', '/'))
-
-
-def write_portal(session, prev, tape, shown, rest, stories, arts, dropped,
+def write_portal(session, prev, tape, shown, movers, stories, arts, dropped,
                  names, ahead_days, ahead):
     """portal/data/digest.json — what the Sector Compass page reads.
 
@@ -220,15 +101,14 @@ def write_portal(session, prev, tape, shown, rest, stories, arts, dropped,
             d['alt'] = s['alt'][0][:140]
         return d
 
-    seen = {s['subject'] for s in shown}
-    minor = []
-    for s in sorted(rest, key=lambda x: -abs(x['move'] or 0)):
-        if s['subject'] in seen:
-            continue
-        seen.add(s['subject'])
-        minor.append(pack(s, with_alt=False))
-        if len(minor) >= 14:
-            break
+    # Biggest movers, already computed and already excluding anything shown
+    # above. The headline may be None — a double-digit move nobody wrote about
+    # is the case this section exists to surface.
+    minor = [{'subject': m['subject'], 'company': co(m['subject']),
+              'move': m['move'], 'mom': m['mom'], 'sources': m['sources'],
+              'headline': (m['headline'] or '')[:180] or None,
+              'url': m['url']}
+             for m in movers]
 
     n_x = sum(1 for a in arts.values() if a['type'] == 'x')
     out = {
@@ -341,6 +221,7 @@ def main():
     mentions = page('feed_mentions',
                     'entity,entity_type,source,source_type,item_url,item_title',
                     lambda x: x.eq('snapshot_date', session))
+
 
     # Who reports, over the week rather than only tomorrow.
     #
@@ -503,7 +384,44 @@ def main():
         out.append('')
 
     shown = [s for s in stories if s['n'] >= 2][:top_n]
-    rest = [s for s in stories if s['n'] < 2]
+
+    # Biggest movers, from our own closes rather than from whether a wire bot
+    # wrote something.
+    #
+    # The section this replaces listed single-source stories, which sounded
+    # reasonable and sourced the day backwards: it showed companies a bot had
+    # written about instead of companies that had moved. On 2026-10-23 it ran
+    # GNTX at -5% because GuruFocus auto-generated "Shares Fall 5.0% -- What GF
+    # Score Tells Investors", and said nothing at all about UWMC, which moved
+    # +26.1%, or LKQ at -22.5%, because no feed we read mentioned either.
+    #
+    # The move is the fact and always exists. A headline is colour, attached
+    # when we happen to have one. "No coverage" against a 26% move is itself
+    # worth reading.
+    funds_syms = {e['symbol'] for e in page('etfs', 'symbol')}
+    by_subject = {}
+    for s in stories:
+        prev_s = by_subject.get(s['subject'])
+        if not prev_s or s['n'] > prev_s['n']:
+            by_subject[s['subject']] = s
+    shown_subjects = {s['subject'] for s in shown}
+    movers = []
+    for tk in snap:
+        if tk in funds_syms or tk in shown_subjects:
+            continue
+        m = move(tk)
+        if m is None or abs(m) < 0.03:
+            continue
+        st = by_subject.get(tk)
+        movers.append({
+            'subject': tk, 'move': m,
+            'mom': (snap.get(tk) or {}).get('momentum_score'),
+            'sources': st['n'] if st else 0,
+            'headline': st['headline'] if st else None,
+            'url': st['urls'][0] if st else None,
+        })
+    movers.sort(key=lambda x: -abs(x['move']))
+    movers = movers[:14]
     if shown:
         for i, s in enumerate(shown, 1):
             mv = pc(s['move'])
@@ -517,21 +435,12 @@ def main():
         out.append('_Nothing was carried by more than one source today._')
         out.append('')
 
-    if rest:
-        out.append('*Also reported:*')
-        # One line per subject. Two different single-source stories about the
-        # same company are still one company having a day, and listing it twice
-        # reads like the digest is padding.
-        seen_subj = {s['subject'] for s in shown}
-        for s in sorted(rest, key=lambda x: -abs(x['move'] or 0)):
-            if s['subject'] in seen_subj:
-                continue
-            seen_subj.add(s['subject'])
-            mv = pc(s['move'])
-            out.append(f"  {label(s['subject'])}{'  ' + mv if mv else ''} — "
-                       f"{s['headline'][:88]}")
-            if len(seen_subj) >= 10:
-                break
+    if movers:
+        out.append('*Biggest movers:*')
+        for m in movers[:10]:
+            tail = (f" — {m['headline'][:72]}" if m['headline']
+                    else '  _no coverage_')
+            out.append(f"  {m['subject']:6} {pc(m['move']):>7}{tail}")
         out.append('')
 
     if ahead_days:
@@ -559,14 +468,11 @@ def main():
     print(note)
     print(f'\n[{len(note.split())} words]', file=sys.stderr)
 
-    if '--html' in sys.argv or '--open' in sys.argv:
-        write_html(session, prev, tape, shown, rest, stories, arts, dropped,
-                   label, pc)
 
     # Always write the portal payload. This is the version that matters: the
     # nightly chain commits portal/data and Netlify redeploys, so the digest
     # arrives on the site by itself. Nothing here has to be run by hand.
-    write_portal(session, prev, tape, shown, rest, stories, arts, dropped,
+    write_portal(session, prev, tape, shown, movers, stories, arts, dropped,
                  names, ahead_days, ahead)
 
     if '--telegram' in sys.argv:

@@ -28,6 +28,7 @@ Usage: python fetch_news_feeds.py [--dry-run] [--days N]
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -43,7 +44,8 @@ from supabase import create_client
 import sb_retry  # noqa: F401
 # What a story is ABOUT should not depend on where it came from, so the
 # matching rules live in one place and the X collector imports the same ones.
-from feed_entities import build_patterns, entities, session_for
+from feed_entities import (build_patterns, clean_name, entities,
+                           session_for)
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE, '.env'))
@@ -154,6 +156,102 @@ def feed_items(name, url, from_aggregator=False):
     return out
 
 
+def chase_movers(tickers, patterns, limit=14, min_move=0.05):
+    """Ask about the names that moved but nobody we read wrote about.
+
+    Broad feeds are a net: they catch whatever the wires chose to publish,
+    which on 2026-10-23 meant every one of the ten biggest movers in the
+    universe came back with no coverage at all — UWMC up 26%, LKQ down 22%,
+    Robert Half up 21% — while the digest carried a GuruFocus template about a
+    5% move. More feeds would not have fixed that; the wires simply do not
+    push small and mid-caps into a general markets feed.
+
+    Asking directly does fix it. A query per uncovered mover turns "no
+    coverage" into "LKQ Announces Preliminary Third Quarter Results", and it
+    costs one request each rather than another standing subscription.
+    """
+    r = (sb.table('daily_stock_snapshots').select('snapshot_date')
+         .not_.is_('momentum_score', 'null')
+         .order('snapshot_date', desc=True).limit(1).execute().data)
+    if not r:
+        return []
+    session = r[0]['snapshot_date']
+    prev = (sb.table('daily_stock_snapshots').select('snapshot_date')
+            .lt('snapshot_date', session).not_.is_('momentum_score', 'null')
+            .order('snapshot_date', desc=True).limit(1).execute().data)
+    if not prev:
+        return []
+    prev = prev[0]['snapshot_date']
+
+    def closes_for(d):
+        out, frm = {}, 0
+        while True:
+            rows = (sb.table('daily_stock_snapshots').select('ticker,close')
+                    .eq('snapshot_date', d).range(frm, frm + 999).execute().data or [])
+            out.update({x['ticker']: x.get('close') for x in rows})
+            if len(rows) < 1000:
+                return out
+            frm += 1000
+
+    now, before = closes_for(session), closes_for(prev)
+    funds = {e['symbol'] for e in
+             (sb.table('etfs').select('symbol').execute().data or [])}
+    covered = {m['entity'] for m in
+               (sb.table('feed_mentions').select('entity')
+                .eq('snapshot_date', session).execute().data or [])}
+
+    moves = []
+    for tk, c in now.items():
+        if tk in funds or tk in covered:
+            continue
+        try:
+            pct = float(c) / float(before.get(tk)) - 1
+        except (TypeError, ValueError, ZeroDivisionError):
+            continue
+        if abs(pct) >= min_move:
+            moves.append((abs(pct), pct, tk))
+    moves.sort(reverse=True)
+    moves = moves[:limit]
+    if not moves:
+        print('\nno uncovered movers to chase')
+        return []
+
+    names, frm = {}, 0
+    while True:
+        rows_n = (sb.table('us_stock_sectors').select('ticker,company_name')
+                  .range(frm, frm + 999).execute().data or [])
+        names.update({x['ticker']: x.get('company_name') for x in rows_n})
+        if len(rows_n) < 1000:
+            break
+        frm += 1000
+    print(f'\nchasing {len(moves)} uncovered movers on {session}:')
+    rows = []
+    for _, pct, tk in moves:
+        base = clean_name(names.get(tk)) or tk
+        q = urllib.parse.quote(f'"{base}" stock')
+        items = feed_items(f'chase/{tk}', GN_URL.format(q=q), from_aggregator=True)
+        hit = 0
+        for it in items[:6]:
+            text = f"{it['title']} {it['desc']}"
+            # The query named this company, so the article is about it unless
+            # the text says otherwise — but still require the name or cashtag
+            # to appear, or a query for "Cable One" returns a price-quote page.
+            full = patterns.get(tk, (None, None))[0]
+            if not (f'${tk}' in text or f'({tk})' in text
+                    or (full and full.search(text))):
+                continue
+            rows.append({'source': f'rss:{it["source"]}', 'source_type': 'rss',
+                         'item_url': it['link'], 'item_title': it['title'][:400],
+                         'published_at': it['when'].isoformat() if it['when'] else None,
+                         'snapshot_date': session,
+                         'entity': tk, 'entity_type': 'ticker',
+                         'matched_on': 'chased', 'excerpt': it['title'][:300]})
+            hit += 1
+        print(f'  {tk:6} {pct*100:+6.1f}%  {hit} stories kept')
+        time.sleep(1.2)
+    return rows
+
+
 def main():
     dry = '--dry-run' in sys.argv
     days = 3
@@ -238,6 +336,8 @@ def main():
     # after the rule that produced it was removed, and a stale exchange operator
     # sat at +7.5% in a digest about a selloff. Only articles seen in THIS run
     # are cleared, so a feed being down cannot wipe yesterday's good rows.
+    rows += chase_movers(tickers, patterns)
+
     # The three Google News searches overlap by design — a big story shows up
     # under markets AND earnings AND movers — so the same (publisher, article,
     # entity) can arrive more than once. Postgres rejects a whole batch that

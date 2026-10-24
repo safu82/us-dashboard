@@ -402,7 +402,10 @@ function digest(){
       <span class="nm">${esc(s.company||'')}</span>
       ${s.sources>1?`<span class="dgs" title="Carried by ${esc((s.names||[]).join(', '))}">${s.sources} sources</span>`:''}
       <span class="dgm">${mv(s.move)}</span></div>
-    <div class="dgt"><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.headline)}</a></div>
+    <div class="dgt">${s.headline
+      ? (s.url?`<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.headline)}</a>`
+             : esc(s.headline))
+      : '<span class="nm" style="font-style:italic">No coverage in any feed we read — the move is from our own closes.</span>'}</div>
     ${s.alt?`<div class="dga">also: ${esc(s.alt)}</div>`:''}</div>`;
   const c=d.counts||{};
   const uni=(D.meta&&D.meta.counts&&D.meta.counts.universe)||0;
@@ -417,9 +420,13 @@ function digest(){
     : `<div class="intro" style="margin:0 0 6px">Nothing today was carried by more than one
        source. On a quiet session that is itself the finding — there was no story the whole
        market was following.</div>`}
-  <div class="dgsec">Also reported</div>
+  <div class="dgsec">Biggest movers</div>
+  <div class="intro" style="margin:0 0 8px">The largest moves in the universe, from
+    our own closes — not from whether anyone wrote about them. A headline is attached
+    where we found one; <b>no coverage</b> against a double-digit move is itself worth
+    knowing. Names already above are not repeated.</div>
   ${(d.minor||[]).map(s=>item(s,null)).join('')
-    || '<div class="intro">Nothing else matched our universe today.</div>'}
+    || '<div class="intro">Nothing moved more than 3% today.</div>'}
   ${(d.ahead&&d.ahead.length)?`
     <div class="dgsec">Reporting ahead</div>
     <div class="intro" style="margin:0 0 8px">The only forward-looking thing on this
