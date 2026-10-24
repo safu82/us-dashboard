@@ -197,7 +197,7 @@ Headlines link to their publisher; nothing is reproduced beyond the title.</foot
 
 
 def write_portal(session, prev, tape, shown, rest, stories, arts, dropped,
-                 names, next_day, next_up):
+                 names, ahead_days, ahead):
     """portal/data/digest.json — what the Sector Compass page reads.
 
     Only wire headlines and links go out. A headline plus attribution plus a
@@ -237,12 +237,16 @@ def write_portal(session, prev, tape, shown, rest, stories, arts, dropped,
         'tape': tape,
         'top': [pack(s) for s in shown],
         'minor': minor,
-        'reportingDate': next_day,
-        'reporting': [{'symbol': c['symbol'], 'mom': c['mom'],
-                       'when': c['when_of_day'],
-                       'company': (c.get('company_name') or '')[:30],
-                       'eps': c.get('eps_estimate')}
-                      for c in next_up[:40]],
+        # The week, not tomorrow. One session hid Alphabet and Microsoft on the
+        # Wednesday and Amazon on the Thursday behind a Monday of mid-caps.
+        'ahead': [{'date': d,
+                   'names': [{'symbol': c['symbol'], 'mom': c['mom'],
+                              'cap': c['cap'], 'when': c['when_of_day'],
+                              'company': (c.get('company_name') or '')[:30],
+                              'eps': c.get('eps_estimate')}
+                             for c in ahead[d][:14]],
+                   'more': max(0, len(ahead[d]) - 14)}
+                  for d in ahead_days],
         'counts': {'stories': len(stories),
                    'sources': len({a['source'] for a in arts.values()}),
                    'wire': len(arts) - n_x, 'x': n_x, 'filtered': dropped},
@@ -338,20 +342,34 @@ def main():
                     'entity,entity_type,source,source_type,item_url,item_title',
                     lambda x: x.eq('snapshot_date', session))
 
-    # Who reports next. A raw list of two hundred names is not readable, so it
-    # is ranked by the score we already have: a company about to report that is
-    # already at the top of the board is the one where a surprise moves
-    # something you hold or watch.
+    # Who reports, over the week rather than only tomorrow.
+    #
+    # Showing one session was wrong twice over. It hid the week's actual events
+    # — Alphabet and Microsoft on the Wednesday, Amazon on the Thursday — behind
+    # a Monday of mid-caps. And ranking within a day by momentum would have
+    # buried them anyway: a mega-cap print moves the index whatever its
+    # momentum score happens to be, so size is the right order for "what is
+    # coming", and momentum is shown alongside rather than used to sort.
+    caps = {}
+    for f in page('stock_fundamentals', 'ticker,market_cap_usd'):
+        try:
+            caps[f['ticker']] = float(f['market_cap_usd'])
+        except (TypeError, ValueError):
+            pass
     cal = page('earnings_calendar',
                'symbol,report_date,when_of_day,company_name,eps_estimate',
                lambda x: x.gt('report_date', session).order('report_date'))
     upcoming = []
     for c in cal:
-        m = (snap.get(c['symbol']) or {}).get('momentum_score')
-        upcoming.append({**c, 'mom': m})
-    upcoming.sort(key=lambda c: (c['report_date'], -(c['mom'] or -1)))
-    next_day = upcoming[0]['report_date'] if upcoming else None
-    next_up = [c for c in upcoming if c['report_date'] == next_day]
+        upcoming.append({**c,
+                         'mom': (snap.get(c['symbol']) or {}).get('momentum_score'),
+                         'cap': caps.get(c['symbol'])})
+    upcoming.sort(key=lambda c: (c['report_date'], -(c['cap'] or 0)))
+    # The next five sessions, biggest first within each.
+    ahead_days = sorted({c['report_date'] for c in upcoming})[:5]
+    ahead = {d: [c for c in upcoming if c['report_date'] == d] for d in ahead_days}
+    next_day = ahead_days[0] if ahead_days else None
+    next_up = ahead.get(next_day, [])
 
     # Collapse to articles. One row per (source, url); the entities come along.
     arts = {}
@@ -516,15 +534,20 @@ def main():
                 break
         out.append('')
 
-    if next_up:
-        strong = [c for c in next_up if (c['mom'] or 0) >= 80]
-        out.append(f"*Reporting {next_day}* — {len(next_up)} names we cover"
-                   + (f", {len(strong)} of them scoring 80+" if strong else ''))
-        for c in (strong or next_up)[:8]:
-            bit = {'pre': 'before the open', 'after': 'after the close'}.get(
-                c['when_of_day'], '')
-            out.append(f"  {c['symbol']:6} mom {c['mom'] if c['mom'] is not None else '–'}"
-                       + (f"  {bit}" if bit else ''))
+    if ahead_days:
+        out.append('*Reporting ahead* — largest first:')
+        for d in ahead_days:
+            day = ahead[d]
+            # Not `names`: that is the ticker -> company map in this scope, and
+            # shadowing it broke the portal writer further down.
+            line = []
+            for c in day[:6]:
+                cap = c['cap']
+                size = (f'{cap/1e12:.1f}tn' if cap and cap >= 1e12 else
+                        f'{cap/1e9:.0f}bn' if cap else '')
+                line.append(f"{c['symbol']}{f' {size}' if size else ''}")
+            out.append(f"  {d}  {', '.join(line)}"
+                       + (f"  _+{len(day) - 6}_" if len(day) > 6 else ''))
         out.append('')
 
     n_x = sum(1 for a in arts.values() if a['type'] == 'x')
@@ -544,7 +567,7 @@ def main():
     # nightly chain commits portal/data and Netlify redeploys, so the digest
     # arrives on the site by itself. Nothing here has to be run by hand.
     write_portal(session, prev, tape, shown, rest, stories, arts, dropped,
-                 names, next_day, next_up)
+                 names, ahead_days, ahead)
 
     if '--telegram' in sys.argv:
         tok, chat = os.environ.get('TELEGRAM_BOT_TOKEN'), os.environ.get('TELEGRAM_CHAT_ID')

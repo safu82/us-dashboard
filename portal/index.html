@@ -108,7 +108,9 @@
   .dgt{font-size:14px;line-height:1.5;}
   .dgt a:hover{color:var(--blue);}
   .dga{color:var(--text2);font-size:12px;margin-top:4px;}
-  .dgcal{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0 2px;}
+  .dgday{border-top:1px solid var(--border);padding:9px 0 7px;}
+  .dgdate{font-size:11.5px;color:var(--text2);font-weight:700;margin-bottom:5px;}
+  .dgcal{display:flex;flex-wrap:wrap;gap:6px;padding:2px 0;}
   .dgtk{background:var(--bg3);border:1px solid var(--border);border-radius:6px;
     padding:3px 9px;font-size:12.5px;font-weight:700;}
   .dgtk:hover{color:var(--blue);border-color:var(--accent);}
@@ -418,19 +420,24 @@ function digest(){
   <div class="dgsec">Also reported</div>
   ${(d.minor||[]).map(s=>item(s,null)).join('')
     || '<div class="intro">Nothing else matched our universe today.</div>'}
-  ${(d.reporting&&d.reporting.length)?`
-    <div class="dgsec">Reporting ${esc(d.reportingDate||'next')}</div>
+  ${(d.ahead&&d.ahead.length)?`
+    <div class="dgsec">Reporting ahead</div>
     <div class="intro" style="margin:0 0 8px">The only forward-looking thing on this
-      page — everything else describes a session that has closed. Sorted by momentum,
-      because a name already at the top of the board is where a surprise moves
-      something. <b>a</b> reports after the close, <b>p</b> before the open.</div>
-    <div class="dgcal">${d.reporting.map(c=>
-      `<a class="dgtk" href="${tv(c.symbol)}" target="_blank" rel="noopener"
-          title="${esc(c.company||'')}${c.mom!=null?` · momentum ${c.mom}`:''}${
-            c.eps!=null?` · consensus EPS ${c.eps}`:''}">${esc(c.symbol)}<span
-          class="dgmm" style="color:${c.mom==null?'var(--text2)':momCol(c.mom)}">${
-            c.mom==null?'–':c.mom}</span><span class="dgwhen">${
-            c.when==='after'?'a':c.when==='pre'?'p':''}</span></a>`).join('')}</div>`:''}
+      page — everything else describes a session that has closed. Largest first within
+      each day, because a mega-cap print moves the index whatever its score is; the
+      number beside each is its momentum. <b>a</b> reports after the close,
+      <b>p</b> before the open.</div>
+    ${d.ahead.map(day=>`<div class="dgday">
+      <div class="dgdate">${esc(day.date)}${day.more?` <span class="nm">+${day.more} more</span>`:''}</div>
+      <div class="dgcal">${day.names.map(c=>
+        `<a class="dgtk" href="${tv(c.symbol)}" target="_blank" rel="noopener"
+            title="${esc(c.company||'')}${c.cap?` · ${cap(c.cap/1e9)}`:''}${
+              c.mom!=null?` · momentum ${c.mom}`:''}${
+              c.eps!=null?` · consensus EPS ${c.eps}`:''}">${esc(c.symbol)}<span
+            class="dgmm" style="color:${c.mom==null?'var(--text2)':momCol(c.mom)}">${
+              c.mom==null?'–':c.mom}</span><span class="dgwhen">${
+              c.when==='after'?'a':c.when==='pre'?'p':''}</span></a>`).join('')}</div>
+    </div>`).join('')}`:''}
   <div class="intro" style="margin-top:14px">${c.stories||0} stories from ${c.sources||0}
     sources${c.filtered?`; ${c.filtered} opinion and listicle pieces filtered out`:''}.
     Only companies in the ${uni.toLocaleString()}-stock universe are tagged, so a story
