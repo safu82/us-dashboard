@@ -1,9 +1,13 @@
-# Netlify configuration for the PUBLIC portal (Market Compass).
+# Netlify configuration for the PUBLIC portal (Overnight Arc).
 #
-# The site's Netlify subdomain is still us-sector-compass.netlify.app. Renaming
-# it would break every link already shared, and the name people see is the one
-# in the page, so the URL is deliberately left alone. A custom domain is the
-# right fix if this ever gets promoted properly.
+# The site lives at overnightarc.com. The Netlify project is still named
+# us-sector-compass, and so is its .netlify.app subdomain — renaming the project
+# would break the build hook and gains nothing, since nobody sees that name.
+#
+# An earlier version of this comment claimed a rename would break shared links.
+# That is true of renaming the Netlify subdomain and NOT of adding a custom
+# domain: Netlify keeps serving the old address and the redirect below sends it
+# on. No link ever broke.
 #
 # The private dashboard (index.html, combined-dashboard.html, deep_dive.html)
 # is NOT deployed from here — it stays a manual upload to its own site, and
@@ -31,6 +35,26 @@
 
   # No build: the page and its data are already static.
   command = ""
+
+# Setting overnightarc.com as the primary domain in Netlify does NOT stop the
+# .netlify.app address serving the site — checked on 2026-10-26, it returned 200
+# and rendered the full page rather than forwarding. Two addresses serving
+# identical content is duplicate content, and Google picks a canonical itself if
+# you don't. So the old address is sent on explicitly.
+#
+# force = true matters: without it a redirect only fires when nothing else
+# matches the path, and every path here matches a real file.
+[[redirects]]
+  from = "https://us-sector-compass.netlify.app/*"
+  to = "https://overnightarc.com/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "http://us-sector-compass.netlify.app/*"
+  to = "https://overnightarc.com/:splat"
+  status = 301
+  force = true
 
 # The data bundle is rewritten every weeknight, so it must not be served from
 # cache after a deploy. The page itself is small and changes rarely, but the

@@ -79,7 +79,7 @@ STOPWORDS = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to',
 
 def write_portal(session, prev, tape, shown, movers, stories, arts, dropped,
                  names, ahead_days, ahead):
-    """portal/data/digest.json — what the Market Compass page reads.
+    """portal/data/digest.json — what the Overnight Arc page reads.
 
     Only wire headlines and links go out. A headline plus attribution plus a
     link to the publisher is what every aggregator does; reproducing a
