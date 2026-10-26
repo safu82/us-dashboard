@@ -55,7 +55,7 @@ jobs:
       #    ~1,900 tickers three more times (needless load on a rate-limited Yahoo).
       #    Holidays make this say "run", which costs ~1 min of fail-fast — the safe
       #    direction to be wrong in.
-      - name: 0/14 skip if already current
+      - name: 0/15 skip if already current
         id: precheck
         run: |
           python - <<'PY'
@@ -82,7 +82,7 @@ jobs:
 
       # 1. Pull EOD OHLC + indicators for the S&P500 + NASDAQ100 + holdings universe.
       #    Exit 75 means Yahoo has not finalized the session — skip the chain, no alarm.
-      - name: 1/14 fetch_ohlc.py
+      - name: 1/15 fetch_ohlc.py
         id: ohlc
         if: steps.precheck.outputs.needed == 'true'
         run: |
@@ -102,7 +102,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 2. Append latest QQQ close to benchmark_history (long-lived; survives 90d prune)
-      - name: 2/14 sync_benchmark_history.py
+      - name: 2/15 sync_benchmark_history.py
         if: steps.ohlc.outputs.published == 'true'
         run: python sync_benchmark_history.py
         env:
@@ -110,7 +110,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 3. Cross-sectional metrics: rs_rank, sector_percentile, peer_*, rank_slope
-      - name: 3/14 compute_cross_sectional.py
+      - name: 3/15 compute_cross_sectional.py
         if: steps.ohlc.outputs.published == 'true'
         run: python compute_cross_sectional.py
         env:
@@ -118,7 +118,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 4. Aggregate per-peer-group: composite, breadth, RRG quadrant, rs_slope
-      - name: 4/14 compute_sector_rankings.py
+      - name: 4/15 compute_sector_rankings.py
         if: steps.ohlc.outputs.published == 'true'
         run: python compute_sector_rankings.py
         env:
@@ -126,7 +126,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 5. Entry-signal patterns (8 detectors -> entry_signals table)
-      - name: 5/14 entry_signals_scanner.py
+      - name: 5/15 entry_signals_scanner.py
         if: steps.ohlc.outputs.published == 'true'
         run: python entry_signals_scanner.py
         env:
@@ -134,7 +134,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 6. Pre-signal scoring (6 rules, score >= 70 -> presignal_scores table)
-      - name: 6/14 score_presignals.py
+      - name: 6/15 score_presignals.py
         if: steps.ohlc.outputs.published == 'true'
         run: python score_presignals.py
         env:
@@ -142,7 +142,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 7. Holdings-only alerts (ema_crossover, vol_breakout, blue_zone -> alerts table)
-      - name: 7/14 portfolio_alerts_scanner.py
+      - name: 7/15 portfolio_alerts_scanner.py
         if: steps.ohlc.outputs.published == 'true'
         run: python portfolio_alerts_scanner.py
         env:
@@ -151,7 +151,7 @@ jobs:
 
       # 8. Market-health rollup: breadth, new-high/low, S&P-vs-200d, VIX -> market_health
       #    (newsletter "Where We Stand"). Depends only on fetch_ohlc output.
-      - name: 8/14 compute_market_health.py
+      - name: 8/15 compute_market_health.py
         if: steps.ohlc.outputs.published == 'true'
         run: python compute_market_health.py
         env:
@@ -161,7 +161,7 @@ jobs:
       # 9. ETF momentum board: sector SPDRs + thematic ETFs ranked in their OWN
       #    cross-section -> etf_snapshots (sector-research ETF board). Self-contained
       #    (fetches its own ETF + benchmark OHLC via yfinance); order-independent.
-      - name: 9/14 compute_etf_momentum.py
+      - name: 9/15 compute_etf_momentum.py
         if: steps.ohlc.outputs.published == 'true'
         run: python compute_etf_momentum.py
         env:
@@ -174,7 +174,7 @@ jobs:
       #     looked, including two S&P 500 REITs. Reports every night and only
       #     fails on a sudden cluster, so slow attrition stays visible without
       #     crying wolf.
-      - name: 10/14 check_universe_health.py
+      - name: 10/15 check_universe_health.py
         if: steps.ohlc.outputs.published == 'true'
         run: python check_universe_health.py
         env:
@@ -185,7 +185,7 @@ jobs:
       #     portal and commit it. The public site reads these files from the CDN
       #     and holds no database credential of any kind, so nothing it serves
       #     can reach the portfolio project.
-      - name: 11/14 build_public_data.py
+      - name: 11/15 build_public_data.py
         if: steps.ohlc.outputs.published == 'true'
         run: python build_public_data.py
         env:
@@ -209,7 +209,7 @@ jobs:
       #     scroll off an RSS feed within hours, so the catch-up attempts are
       #     worth their own pass even when Yahoo has nothing new; the step is
       #     idempotent on (source, url, entity), so repeats cost nothing.
-      - name: 12/14 fetch_news_feeds.py
+      - name: 12/15 fetch_news_feeds.py
         run: python fetch_news_feeds.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -219,13 +219,13 @@ jobs:
       #     is the only forward-looking data in the chain and the only reason a
       #     name can appear on the board before anything has happened to it.
       #     Ungated like the news step: the calendar moves on its own schedule.
-      - name: 13/14 fetch_earnings_calendar.py
+      - name: 13/15 fetch_earnings_calendar.py
         run: python fetch_earnings_calendar.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      - name: 14/14 build_digest.py
+      - name: 14/15 build_digest.py
         if: steps.ohlc.outputs.published == 'true'
         run: python build_digest.py --telegram
         env:
@@ -234,13 +234,27 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
-      - name: Publish portal data
+      # Static pages for the data the previous steps just wrote. Reads only
+      # portal/data from disk, so it needs no database and no secrets, and it
+      # cannot fail for a reason the scan has not already failed for.
+      #
+      # Gated like the rest: it writes a dated digest page, and that date must
+      # belong to a session that actually published. An ungated run on a day the
+      # scan skipped would mint a permanent page for a session that never was.
+      - name: 15/15 build_archive.py
+        if: steps.ohlc.outputs.published == 'true'
+        run: python build_archive.py
+
+      - name: Publish portal data and pages
         if: steps.ohlc.outputs.published == 'true'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add portal/data
-          git commit -m "Portal data: $(date -u +%Y-%m-%d)" || { echo "no change to publish"; exit 0; }
+          # portal/ not portal/data: the generated pages, a.css, sitemap.xml and
+          # robots.txt all live beside it and all need publishing. Everything
+          # under portal/ is either generated or the hand-written index.
+          git add portal
+          git commit -m "Portal data and pages: $(date -u +%Y-%m-%d)" || { echo "no change to publish"; exit 0; }
           for attempt in 1 2 3; do
             if ! git pull --rebase origin main; then
               echo "::error::Rebase onto origin/main failed; portal/data conflicts with an upstream change."
