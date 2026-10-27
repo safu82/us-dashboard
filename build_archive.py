@@ -136,6 +136,13 @@ padding:15px 17px;margin:14px 0;}
 ul.plain{list-style:none;display:flex;flex-wrap:wrap;gap:7px;margin:12px 0;}
 ul.plain li a{display:inline-block;border:1px solid var(--border);background:var(--bg2);
 border-radius:7px;padding:5px 10px;font-size:13px;}
+/* Reference definitions read better against a rule than inside a card: they
+   are a list of terms, not a set of separate objects. */
+.def{border-left:2px solid var(--border);padding:1px 0 1px 15px;margin:18px 0;}
+.def h3{font-size:15px;margin-bottom:3px;}
+.def p{margin:5px 0;color:var(--text2);font-size:14px;}
+.def p b,.def p strong{color:var(--text);}
+.lead-in{font-size:16px;color:var(--text2);max-width:66ch;margin:10px 0 4px;}
 .story{border-bottom:1px solid var(--border);padding:13px 0;}
 .story:last-child{border-bottom:none;}
 .story .sub{font-weight:700;font-size:13px;}
@@ -175,24 +182,20 @@ def shell(path, title, desc, crumbs, body):
 <div class="wrap">
 {body}
 <footer>
-<p><b>How to read the numbers.</b> Momentum is a 0&#8211;100 score: each name ranked
-against its own peer group on relative-strength level and trend, 9- and 20-day EMA
-slopes, and price against its 50-day average. 50 is the median, not a neutral
-return &#8212; in a falling market a high score means falling less than the rest.
-Funds are scored against other funds and stocks against other stocks, so the two
-are not comparable with each other. RS rank runs the other way: #1 is the
-strongest stock we cover.</p>
-<p>Rebuilt each weeknight after the US close. Delayed, not live. Value chains are
-our own mapping and will not match any index or fund's holdings.
-<b>This is educational research, not investment advice, and not personalised to
-anyone.</b> Do your own work.</p>
+<p><b>A score is a ranking, not a return.</b> Momentum is a 0&#8211;100 position
+against a peer group, so 50 is the median and a high score in a falling market
+means fell least. <a href="{SITE}/method/">How every figure here is
+calculated</a>.</p>
+<p>Rebuilt each weeknight after the US close; delayed, not live.
+<b>Educational research, not investment advice, and not personalised to
+anyone.</b> Published by Insight Arc Solutions, Dubai.
+<a href="{SITE}/about/">About Overnight Arc</a> &#183;
+<a href="mailto:contact@overnightarc.com">contact@overnightarc.com</a></p>
 <p><b>Elsewhere:</b> <a href="{SITE}/">the four live boards</a> &#183;
 <a href="{SITE}/digest/">every session</a> &#183;
 <a href="{SITE}/themes/">themes</a> &#183;
 <a href="{SITE}/funds/">funds</a> &#183;
 <a href="{SITE}/countries/">countries</a></p>
-<p><b>Overnight Arc</b> is published by <b>Insight Arc Solutions</b>, Dubai, United
-Arab Emirates. Corrections: <a href="mailto:contact@overnightarc.com">contact@overnightarc.com</a>.</p>
 </footer>
 </div>
 </body>
@@ -483,6 +486,237 @@ def digest_index():
                  [('Overnight Arc', f'{SITE}/'), ('Digest', None)], '\n'.join(body))
 
 
+# ---------------------------------------------------------- about & method
+
+def about_page(counts, asof):
+    n = counts or {}
+    body = [
+        '<h1>About Overnight Arc</h1>',
+        '<p class="lede">A record of what happened on the US market last session, '
+        'and of where money is moving, rebuilt from scratch every weeknight by a '
+        'program rather than written by a desk.</p>',
+
+        '<h2>Who publishes it</h2>',
+        '<p>Overnight Arc is published by <b>Insight Arc Solutions</b>, a company '
+        'registered in Dubai, United Arab Emirates. It is built and maintained by '
+        'one person. There is no newsroom, no analyst team, and no third-party '
+        'research behind any figure on the site.</p>',
+        '<p>That is worth stating plainly rather than leaving to be inferred. A page '
+        'of share prices with no name attached should be read more sceptically than '
+        'one that says who stands behind it, and the honest version of who stands '
+        'behind this is: one person and a nightly job.</p>',
+
+        '<h2>What it does</h2>',
+        f'<p>Every weeknight after the US close, a scan reads end-of-day prices for '
+        f'<b>{n.get("universe", 0):,} US-listed stocks</b> and the funds that hold '
+        f'them, scores each one against its own peer group, and writes the result '
+        f'here. The same run reads the market wires, works out which company each '
+        f'story is about, and ranks the day\'s news by how many <i>separate</i> '
+        f'outlets carried each item.</p>',
+        f'<p>The four boards show the latest session. Alongside them sit permanent '
+        f'pages: one for each of <a href="{SITE}/funds/">{n.get("funds", 0)} funds</a>, '
+        f'<a href="{SITE}/countries/">{n.get("countries", 0)} country ETFs</a> and '
+        f'<a href="{SITE}/themes/">{n.get("themes", 0)} themes</a>, and '
+        f'<a href="{SITE}/digest/">one for every session</a>, written the night it '
+        f'happens and never rewritten.</p>',
+
+        '<h2>What it never does</h2>',
+        '<div class="def"><h3>No recommendations</h3>'
+        '<p>Nothing here is a view on whether to buy or sell anything. A ranking is '
+        'a statement about where something sits against its peers, which is not the '
+        'same as a reason to own it.</p></div>',
+        '<div class="def"><h3>Nothing is personalised</h3>'
+        '<p>The site does not know who you are, what you hold, or what you are '
+        'trying to achieve, and nothing on it is adjusted for any of that.</p></div>',
+        '<div class="def"><h3>Nothing is sold, sponsored or paid for</h3>'
+        '<p>No advertising, no sponsored placements, no affiliate links, no paid '
+        'inclusion. Nobody can buy their way onto a board, and no ordering here was '
+        'chosen by a person &#8212; every rank is computed.</p></div>',
+        '<div class="def"><h3>No opinion in the ordering</h3>'
+        '<p>Stories are ordered by how many independent outlets carried them. '
+        'Companies are ordered by where they sit against their own peers. Earnings '
+        'are ordered by size. None of those orderings is a judgement.</p></div>',
+
+        '<h2>What it is not good at</h2>',
+        '<p>The limits matter as much as the method, so they are stated rather than '
+        'buried:</p>',
+        '<div class="def"><h3>It is delayed, never live</h3>'
+        f'<p>Everything is end-of-day. The newest figures on the site are the close '
+        f'of {esc(asof)}. Nothing updates during market hours.</p></div>',
+        '<div class="def"><h3>A score cannot tell you what the market did</h3>'
+        '<p>Momentum is cross-sectional: it ranks a name against others, so in a '
+        'market where everything is falling the leader is simply whatever fell '
+        'least. That is why the return column sits beside it and why the board '
+        'states the direction of the benchmark in words before any score is '
+        'read.</p></div>',
+        '<div class="def"><h3>The value chains are ours, and are hand-made</h3>'
+        f'<p>{n.get("companies", 0)} companies mapped across 107 stages in '
+        f'{n.get("themes", 0)} themes, by hand. They match no index and no fund\'s '
+        f'holdings, they reflect a judgement about what belongs where, and they will '
+        f'sometimes be wrong or out of date.</p></div>',
+        '<div class="def"><h3>News matching is automated and makes mistakes</h3>'
+        '<p>Working out which company a headline is about is done by a program. It '
+        'has reported a Canadian newspaper as an insurance company, an Australian '
+        'mining junior as a US chemicals firm, and a bank quoted in somebody else\'s '
+        'story as the subject of it. Each of those was found and fixed; others will '
+        'be there now.</p></div>',
+        '<div class="def"><h3>Listed in the US is not the same as American</h3>'
+        '<p>Everything here is US-listed and priced in dollars. Taiwan '
+        'Semiconductor, ASML and Novo Nordisk are all in the maps.</p></div>',
+
+        '<h2>Corrections</h2>',
+        '<p>Mistakes get fixed and the fix gets explained. If a figure looks wrong, '
+        'or a company is in the wrong place, or a story is attributed to the wrong '
+        'name, write to '
+        '<a href="mailto:contact@overnightarc.com">contact@overnightarc.com</a> and '
+        'it will be looked at. Specifics help more than impressions &#8212; the page '
+        'and the number are enough.</p>',
+
+        '<h2>Not advice</h2>',
+        '<p>This is educational research. It is not investment advice, it is not a '
+        'recommendation to buy or sell any security, and it is not personalised to '
+        'anyone. Insight Arc Solutions is not a licensed investment adviser and '
+        'nothing here should be treated as the opinion of one. Do your own work, and '
+        'take advice from somebody qualified to give it.</p>',
+
+        f'<p><a href="{SITE}/method/">How every figure here is calculated</a> '
+        f'&#183; <a href="{SITE}/">the four live boards</a></p>',
+    ]
+    return shell('about', 'About Overnight Arc — who publishes it and how it is built',
+                 'Overnight Arc is published by Insight Arc Solutions, Dubai. What '
+                 'the site does, what it never does, and what it is not good at.',
+                 [('Overnight Arc', f'{SITE}/'), ('About', None)], '\n'.join(body))
+
+
+def method_page(counts, asof, ret_dates):
+    n = counts or {}
+    d20 = (ret_dates or {}).get('d20', '')
+    d60 = (ret_dates or {}).get('d60', '')
+    body = [
+        '<h1>How every figure here is calculated</h1>',
+        '<p class="lede">Nothing on this site is a judgement, so every number has a '
+        'definition. These are the definitions.</p>',
+
+        '<h2>The scores</h2>',
+        '<div class="def"><h3>Momentum (0&#8211;100)</h3>'
+        '<p>A <b>cross-sectional percentile</b>, not a return. Each name is ranked '
+        'against its peer group on relative-strength level and trend, 9- and 20-day '
+        'EMA slopes, and price against its 50-day average; the composite is then '
+        'expressed as a position from 0 to 100.</p>'
+        '<p><b>50 is the median, not a neutral return.</b> In a falling market a '
+        'score of 90 means fell least, not rose. This is the single most '
+        'misread number on the site, which is why the return column sits next to it '
+        'everywhere.</p>'
+        f'<p>Stocks are scored against the whole {n.get("universe", 0):,}-name '
+        f'universe; funds are scored against the other funds on their board. The two '
+        f'numbers are not comparable with each other.</p></div>',
+
+        '<div class="def"><h3>RS rank</h3>'
+        '<p>A position, not a score, and it runs the other way: <b>#1 is the '
+        'strongest name we cover</b>, so lower is better. It ranks a stock\'s price '
+        'against the S&amp;P 500 over the past few weeks.</p>'
+        '<p>A name can hold high momentum and a middling RS rank at once. Momentum '
+        'rewards a trend that is <i>improving</i>; RS rewards one that is already '
+        '<i>ahead</i>.</p></div>',
+
+        '<div class="def"><h3>Durability</h3>'
+        '<p>The share of the last 60 trading days a fund spent in the top 10% of its '
+        'board. The average fund scores about 10% by construction. It separates a '
+        'fund that has led for months from one that led yesterday.</p></div>',
+
+        '<div class="def"><h3>8/21</h3>'
+        '<p>A yes/no: the price closed above its 8-day EMA, with the 8-day above the '
+        '21-day. A short-term trend check, nothing more.</p></div>',
+
+        '<div class="def"><h3>&#916; rank</h3>'
+        '<p>How far a row has moved on the column you are currently sorting by, '
+        'against the previous session and the one five sessions back. Change the '
+        'sort and the column follows it &#8212; it is not a fixed measure.</p>'
+        '<p>Ties take the minimum rank, so equal values share a position rather than '
+        'being split arbitrarily. Without that, two funds on identical scores could '
+        'show a rank change that no price caused.</p></div>',
+
+        '<h2>The returns</h2>',
+        '<div class="def"><h3>Windows are trading sessions, not calendar days</h3>'
+        f'<p>The 20-session figure compares the latest close with <b>{esc(d20)}</b> '
+        f'and the 60-session figure with <b>{esc(d60)}</b> &#8212; about a month and '
+        f'nearer three months than two.</p>'
+        '<p>Each is a close against a <b>single earlier day</b>, so a window that '
+        'happens to start on a spike or a trough can read very differently from the '
+        'trend. <i>From high</i> is the check to run when a green return sits beside '
+        'a deep drawdown.</p></div>',
+
+        '<div class="def"><h3>vs SPY and vs QQQ</h3>'
+        '<p>The benchmark\'s return over the same window, subtracted. Worth reading '
+        'together: beating the S&amp;P while lagging the Nasdaq says the move '
+        'belongs to the broad market rather than to the fund.</p></div>',
+
+        '<div class="def"><h3>The regime line</h3>'
+        '<p>A cross-sectional score cannot tell you what the market did, only where '
+        'something stands inside it. So the board states the benchmark\'s direction '
+        'in words before any score is read, and counts the rows where a good rank '
+        'and a falling price disagree. It switches at <b>&#177;2%</b> on the '
+        'benchmark\'s 20-session return.</p></div>',
+
+        '<h2>The news</h2>',
+        '<div class="def"><h3>Ranked by separate sources, never by article count</h3>'
+        '<p>Stories are ordered by how many <b>independent outlets</b> carried them. '
+        'Counting articles instead would measure syndication &#8212; one wire story '
+        'reprinted forty times would outrank a scoop that four newsrooms chased '
+        'themselves.</p></div>',
+
+        '<div class="def"><h3>What a story is about is decided by a program</h3>'
+        '<p>Cashtags first, then full company names, then unambiguous first words &#8212; '
+        'and the last of those only when market vocabulary sits nearby, because '
+        'without that constraint a story about a politician matched a media company '
+        'and a Nobel prize matched a staffing firm.</p>'
+        '<p>Research houses have to be the <b>subject</b> of a story, not the source '
+        'of a view in it. "Goldman says" is not a Goldman story, and counting it as '
+        'one put a bank at the top of a board it had nothing to do with.</p></div>',
+
+        '<div class="def"><h3>Movers come from our own closes</h3>'
+        '<p>The biggest movers are taken from the prices, not from coverage. The move '
+        'is the fact; a headline is colour attached where one exists. "No coverage" '
+        'against a double-digit move is itself worth reading, and general market '
+        'feeds routinely miss small and mid-caps entirely.</p></div>',
+
+        '<div class="def"><h3>Sessions, not filing dates</h3>'
+        '<p>US cash equities open at 13:30 UTC. Anything filed before that belongs to '
+        'the session that just finished, and weekends roll back to the Friday. '
+        'Without this, a recap written at 03:00 about yesterday\'s close would be '
+        'filed under a session that has not happened yet.</p></div>',
+
+        '<h2>The value chains</h2>',
+        f'<p>{n.get("companies", 0)} companies mapped by hand across 107 stages in '
+        f'{n.get("themes", 0)} themes. A chain is ordered the way value is actually '
+        f'added, from raw inputs through to whoever sells the finished thing, because '
+        f'money rarely moves into a theme evenly &#8212; it moves into a stage of '
+        f'one.</p>'
+        f'<p>This mapping is ours. It matches no index and no fund\'s published '
+        f'holdings, and it reflects a judgement about what belongs where. Where a '
+        f'stage carries too few scored names to read, the page says so rather than '
+        f'printing a number.</p>',
+
+        '<h2>Where the data comes from</h2>',
+        f'<p>End-of-day prices and fundamentals from public market data; fund '
+        f'holdings as published by the issuers; the earnings calendar from Nasdaq\'s '
+        f'public feed; news from publisher RSS and an aggregator, with the publisher '
+        f'recovered per story so that one request yields many separate sources '
+        f'rather than one.</p>'
+        f'<p>Everything is rebuilt each weeknight after the US close. The newest '
+        f'figures on the site are the close of <b>{esc(asof)}</b>. Nothing updates '
+        f'intraday.</p>',
+
+        f'<p><a href="{SITE}/about/">About Overnight Arc</a> &#183; '
+        f'<a href="{SITE}/">the four live boards</a></p>',
+    ]
+    return shell('method', 'How Overnight Arc calculates momentum, RS rank and durability',
+                 'Definitions for every figure on the site: cross-sectional momentum, '
+                 'RS rank, durability, return windows, and how the news is ranked by '
+                 'independent sources.',
+                 [('Overnight Arc', f'{SITE}/'), ('Method', None)], '\n'.join(body))
+
+
 # ---------------------------------------------------------------- sitemap
 
 def sitemap():
@@ -570,6 +804,14 @@ def main():
         digest_page(digest)
         print(f'  digest           {digest["asOf"]}')
     digest_index()
+
+    # The two pages that say who stands behind the numbers and what each one
+    # means. Every other page now links to them instead of repeating a footer.
+    meta = load('meta.json') or {}
+    asof = meta.get('stockAsOf') or etfs.get('asOf', '')
+    about_page(meta.get('counts'), asof)
+    method_page(meta.get('counts'), asof, etfs.get('retDates'))
+    print('  about + method      2')
 
     n = sitemap()
     print(f'  sitemap.xml      {n:>4} urls')

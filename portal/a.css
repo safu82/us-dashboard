@@ -49,6 +49,13 @@ padding:15px 17px;margin:14px 0;}
 ul.plain{list-style:none;display:flex;flex-wrap:wrap;gap:7px;margin:12px 0;}
 ul.plain li a{display:inline-block;border:1px solid var(--border);background:var(--bg2);
 border-radius:7px;padding:5px 10px;font-size:13px;}
+/* Reference definitions read better against a rule than inside a card: they
+   are a list of terms, not a set of separate objects. */
+.def{border-left:2px solid var(--border);padding:1px 0 1px 15px;margin:18px 0;}
+.def h3{font-size:15px;margin-bottom:3px;}
+.def p{margin:5px 0;color:var(--text2);font-size:14px;}
+.def p b,.def p strong{color:var(--text);}
+.lead-in{font-size:16px;color:var(--text2);max-width:66ch;margin:10px 0 4px;}
 .story{border-bottom:1px solid var(--border);padding:13px 0;}
 .story:last-child{border-bottom:none;}
 .story .sub{font-weight:700;font-size:13px;}

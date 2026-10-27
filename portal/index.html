@@ -32,6 +32,11 @@
   .keep a{color:var(--blue);text-decoration:none;}
   .keep a:hover{text-decoration:underline;}
   .keep .kl{color:var(--text2);}
+  /* A row's name opens its permanent page; its ticker still opens a chart.
+     Underlined on hover only, so a table of 54 names is not a wall of blue. */
+  .pg{color:inherit;text-decoration:none;}
+  .pg:hover{color:var(--blue);text-decoration:underline;}
+  .pg:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 
   .intro{color:var(--text2);font-size:13px;margin:18px 0 14px;max-width:860px;}
   .bar{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}
@@ -185,6 +190,8 @@
     <a href="/themes/">18 themes, stage by stage</a>
     <a href="/funds/">54 funds</a>
     <a href="/countries/">24 countries</a>
+    <a href="/method/">how it's calculated</a>
+    <a href="/about/">about</a>
   </div>
 </div></header>
 
@@ -199,9 +206,9 @@
     <br><br>
     Data is rebuilt each weeknight after the US close and is delayed, not live. Value chains are our own mapping and will not match any index or fund's holdings. <b>This is educational research, not investment advice, and not personalised to anyone.</b> Nothing here is a recommendation to buy or sell. Do your own work.
     <br><br>
-    <b>Pages that keep.</b> The four boards above are rebuilt every night and show only the latest session. These do not change once written: <a href="/digest/">every session, one page each</a> · <a href="/themes/">the eighteen themes, stage by stage</a> · <a href="/funds/">every fund</a> · <a href="/countries/">every country</a>.
+    <b>Pages that keep.</b> The four boards above are rebuilt every night and show only the latest session. These do not change once written: <a href="/digest/">every session, one page each</a> · <a href="/themes/">the eighteen themes, stage by stage</a> · <a href="/funds/">every fund</a> · <a href="/countries/">every country</a>. On the Funds board, a row's <b>name</b> opens its own page and its <b>ticker</b> opens a chart.
     <br><br>
-    <b>Overnight Arc</b> is published by <b>Insight Arc Solutions</b>, Dubai, United Arab Emirates. It is written and maintained by one person, and every figure on it is computed from end-of-day prices and public filings — there is no editorial desk and no third-party research behind it. Corrections are welcome and acted on: <a href="mailto:contact@overnightarc.com">contact@overnightarc.com</a>.
+    <b>Overnight Arc</b> is published by <b>Insight Arc Solutions</b>, Dubai, United Arab Emirates. It is written and maintained by one person, and every figure on it is computed from end-of-day prices and public filings — there is no editorial desk and no third-party research behind it. <a href="/about/">More about who publishes it and what it is not good at</a> · <a href="/method/">how every figure is calculated</a> · corrections to <a href="mailto:contact@overnightarc.com">contact@overnightarc.com</a>.
     <span id="built" style="display:block;margin-top:10px;opacity:.7"></span>
   </footer>
 </div>
@@ -482,15 +489,15 @@ const FUND_BOARDS={
   sectors:{
     label:'Sectors & themes', pick:()=>D.etfs, list:d=>d.funds,
     noun:'fund', nounPlural:'funds', head:'Fund',
-    benchmarks:['SPY','QQQ'], drill:true,
-    intro:`Which part of the US market money is actually moving into. Every fund is scored against the others here, so a diversified ETF is measured against its peers rather than against single stocks. Click any fund to see the companies inside it; click its ticker for a chart.`,
+    benchmarks:['SPY','QQQ'], drill:true, root:'funds',
+    intro:`Which part of the US market money is actually moving into. Every fund is scored against the others here, so a diversified ETF is measured against its peers rather than against single stocks. Click any fund to see the companies inside it; its <b>name</b> opens the fund's own page, its <b>ticker</b> opens a chart.`,
     momTip:n=>`Fund momentum, 0-100, ranked against the other ${n-1} sector and theme funds — NOT against individual stocks, and not against the countries board. Higher is stronger; 50 is the middle fund.`,
     emptyMsg:`Nothing passes every selected check today — which is itself an answer: no group is cleanly leading.`,
     after:()=>emerging()},
   countries:{
     label:'Countries', pick:()=>D.countries, list:d=>d.countries,
     noun:'country', nounPlural:'countries', head:'Country',
-    benchmarks:['ACWI','EFA','EEM'], drill:false,
+    benchmarks:['ACWI','EFA','EEM'], drill:false, root:'countries',
     intro:`The same question asked geographically, through US-listed single-country funds — so every line is priced in dollars on the same calendar and the comparison is clean. These are ranked against each other, not against the sector and theme funds: a 90 here means top of the country board. Click a ticker for a chart.`,
     momTip:n=>`Country momentum, 0-100, ranked against the other ${n-1} countries — NOT against the sector and theme funds. Higher is stronger; 50 is the middle country.`,
     emptyMsg:`No country passes every selected check today — which is itself an answer about how broad the move is.`,
@@ -552,7 +559,8 @@ function boardView(o){
         <div class="nm" style="text-align:center">${open?'<span class="caret">▾</span>':i+1}</div>
         <div><a class="sym" href="${tv(f.symbol)}" target="_blank" rel="noopener" onclick="event.stopPropagation()"
              title="Chart for ${f.symbol}">${f.symbol} <span class="tvi">↗</span></a><span class="tagx">${esc(f.group||'')}</span>
-          <div class="nm">${esc((f.name||'').replace(/^iShares MSCI /,'').replace(/ ETF$| Trust$/,''))}</div></div>
+          <div class="nm"><a class="pg" href="/${o.root}/${f.symbol}/" onclick="event.stopPropagation()"
+             title="${f.symbol} on its own page — scores, returns${o.drill?', holdings':''} — a page that does not change when the board is rebuilt">${esc((f.name||'').replace(/^iShares MSCI /,'').replace(/ ETF$| Trust$/,''))}</a></div></div>
         <div class="r" style="font-weight:800;color:${momCol(f.mom)}">${f.mom}</div>
         <div class="r hs two">${dlt(rNow[f.symbol],rD1[f.symbol])}<span class="s">${dlt(rNow[f.symbol],rD5[f.symbol])}</span></div>
         <div class="r hs two"><span style="color:${col(f.mv1)}">${sg(f.mv1,1)}</span><span class="s" style="color:${col(f.mv5)}">${sg(f.mv5,1)}</span></div>
@@ -689,7 +697,8 @@ function emerging(){
 function themes(){
   const ts=D.themes.themes;
   const card=t=>`<div class="card" onclick="openT('${t.slug}')">
-    <div class="crow"><div class="cname">${esc(t.name)}</div>
+    <div class="crow"><div class="cname"><a class="pg" href="/themes/${t.slug}/" onclick="event.stopPropagation()"
+         title="${esc(t.name)} on its own page — every stage and company, at a link that does not change">${esc(t.name)}</a></div>
       <div class="cmom" style="color:${momCol(t.mom)}" title="Median momentum of the ${t.companies} companies we map to this theme, each ranked against every US stock. Not the same scale as a fund's momentum on Funds.">${t.mom==null?'–':(t.mom>55?'▲ ':t.mom<45?'▼ ':'→ ')+t.mom}</div></div>
     <div class="cdesc">${esc(t.description)}</div>
     <div class="cstat"><b>${t.links}</b> links · <b>${t.companies}</b> companies${themeSort!=='category'?` <span class="tagx">${esc(t.category||'')}</span>`:''}</div></div>`;
