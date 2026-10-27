@@ -186,9 +186,13 @@ strongest stock we cover.</p>
 our own mapping and will not match any index or fund's holdings.
 <b>This is educational research, not investment advice, and not personalised to
 anyone.</b> Do your own work.</p>
+<p><b>Elsewhere:</b> <a href="{SITE}/">the four live boards</a> &#183;
+<a href="{SITE}/digest/">every session</a> &#183;
+<a href="{SITE}/themes/">themes</a> &#183;
+<a href="{SITE}/funds/">funds</a> &#183;
+<a href="{SITE}/countries/">countries</a></p>
 <p><b>Overnight Arc</b> is published by <b>Insight Arc Solutions</b>, Dubai, United
-Arab Emirates. Corrections: <a href="mailto:contact@overnightarc.com">contact@overnightarc.com</a>.
-&#183; <a href="{SITE}/">All four boards</a></p>
+Arab Emirates. Corrections: <a href="mailto:contact@overnightarc.com">contact@overnightarc.com</a>.</p>
 </footer>
 </div>
 </body>
