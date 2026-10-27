@@ -55,7 +55,61 @@ NAME_STOPLIST = {'target', 'gap', 'block', 'match', 'on', 'key', 'all', 'how',
                  # story about SpaceX.
                  'monster', 'titan', 'paramount', 'sterling', 'superior',
                  'apex', 'pinnacle', 'element', 'signature', 'catalyst',
-                 'momentum', 'velocity', 'advance', 'standard', 'universal'}
+                 'momentum', 'velocity', 'advance', 'standard', 'universal',
+                 # Minerals Technologies cleans down to "Minerals", which is a
+                 # noun every mining headline on earth contains. It collected
+                 # two ASX juniors on 2026-10-26 - Alvo Minerals and Connected
+                 # Minerals - and reported them as a US specialty chemicals
+                 # company.
+                 'minerals'}
+
+# Banks and brokerages are quoted inside other companies' stories constantly:
+# "Goldman says", "what Jefferies is saying", "Morgan Stanley sees 40% upside".
+# The matcher cannot tell the subject of a story from the house holding an
+# opinion about it, and the digest ranks by how many separate outlets carried an
+# item - so a name that appears in everybody else's story wins by construction,
+# not by mattering.
+#
+# On 2026-10-26 Goldman Sachs took the top slot with seven sources. One was
+# about Goldman. The others were an Indian defence basket, Paytm twice, EU
+# construction stocks, hedge fund returns and the AI trade. Every Indian
+# article in that digest entered through a broker name; not one through its own
+# subject. Fixing the attribution removes the geography problem with it.
+RESEARCH_HOUSES = {'GS', 'MS', 'JPM', 'C', 'BAC', 'WFC', 'JEF', 'UBS', 'DB',
+                   'BCS', 'LAZ', 'EVR', 'RJF', 'PIPR', 'SF', 'HLI', 'PJT',
+                   'NMR', 'MC', 'COWN', 'BMO', 'RY', 'TD', 'CS'}
+
+# Said OF the house, so the house is the source of a view and not the story.
+# Searched over a short tail because headlines are short; over a paragraph this
+# would reach into an unrelated clause.
+HOUSE_COMMENTARY = re.compile(
+    r'\b(say|says|said|saying|sees|seeing|saw|names|named|expects?|warns?|'
+    r'declares?|maintains?|reiterates?|initiates?|resumes?|reinstates?|'
+    r'upgrades?|downgrades?|upgrade|downgrade|raises?|lowers?|lifts?|cuts?|'
+    r'picks?|flags?|likes?|prefers?|boosts?|slashes?|starts?|rates?|'
+    r'analysts?|strategists?|note|call|target)\b', re.I)
+
+# Said BEFORE the house, same conclusion.
+HOUSE_ATTRIBUTION = re.compile(
+    r'\b(what\s+(?:are|is|do|does|did)\b|according to\b|analysts?\s+at\b|'
+    r'strategists?\s+at\b|per\s+a\s+note\b|citing\b)', re.I)
+
+# The house named last, as the origin of the action: "Shares Rise After Upgrade
+# From Piper Sandler". Nothing follows it, so the trailing-verb test finds
+# nothing to object to and the mention survives with the house credited as the
+# subject of a story about somebody else.
+HOUSE_TRAILING = re.compile(
+    r'\b(?:upgrade|downgrade|rating|ratings|coverage|initiation|initiated|'
+    r'target|note|call|recommendation|outlook|buy|sell|hold|overweight|'
+    r'underweight|neutral)\w*\s+(?:from|at|by)\s+$', re.I)
+
+# The house is unambiguously the subject. Checked first, because a genuine
+# story about a bank is full of the same words - "Goldman Sachs Group (NYSE:GS)
+# Stock Jumps 2% After Analyst Upgrade" contains both "analyst" and "upgrade".
+HOUSE_SUBJECT_TAIL = re.compile(
+    r'^\W{0,12}(?:Group\W{0,4})?(shares?|stock|stocks|Q[1-4]|earnings|revenue|'
+    r'results|profits?|EPS|guidance|beats?|misses?|falls?|rises?|jumps?|'
+    r'slides?|gains?|drops?|sinks?|surges?|tumbles?|posts?|reports?)\b', re.I)
 
 # Requiring market vocabulary near a short-form match costs nothing on a real
 # company story — they all say shares, earnings or revenue somewhere — and
@@ -126,6 +180,32 @@ def build_patterns(rows):
     return tickers, patterns, len(short)
 
 
+def is_commentary(text, tk, at, end):
+    """True when a research house is the source of a view, not the subject.
+
+    Subject evidence wins outright: an explicit exchange-qualified ticker or a
+    cashtag settles it, and so does the name sitting directly against the words
+    a story uses about its own subject. Only when there is none of that does the
+    commentary test get to drop the mention.
+
+    Everything that is not a research house returns False, so the ordinary path
+    through the matcher is unchanged.
+    """
+    if tk not in RESEARCH_HOUSES:
+        return False
+    if re.search(r'(?:NYSE|NASDAQ|AMEX|NYSEARCA)\s*:\s*' + re.escape(tk) + r'\b',
+                 text, re.I):
+        return False
+    if re.search(r'\$' + re.escape(tk) + r'\b', text):
+        return False
+    if HOUSE_SUBJECT_TAIL.match(text[end:end + 34]):
+        return False
+    if HOUSE_COMMENTARY.search(text[end:end + 40]):
+        return True
+    before = text[max(0, at - 60):at]
+    return bool(HOUSE_ATTRIBUTION.search(before) or HOUSE_TRAILING.search(before))
+
+
 def entities(text, tickers, patterns):
     """[(entity, type, matched_on, excerpt)] for one piece of text."""
     found = {}
@@ -142,11 +222,12 @@ def entities(text, tickers, patterns):
     for tk, (full, brief) in patterns.items():
         m = full.search(text)
         if m:
-            add(tk, 'ticker', 'company_name', m.start())
+            if not is_commentary(text, tk, m.start(), m.end()):
+                add(tk, 'ticker', 'company_name', m.start())
             continue
         if brief and has_market:
             m = brief.search(text)
-            if m:
+            if m and not is_commentary(text, tk, m.start(), m.end()):
                 add(tk, 'ticker', 'company_short', m.start())
     for key, pats in MACRO.items():
         for p in pats:
