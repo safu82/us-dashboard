@@ -501,10 +501,11 @@ def about_page(counts, asof):
         'registered in Dubai, United Arab Emirates. It is built and maintained by '
         'one person. There is no newsroom, no analyst team, and no third-party '
         'research behind any figure on the site.</p>',
-        '<p>That is worth stating plainly rather than leaving to be inferred. A page '
-        'of share prices with no name attached should be read more sceptically than '
-        'one that says who stands behind it, and the honest version of who stands '
-        'behind this is: one person and a nightly job.</p>',
+        '<p>In practice that means nothing here is chosen by hand. The same scoring '
+        'runs against every name in the universe every night, and no story is '
+        'promoted because somebody found it interesting. A research desk can '
+        'exercise judgement where the numbers are misleading; this cannot. That is '
+        'a real limitation in some places and the entire point in others.</p>',
 
         '<h2>What it does</h2>',
         f'<p>Every weeknight after the US close, a scan reads end-of-day prices for '
@@ -538,8 +539,7 @@ def about_page(counts, asof):
         'are ordered by size. None of those orderings is a judgement.</p></div>',
 
         '<h2>What it is not good at</h2>',
-        '<p>The limits matter as much as the method, so they are stated rather than '
-        'buried:</p>',
+        '<p>Five things to know before relying on anything here:</p>',
         '<div class="def"><h3>It is delayed, never live</h3>'
         f'<p>Everything is end-of-day. The newest figures on the site are the close '
         f'of {esc(asof)}. Nothing updates during market hours.</p></div>',
