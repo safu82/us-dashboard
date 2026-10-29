@@ -308,7 +308,12 @@ def theme_page(ch, asof):
             'map to it. The mapping is ours and deliberately hand-made; it will not '
             'match any index.</p>']
 
-    for L in ch['links']:
+    # Number the stages as they are listed. The data's own "position" is a
+    # tier, and parallel stages deliberately share one — GLP-1 has two tier-3
+    # stages — so using it as the numerator against a count of links printed
+    # "Stage 3 of 7" twice on 17 of the 18 chains. The header above counts
+    # links as stages, and so does the chain post, so this follows them.
+    for i, L in enumerate(ch['links'], 1):
         rows = []
         for m in L.get('members') or []:
             rows.append(
@@ -319,7 +324,7 @@ def theme_page(ch, asof):
                 f'<td>{num(m.get("rsRank"))}</td></tr>')
         thin = ' &#183; too few scored names to read the stage' if L.get('thin') else ''
         body.append(
-            f'<div class="link"><div class="pos">Stage {L["position"]} of '
+            f'<div class="link"><div class="pos">Stage {i} of '
             f'{len(ch["links"])}</div><h3>{esc(L["name"])}</h3>'
             f'<div class="what">{esc(L.get("what") or "")}</div>'
             f'<div class="meta">Stage momentum {num(L.get("mom"))} &#183; '
