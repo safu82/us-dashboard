@@ -54,6 +54,17 @@ MIN_WIRE = 120
 # A stage with fewer scored names than this cannot carry a comparison.
 MIN_SCORED = 3
 
+# Templates the owner has approved to go out without being shown each instance,
+# agreed 2026-10-29 after seeing a worked example of each. The approval is of
+# the SENTENCE, not of any particular day's output: these two are fixed wordings
+# whose only variables are a ticker, a percentage and a count, all computed from
+# our own scored session. The other two stay manual because the interesting part
+# of each is why something moved, and that is a reading rather than a figure.
+#
+# Kept here rather than in a scheduled prompt so the decision survives the
+# session that made it, and so changing it is a visible edit.
+APPROVED_FOR_AUTO = {'no_coverage', 'chain'}
+
 
 def cost(text):
     """Characters as X counts them. Every URL is 23, whatever its length."""
@@ -275,6 +286,9 @@ def build():
 
     good, blocked = [], []
     for c in cands:
+        # `auto` is whether the claim COULD go out unreviewed; `approved` is
+        # whether the owner has said it may. Both must hold.
+        c['approved'] = bool(c.get('auto')) and c['type'] in APPROVED_FOR_AUTO
         if not c.get('text'):
             blocked.append(c)
         elif c['chars'] > LIMIT:
@@ -292,7 +306,8 @@ def as_lines(good, blocked):
     if not good:
         out.append('  _none passed their guards today_')
     for c in good:
-        tag = 'auto-safe' if c['auto'] else 'needs your eye'
+        tag = ('approved — goes out on its own' if c.get('approved')
+               else 'needs your word')
         out.append('')
         out.append(f"— _{c['type']} · {c['chars']}/{LIMIT} · {tag}_")
         out.append(c['text'])
