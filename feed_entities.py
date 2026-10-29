@@ -61,7 +61,17 @@ NAME_STOPLIST = {'target', 'gap', 'block', 'match', 'on', 'key', 'all', 'how',
                  # two ASX juniors on 2026-10-26 - Alvo Minerals and Connected
                  # Minerals - and reported them as a US specialty chemicals
                  # company.
-                 'minerals'}
+                 'minerals',
+                 # First words that are ordinary market vocabulary, so the
+                 # market-context gate does nothing to contain them: a stock
+                 # trades in a RANGE, CREDIT markets tighten, an OPTION expires,
+                 # a figure comes in UNDER. Each of these is a real company's
+                 # first word - Range Resources, Credit Acceptance, Option Care
+                 # Health, Under Armour, Delta Air Lines, Daily Journal, Star
+                 # Bulk - and each keeps its full name; only the short form
+                 # goes. False negatives are the cheaper error here.
+                 'news', 'under', 'credit', 'delta', 'daily', 'option',
+                 'range', 'star'}
 
 # Banks and brokerages are quoted inside other companies' stories constantly:
 # "Goldman says", "what Jefferies is saying", "Morgan Stanley sees 40% upside".
@@ -124,16 +134,73 @@ SUFFIX = re.compile(
     r'S\.A\.|LLC|L\.P\.|LP|Technologies|Technology|International|Limited|'
     r'Incorporated|Class\s+[A-Z])\.?,?\s*$', re.I)
 
+# The exchange listing format parks a qualifier in brackets at the end:
+# "Alphabet Inc. (Class A)", "Coca-Cola Company (The)", "Lilly (Eli)". SUFFIX
+# anchors to the end of the string, so the closing bracket stopped it matching
+# and nothing was stripped at all - leaving a name no headline ever contains.
+PARENTHETICAL = re.compile(r'\s*\([^)]*\)\s*$')
+
+# Names the press uses that are not the registered name. Deliberately tiny: it
+# is a list of genuine exceptions, not a place to paper over matching bugs.
+# "Google" is the one that matters - Alphabet's filings say Alphabet and
+# essentially no headline does.
+ALIASES = {
+    'GOOGL': ['Google'],
+    'META': ['Facebook'],
+}
+
 MARKET_OPEN_UTC_MIN = 13 * 60 + 30     # 13:30 UTC
 
 
 def clean_name(name):
-    """'Meta Platforms, Inc.' -> 'Meta Platforms'. Repeats: suffixes stack."""
-    prev = None
+    """'Alphabet Inc. (Class A)' -> 'Alphabet'. Repeats: these stack.
+
+    Brackets come off first and unconditionally - a trailing qualifier is never
+    part of the name anybody writes.
+
+    Suffixes then come off one at a time, and only while the result is still a
+    name. Stripping to the end produced 'News Corp (Class A)' -> 'News' and
+    'Fox Corporation (Class A)' -> 'Fox': an ordinary noun that would match a
+    large share of all headlines, and three letters shared with a news network,
+    an actor and an animal. Where the last strip would ruin the name, the
+    longer form is kept - and 'News Corp' and 'Fox Corporation' are what the
+    press writes anyway.
+    """
     out = (name or '').strip().rstrip(',')
+    prev = None
     while out != prev:
         prev = out
-        out = SUFFIX.sub('', out).strip().rstrip(',')
+        out = PARENTHETICAL.sub('', out).strip().rstrip(',')
+    prev = None
+    while out != prev:
+        prev = out
+        cand = SUFFIX.sub('', out).strip().rstrip(',')
+        if cand == out:
+            break
+        if len(cand) < 4 or cand.lower() in NAME_STOPLIST:
+            break
+        out = cand
+    return out
+
+
+def _words(base):
+    """Every word a name could be claimed by.
+
+    Whitespace tokens are kept whole so "Coca-Cola" is one word. Splitting on
+    letters alone produced "coca" and "cola" and never "coca-cola", so the
+    uniqueness lookup below found nothing and refused the short form to a
+    company whose name is on a billion cans.
+
+    The alphabetic fragments are indexed too, so a different company holding
+    "Cola" still blocks the short form rather than silently sharing it.
+    """
+    out = set()
+    for tok in base.split():
+        t = tok.strip('.,&()').lower()
+        if len(t) >= 2:
+            out.add(t)
+        for frag in re.findall(r'[A-Za-z]{2,}', tok):
+            out.add(frag.lower())
     return out
 
 
@@ -151,6 +218,29 @@ def build_patterns(rows):
         if len(base) >= 4 and base.lower() not in NAME_STOPLIST:
             bases[tk] = base
 
+    # Share classes are one company, not two. Alphabet is listed twice, as
+    # GOOGL and GOOG, and the uniqueness rule below - which exists to stop an
+    # ambiguous first word being claimed - saw "Alphabet" owned by two tickers
+    # and refused a short form to both. The protection fired on the one case it
+    # should not: two tickers that are the same issuer. On 2026-10-28 that left
+    # the largest company to report with zero mentions while Microsoft had 15.
+    #
+    # Tickers cleaning to the same base are the same company, so one carries
+    # the name. The longest ticker wins, which is reliably the class people
+    # quote: GOOGL over GOOG, FOXA over FOX, NWSA over NWS, UAA over UA. The
+    # others stay in `tickers`, so a cashtag still finds them.
+    by_base = {}
+    for tk, base in bases.items():
+        by_base.setdefault(base.lower(), []).append(tk)
+    folded = 0
+    for tks in by_base.values():
+        if len(tks) > 1:
+            keep = sorted(tks, key=lambda t: (-len(t), t))[0]
+            for t in tks:
+                if t != keep:
+                    bases.pop(t, None)
+                    folded += 1
+
     # A first word is only safe as a short form if NO other company's name
     # contains that word. "Stanley" belongs to Stanley Black & Decker but lives
     # inside Morgan Stanley; "Trade" (The Trade Desk) inside "choppy trade";
@@ -158,22 +248,29 @@ def build_patterns(rows):
     # class structurally instead of by listing offenders.
     word_owners = {}
     for tk, base in bases.items():
-        for w in re.findall(r'[A-Za-z]{2,}', base):
-            word_owners.setdefault(w.lower(), set()).add(tk)
+        for w in _words(base):
+            word_owners.setdefault(w, set()).add(tk)
+        for a in ALIASES.get(tk, []):
+            for w in _words(a):
+                word_owners.setdefault(w, set()).add(tk)
 
     short = {}
     for tk, base in bases.items():
         if ' ' not in base:
             continue
         w = base.split()[0]
-        if len(w) < 4 or w.lower() in NAME_STOPLIST:
+        key = w.strip('.,&()').lower()
+        if len(key) < 4 or key in NAME_STOPLIST:
             continue
-        if word_owners.get(w.lower(), set()) == {tk}:
+        if word_owners.get(key, set()) == {tk}:
             short[tk] = w
 
     patterns = {}
     for tk, base in bases.items():
-        full = re.compile(r'(?<![A-Za-z])' + re.escape(base) + r'(?![A-Za-z])')
+        names = [base] + ALIASES.get(tk, [])
+        full = re.compile(r'(?<![A-Za-z])(?:'
+                          + '|'.join(re.escape(n) for n in names)
+                          + r')(?![A-Za-z])')
         brief = (re.compile(r'(?<![A-Za-z])' + re.escape(short[tk]) + r'(?![A-Za-z])')
                  if tk in short else None)
         patterns[tk] = (full, brief)
