@@ -49,6 +49,14 @@ import uuid
 
 import requests
 
+try:
+    # Local runs read .env, which is gitignored. In Actions the four values
+    # arrive as secrets and there is no .env to find.
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(BASE, 'portal', 'data')
 POSTS = os.path.join(DATA, 'posts.json')
@@ -329,10 +337,39 @@ def seed():
     return 0
 
 
+def check():
+    """Prove the four credentials work, and that they can write.
+
+    Reading costs a tenth of a cent and tells us the keys and signature are
+    right. It cannot tell us the token carries write permission - that is set
+    on the app before the token is generated, and getting it wrong yields a
+    token that reads happily and 403s on the first post. So report what the
+    app says its permissions are rather than implying a successful read means
+    posting will work.
+    """
+    creds, why = credentials()
+    if not creds:
+        print(f'X credentials {why}', file=sys.stderr)
+        return 1
+    try:
+        me = _call('GET', '/users/me', creds)
+    except (RuntimeError, requests.RequestException) as e:
+        print(f'FAILED: {e}', file=sys.stderr)
+        return 1
+    d = me.get('data') or {}
+    print(f"authenticated as @{d.get('username')} (id {d.get('id')})")
+    print('Reading works. Write permission is not provable without posting; '
+          'if the app was set to Read and Write BEFORE the access token was '
+          'generated, it will work.')
+    return 0
+
+
 def main():
     live = '--live' in sys.argv
     if '--seed' in sys.argv:
         return seed()
+    if '--check' in sys.argv:
+        return check()
 
     try:
         with io.open(POSTS, encoding='utf-8') as fh:
