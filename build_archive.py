@@ -99,6 +99,7 @@ header{border-bottom:1px solid var(--border);background:var(--bg2);}
 header .wrap{padding-block:14px;}
 .brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:18px;
 letter-spacing:-.4px;color:var(--text);}
+.brand .logo{width:28px;height:28px;flex:0 0 auto;}
 .crumb{font-size:12.5px;color:var(--text2);margin-top:6px;}
 .crumb a{color:var(--text2);}
 h1{font-size:clamp(23px,4.4vw,31px);line-height:1.2;letter-spacing:-.4px;
@@ -172,11 +173,12 @@ def shell(path, title, desc, crumbs, body):
 <title>{esc(title)}</title>
 <meta name="description" content="{esc(desc)}">
 <link rel="canonical" href="{esc(canon)}">
+<link rel="icon" href="{SITE}/arc.svg" type="image/svg+xml">
 <link rel="stylesheet" href="{'../' * (path.count('/') + 1) if path else ''}a.css">
 </head>
 <body>
 <header><div class="wrap">
-  <div class="brand"><span>&#127762;</span><span>Overnight Arc</span></div>
+  <div class="brand"><svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="arcGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#3a4aa8"/><stop offset=".55" stop-color="#8a6ebe"/><stop offset="1" stop-color="#f2a44c"/></linearGradient></defs><path d="M14 78 Q42 6 88 30" fill="none" stroke="url(#arcGrad)" stroke-width="10" stroke-linecap="round"/><circle cx="88" cy="30" r="7.5" fill="#ffe2ba"/><circle cx="88" cy="30" r="2.6" fill="#fff"/></svg><span>Overnight Arc</span></div>
   <div class="crumb">{trail}</div>
 </div></header>
 <div class="wrap">

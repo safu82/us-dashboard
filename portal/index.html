@@ -6,6 +6,8 @@
 <title>Overnight Arc — what happened, and where money is moving</title>
 <meta name="description" content="What happened in the US market last session, and where money is moving. News ranked by how many independent outlets carried it; funds, countries, themes and individual stocks each scored against their own peer group. Rebuilt every weeknight by Insight Arc Solutions. Educational, not advice.">
 <link rel="canonical" href="https://overnightarc.com/">
+<link rel="icon" href="/arc.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/arc.svg">
 <style>
   :root{--bg:#0b0e14;--bg2:#141922;--bg3:#1b212c;--border:#2a323f;--text:#e8eef6;--text2:#8e9bad;--green:#3fb950;--red:#f85149;--orange:#f0883e;--blue:#58a6ff;--accent:#2563eb;}
   *{box-sizing:border-box;margin:0;padding:0;}
@@ -15,7 +17,9 @@
 
   header{border-bottom:1px solid var(--border);background:linear-gradient(180deg,#121823,var(--bg));}
   .brand{display:flex;align-items:center;gap:10px;padding:22px 0 6px;}
-  .logo{font-size:22px;}
+  /* Inline rather than an <img>: one less request, and it stays crisp at any
+     size. No rounded ground here — the header already sits on the dark one. */
+  .logo{width:30px;height:30px;flex:0 0 auto;}
   .bname{font-size:21px;font-weight:800;letter-spacing:-.5px;}
   .tag{color:var(--text2);font-size:13.5px;max-width:720px;padding-bottom:18px;}
   nav{display:flex;gap:4px;}
@@ -175,7 +179,7 @@
 </head>
 <body>
 <header><div class="wrap">
-  <div class="brand"><span class="logo">🌒</span><span class="bname">Overnight Arc</span></div>
+  <div class="brand"><svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="arcGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#3a4aa8"/><stop offset=".55" stop-color="#8a6ebe"/><stop offset="1" stop-color="#f2a44c"/></linearGradient></defs><path d="M14 78 Q42 6 88 30" fill="none" stroke="url(#arcGrad)" stroke-width="10" stroke-linecap="round"/><circle cx="88" cy="30" r="7.5" fill="#ffe2ba"/><circle cx="88" cy="30" r="2.6" fill="#fff"/></svg><span class="bname">Overnight Arc</span></div>
   <div class="tag">Four views of the same market. <b>Digest</b> is what happened on the last session, gathered from the market wires and ordered by how many separate outlets carried each story. The other three work from the outside in. <b>Funds</b> ranks the baskets you can actually buy — by sector and theme, or by country — to show where money is moving. <b>Themes</b> is our own map of what sits behind those trends: the stages of each value chain and the companies at every one. <b>Stocks</b> ranks individual companies across the whole market. Everything here — every fund and every company — is <b>listed in the US</b> and priced in dollars, which is not the same as being American: Taiwan Semiconductor, ASML and Novo Nordisk are all in the maps. Each board is scored against itself, so momentum is comparable down a column and never across boards. <b>Nothing here is an opinion</b> — stories are ordered by how many independent outlets carried them, companies by where they sit against their own peers, and earnings by size. Rebuilt every weeknight.</div>
   <nav>
     <button data-t="digest" class="on" onclick="tab('digest')">Digest</button>
