@@ -35,6 +35,7 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 import sb_retry  # noqa: F401
+from board_read import board_read, as_lines
 from feed_entities import build_patterns
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -78,7 +79,7 @@ STOPWORDS = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to',
 
 
 def write_portal(session, prev, tape, shown, movers, stories, arts, dropped,
-                 names, ahead_days, ahead):
+                 names, ahead_days, ahead, board=None):
     """portal/data/digest.json — what the Overnight Arc page reads.
 
     Only wire headlines and links go out. A headline plus attribution plus a
@@ -130,6 +131,10 @@ def write_portal(session, prev, tape, shown, movers, stories, arts, dropped,
         'counts': {'stories': len(stories),
                    'sources': len({a['source'] for a in arts.values()}),
                    'wire': len(arts) - n_x, 'x': n_x, 'filtered': dropped},
+        # What the numbers did, beside what was written about them. Absent
+        # rather than empty when the session is not scored, so the page can
+        # leave the section out instead of rendering a row of dashes.
+        'board': board,
     }
     d = os.path.join(BASE, 'portal', 'data')
     os.makedirs(d, exist_ok=True)
@@ -459,6 +464,18 @@ def main():
                        + (f"  _+{len(day) - 6}_" if len(day) > 6 else ''))
         out.append('')
 
+    # What the numbers did, as against what was written about. This is the half
+    # of the recap that needs no browser and no outside feed, so it is the half
+    # that can run inside the scheduled job every night without a session.
+    board = None
+    try:
+        board = board_read(sb, session, prev)
+    except Exception as e:                      # never lose the digest over it
+        print(f'board read failed: {e}', file=sys.stderr)
+    if board:
+        out.append('')
+        out.extend(as_lines(board))
+
     n_x = sum(1 for a in arts.values() if a['type'] == 'x')
     out.append(f"_{len(stories)} stories from {len({a['source'] for a in arts.values()})} "
                f"sources ({len(arts) - n_x} wire, {n_x} X); {dropped} evergreen "
@@ -473,7 +490,7 @@ def main():
     # nightly chain commits portal/data and Netlify redeploys, so the digest
     # arrives on the site by itself. Nothing here has to be run by hand.
     write_portal(session, prev, tape, shown, movers, stories, arts, dropped,
-                 names, ahead_days, ahead)
+                 names, ahead_days, ahead, board)
 
     if '--telegram' in sys.argv:
         tok, chat = os.environ.get('TELEGRAM_BOT_TOKEN'), os.environ.get('TELEGRAM_CHAT_ID')
