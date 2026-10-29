@@ -1,0 +1,23 @@
+{
+ "5e9320360cbf968f77213183e38740d3ba15591b2ed4dda3705d42192dbef7be": {
+  "at": "2026-10-29T12:13:55Z",
+  "id": null,
+  "note": "posted by hand; recorded so it is not repeated",
+  "tickers": [
+   "PACB",
+   "WEN"
+  ],
+  "type": "no_coverage"
+ },
+ "82cded94314b414b2723e84ec701fbbe38be31f0bc67fa540e2c9d440dd5165c": {
+  "at": "2026-10-29T12:13:55Z",
+  "id": null,
+  "note": "posted by hand; recorded so it is not repeated",
+  "tickers": [
+   "BDX",
+   "EMBC",
+   "STVN"
+  ],
+  "type": "chain"
+ }
+}
