@@ -294,6 +294,30 @@ def choose(payload, ledger, already):
 
 # --------------------------------------------------------------------------
 
+def alarm(what, err):
+    """Say so in Telegram when posting fails.
+
+    The workflow step is continue-on-error, so a failure here shows as a
+    green run that posted nothing - indistinguishable at a glance from a
+    quiet day where every candidate was a duplicate. The failure most worth
+    catching is a 403: the access token was generated before the app was set
+    to Read and Write, reads fine, and cannot post. That would otherwise go
+    unnoticed until somebody wondered why the account had gone silent.
+    """
+    detail = str(err)
+    hint = ''
+    if '403' in detail:
+        hint = ('\n\nA 403 here usually means the access token is read-only. '
+                'Set the app to Read and Write, then REGENERATE the access '
+                'token - changing the permission does not re-issue it.')
+    elif '401' in detail:
+        hint = '\n\nA 401 means the four credentials are wrong or revoked.'
+    elif '402' in detail or 'credit' in detail.lower():
+        hint = '\n\nThis looks like exhausted API credit.'
+    telegram([f'*@overnightarc did not post*', '', what, '',
+              '`' + detail[:600] + '`' + hint])
+
+
 def telegram(lines):
     tok = os.environ.get('TELEGRAM_BOT_TOKEN')
     chat = os.environ.get('TELEGRAM_CHAT_ID')
@@ -395,6 +419,7 @@ def main():
         except (RuntimeError, requests.RequestException) as e:
             print(f'could not read own timeline, refusing to post: {e}',
                   file=sys.stderr)
+            alarm('could not read @overnightarc, so refused to post', e)
             return 1
 
     picked, skipped = choose(payload, ledger, already)
@@ -420,7 +445,8 @@ def main():
         print(f'\nDRY RUN - pass --live to send. Estimated ${cost:.3f}.')
         return 0
 
-    sent, requests_made, spent = [], 0, COST_OWNED_READ * (RECENT + 1)
+    sent, failures = [], []
+    requests_made, spent = 0, COST_OWNED_READ * (RECENT + 1)
     for c in picked:
         if requests_made + 2 > MAX_REQUESTS:
             print('request cap reached', file=sys.stderr)
@@ -431,6 +457,7 @@ def main():
             spent += COST_POST
         except (RuntimeError, requests.RequestException) as e:
             print(f"failed to post {c['type']}: {e}", file=sys.stderr)
+            failures.append((c['type'], e))
             continue
 
         # The post is out. Record it before the reply, so a reply that fails
@@ -454,12 +481,17 @@ def main():
         sent.append((c['type'], tid, rid))
 
     if not sent:
+        t, err = failures[0] if failures else ('everything', 'no reason given')
+        alarm(f'{len(failures) or len(picked)} candidate(s) failed, '
+              f'starting with {t}', err)
         return 1
 
     lines = ['*Posted to @overnightarc:*']
     for t, tid, rid in sent:
         lines.append(f"— {t} — https://x.com/overnightarc/status/{tid}"
                      + ('' if rid else '  _(link reply failed)_'))
+    for t, err in failures:
+        lines.append(f'— {t} FAILED: {str(err)[:200]}')
     lines.append('')
     lines.append(f'_approx ${spent:.2f} of API credit_')
     print('\n'.join(lines))
