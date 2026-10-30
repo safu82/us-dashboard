@@ -27,6 +27,16 @@ on:
     - cron: '7 4 * * 2-6'    # catch-up 2
     - cron: '7 7 * * 2-6'    # final attempt — alerts if still unpublished
   workflow_dispatch:
+    inputs:
+      republish:
+        description: >-
+          Rebuild and publish the portal from data already in Supabase.
+          For when a run wrote the session but died before publishing:
+          a plain re-run sees the data as current and skips everything,
+          publish included, so the site stays stale while the scan is
+          green. Does not refetch or recompute anything.
+        type: boolean
+        default: false
 
 jobs:
   scan:
@@ -186,7 +196,7 @@ jobs:
       #     and holds no database credential of any kind, so nothing it serves
       #     can reach the portfolio project.
       - name: 11/17 build_public_data.py
-        if: steps.ohlc.outputs.published == 'true'
+        if: steps.ohlc.outputs.published == 'true' || inputs.republish
         run: python build_public_data.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -226,7 +236,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       - name: 14/17 build_digest.py
-        if: steps.ohlc.outputs.published == 'true'
+        if: steps.ohlc.outputs.published == 'true' || inputs.republish
         run: python build_digest.py --telegram
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -242,7 +252,7 @@ jobs:
       # belong to a session that actually published. An ungated run on a day the
       # scan skipped would mint a permanent page for a session that never was.
       - name: 15/17 build_archive.py
-        if: steps.ohlc.outputs.published == 'true'
+        if: steps.ohlc.outputs.published == 'true' || inputs.republish
         run: python build_archive.py
 
       # Candidate posts for @overnightarc, written before anyone is awake to
@@ -253,7 +263,7 @@ jobs:
       # only where the claim is a number from our own data in a fixed sentence.
       # Step 17 is what sends them, and only those also marked `approved`.
       - name: 16/17 build_posts.py
-        if: steps.ohlc.outputs.published == 'true'
+        if: steps.ohlc.outputs.published == 'true' || inputs.republish
         # Drafting must never block publishing. On 2026-10-30 this step raised
         # on a Telegram 400, the publish never ran, and the site served the
         # 2026-10-28 session all day - because a draft message could not be
@@ -265,7 +275,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
       - name: Publish portal data and pages
-        if: steps.ohlc.outputs.published == 'true'
+        if: steps.ohlc.outputs.published == 'true' || inputs.republish
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -294,7 +304,7 @@ jobs:
       # page this run has only just built. Posting first would advertise a
       # URL that 404s until Netlify catches up.
       - name: 17/17 post_to_x.py
-        if: steps.ohlc.outputs.published == 'true'
+        if: steps.ohlc.outputs.published == 'true' || inputs.republish
         continue-on-error: true   # a post that does not go out is not a failed scan
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}
@@ -316,7 +326,7 @@ jobs:
       # timeline and skips anything already there - but the ledger is what
       # stops the same company headlining a reworded post two days running.
       - name: Record what was posted
-        if: steps.ohlc.outputs.published == 'true'
+        if: steps.ohlc.outputs.published == 'true' || inputs.republish
         continue-on-error: true
         run: |
           git add portal/data/posted.json 2>/dev/null || exit 0
