@@ -300,22 +300,34 @@ def build():
 
 
 def as_lines(good, blocked):
+    """Plain text, deliberately: no Markdown, no HTML, no escaping.
+
+    This message is mostly post bodies, and a post body is arbitrary text -
+    tickers with $, company names with &, ranges with underscores. Any markup
+    mode means escaping all of it correctly forever, and getting it wrong
+    fails the whole send rather than one character.
+
+    It got it wrong on the first run that reached Telegram: the template name
+    `no_coverage` carries an underscore of its own, so wrapping it in italics
+    put three in the line instead of two, left the message with an odd number
+    overall, and Telegram rejected it as an unclosed entity.
+    """
     if not good and not blocked:
         return []
-    out = ['*Drafts for @overnightarc:*']
+    out = ['Drafts for @overnightarc:']
     if not good:
-        out.append('  _none passed their guards today_')
+        out.append('  none passed their guards today')
     for c in good:
         tag = ('approved — goes out on its own' if c.get('approved')
                else 'needs your word')
         out.append('')
-        out.append(f"— _{c['type']} · {c['chars']}/{LIMIT} · {tag}_")
+        out.append(f"— {c['type']} · {c['chars']}/{LIMIT} · {tag}")
         out.append(c['text'])
         out.append(f"   reply with: {c['link']}")
     if blocked:
         out.append('')
-        out.append('_held back: ' + '; '.join(
-            f"{c['type']} ({c.get('blocked', 'no text')})" for c in blocked) + '_')
+        out.append('held back: ' + '; '.join(
+            f"{c['type']} ({c.get('blocked', 'no text')})" for c in blocked))
     return out
 
 
@@ -339,15 +351,30 @@ def main():
         if not tok or not chat:
             print('telegram secrets not set', file=sys.stderr)
             return
+        import urllib.error
         import urllib.parse
         import urllib.request
+        # No parse_mode: see as_lines. And never fatal - posts.json is already
+        # written by this point, and the nightly chain still has the portal to
+        # publish. On the first run that reached Telegram this raised on a 400
+        # and took the publish down with it, so the site served the previous
+        # session all day because a NOTIFICATION could not be formatted.
         body = urllib.parse.urlencode(
-            {'chat_id': chat, 'parse_mode': 'Markdown',
-             'text': note[:4000]}).encode()
-        urllib.request.urlopen(urllib.request.Request(
-            f'https://api.telegram.org/bot{tok}/sendMessage', data=body),
-            timeout=20)
-        print('drafts sent to telegram', file=sys.stderr)
+            {'chat_id': chat, 'text': note[:4000],
+             'disable_web_page_preview': 'true'}).encode()
+        try:
+            urllib.request.urlopen(urllib.request.Request(
+                f'https://api.telegram.org/bot{tok}/sendMessage', data=body),
+                timeout=20)
+            print('drafts sent to telegram', file=sys.stderr)
+        except (urllib.error.URLError, OSError) as e:
+            detail = ''
+            if isinstance(e, urllib.error.HTTPError):
+                try:
+                    detail = ': ' + e.read().decode('utf-8', 'replace')[:300]
+                except OSError:
+                    pass
+            print(f'telegram send failed, continuing{detail}', file=sys.stderr)
 
 
 if __name__ == '__main__':

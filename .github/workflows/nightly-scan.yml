@@ -254,6 +254,11 @@ jobs:
       # Step 17 is what sends them, and only those also marked `approved`.
       - name: 16/17 build_posts.py
         if: steps.ohlc.outputs.published == 'true'
+        # Drafting must never block publishing. On 2026-10-30 this step raised
+        # on a Telegram 400, the publish never ran, and the site served the
+        # 2026-10-28 session all day - because a draft message could not be
+        # formatted. The portal is the product; the drafts are a convenience.
+        continue-on-error: true
         run: python build_posts.py --telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

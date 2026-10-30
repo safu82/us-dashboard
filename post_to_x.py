@@ -314,21 +314,34 @@ def alarm(what, err):
         hint = '\n\nA 401 means the four credentials are wrong or revoked.'
     elif '402' in detail or 'credit' in detail.lower():
         hint = '\n\nThis looks like exhausted API credit.'
-    telegram([f'*@overnightarc did not post*', '', what, '',
-              '`' + detail[:600] + '`' + hint])
+    telegram(['@overnightarc did not post', '', what, '',
+              detail[:600] + hint])
 
 
 def telegram(lines):
+    """Plain text, and loud when it fails.
+
+    No parse_mode: these messages carry template names like `no_coverage`,
+    tickers with $ and raw API error bodies, and any markup mode turns one
+    stray character into a rejected message. build_posts.py lost a whole
+    night's publish to exactly that.
+
+    A 400 does not raise in requests, so the status is checked explicitly -
+    an alarm that silently fails to send is worse than no alarm.
+    """
     tok = os.environ.get('TELEGRAM_BOT_TOKEN')
     chat = os.environ.get('TELEGRAM_CHAT_ID')
     if not tok or not chat:
         return
     try:
-        requests.post(f'https://api.telegram.org/bot{tok}/sendMessage',
-                      data={'chat_id': chat, 'parse_mode': 'Markdown',
-                            'text': '\n'.join(lines)[:4000],
-                            'disable_web_page_preview': 'true'},
-                      timeout=20)
+        r = requests.post(f'https://api.telegram.org/bot{tok}/sendMessage',
+                          data={'chat_id': chat,
+                                'text': '\n'.join(lines)[:4000],
+                                'disable_web_page_preview': 'true'},
+                          timeout=20)
+        if r.status_code >= 400:
+            print(f'telegram rejected the message: {r.status_code} '
+                  f'{r.text[:300]}', file=sys.stderr)
     except requests.RequestException as e:
         print(f'telegram failed: {e}', file=sys.stderr)
 
@@ -486,14 +499,14 @@ def main():
               f'starting with {t}', err)
         return 1
 
-    lines = ['*Posted to @overnightarc:*']
+    lines = ['Posted to @overnightarc:']
     for t, tid, rid in sent:
         lines.append(f"— {t} — https://x.com/overnightarc/status/{tid}"
-                     + ('' if rid else '  _(link reply failed)_'))
+                     + ('' if rid else '  (link reply failed)'))
     for t, err in failures:
         lines.append(f'— {t} FAILED: {str(err)[:200]}')
     lines.append('')
-    lines.append(f'_approx ${spent:.2f} of API credit_')
+    lines.append(f'approx ${spent:.2f} of API credit')
     print('\n'.join(lines))
     telegram(lines)
     return 0
