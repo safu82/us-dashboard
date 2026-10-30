@@ -160,6 +160,28 @@ footer p{max-width:70ch;}
 """
 
 
+# Cloudflare Web Analytics. Free, needs no cookie banner because it sets no
+# cookies and stores no per-visitor identifier, and it is the only script on
+# these pages - the archive is otherwise pure HTML and CSS.
+#
+# The token is not a secret: it is public in the page source of every site
+# that uses it, and it only identifies which site a page view belongs to. It
+# is kept in an env var anyway so a fork of this repo does not silently
+# report into our dashboard.
+#
+# Empty token means no tag is written at all, so the build works unchanged
+# before the token exists.
+CF_ANALYTICS_TOKEN = os.environ.get('CF_ANALYTICS_TOKEN', '').strip()
+
+
+def analytics():
+    if not CF_ANALYTICS_TOKEN:
+        return ''
+    return ('<script defer src="https://static.cloudflareinsights.com/beacon.min.js"'
+            ' data-cf-beacon=\'{"token": "%s"}\'></script>\n'
+            % esc(CF_ANALYTICS_TOKEN))
+
+
 def shell(path, title, desc, crumbs, body):
     """One page. `path` is the published directory, '' for the site root."""
     canon = f'{SITE}/{path}/' if path else f'{SITE}/'
@@ -175,7 +197,7 @@ def shell(path, title, desc, crumbs, body):
 <link rel="canonical" href="{esc(canon)}">
 <link rel="icon" href="{SITE}/arc.svg" type="image/svg+xml">
 <link rel="stylesheet" href="{'../' * (path.count('/') + 1) if path else ''}a.css">
-</head>
+{analytics()}</head>
 <body>
 <header><div class="wrap">
   <div class="brand"><svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="arcGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#3a4aa8"/><stop offset=".55" stop-color="#8a6ebe"/><stop offset="1" stop-color="#f2a44c"/></linearGradient></defs><path d="M14 78 Q42 6 88 30" fill="none" stroke="url(#arcGrad)" stroke-width="10" stroke-linecap="round"/><circle cx="88" cy="30" r="7.5" fill="#ffe2ba"/><circle cx="88" cy="30" r="2.6" fill="#fff"/></svg><span>Overnight Arc</span></div>
