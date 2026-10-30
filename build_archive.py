@@ -164,14 +164,17 @@ footer p{max-width:70ch;}
 # cookies and stores no per-visitor identifier, and it is the only script on
 # these pages - the archive is otherwise pure HTML and CSS.
 #
-# The token is not a secret: it is public in the page source of every site
-# that uses it, and it only identifies which site a page view belongs to. It
-# is kept in an env var anyway so a fork of this repo does not silently
-# report into our dashboard.
+# Manual snippet rather than Cloudflare's automatic injection. The DNS is
+# grey-cloud so Netlify terminates TLS, which means traffic never passes
+# through Cloudflare's proxy - automatic injection would have silently
+# collected nothing. The site is set to "JS Snippet installation" to match.
 #
-# Empty token means no tag is written at all, so the build works unchanged
-# before the token exists.
-CF_ANALYTICS_TOKEN = os.environ.get('CF_ANALYTICS_TOKEN', '').strip()
+# The token is not a secret: it is in the page source of every site that uses
+# it and only says which site a page view belongs to. Hardcoding it keeps the
+# nightly build from depending on an env var that would be easy to forget;
+# CF_ANALYTICS_TOKEN still overrides, and an empty value writes no tag at all.
+CF_ANALYTICS_TOKEN = os.environ.get(
+    'CF_ANALYTICS_TOKEN', 'd45aef33f45b49918e3ba6c4e5cbfe7c').strip()
 
 
 def analytics():

@@ -8,6 +8,12 @@
 <link rel="canonical" href="https://overnightarc.com/">
 <link rel="icon" href="/arc.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/arc.svg">
+<!-- Cloudflare Web Analytics. Manual snippet, not Cloudflare's automatic
+     injection: the DNS here is grey-cloud so Netlify can terminate TLS, which
+     means traffic never passes through Cloudflare's proxy and automatic
+     injection would silently collect nothing. Sets no cookies, so no consent
+     banner. The generated archive pages get this from build_archive.py. -->
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "d45aef33f45b49918e3ba6c4e5cbfe7c"}'></script>
 <style>
   :root{--bg:#0b0e14;--bg2:#141922;--bg3:#1b212c;--border:#2a323f;--text:#e8eef6;--text2:#8e9bad;--green:#3fb950;--red:#f85149;--orange:#f0883e;--blue:#58a6ff;--accent:#2563eb;}
   *{box-sizing:border-box;margin:0;padding:0;}
