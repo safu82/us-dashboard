@@ -1,26 +1,9 @@
 {
  "generated": [
   {
-   "type": "no_coverage",
-   "auto": true,
-   "text": "Pacific Biosciences rose 15.5% on the 2026-10-28 session.\n\nWe read 73 separate outlets. Not one of them wrote about it.\n\nThe Wendy's Company rose 15.1%. Also nothing.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
-   "chars": 258,
-   "tickers": [
-    "PACB",
-    "WEN"
-   ],
-   "link": "https://overnightarc.com/digest/2026-10-28/",
-   "checks": [
-    "matcher healthy: 73 sources, 365 wire items",
-    "mover chased individually and returned nothing",
-    "move 15.5% clears the 8% floor"
-   ],
-   "approved": true
-  },
-  {
    "type": "chain",
    "auto": true,
-   "text": "7 stages in our GLP-1 & Obesity value chain. They are not moving together.\n\nTop: Injection Devices & Delivery — $BDX $EMBC $STVN — 78/100\nBottom: Drug Discovery & Pipeline — $ALT $GPCR $VKTX — 10\n\nMoney isn't moving into GLP-1 & Obesity. It's moving into parts of it.",
+   "text": "7 stages in our GLP-1 & Obesity value chain. They are not moving together.\n\nTop: Injection Devices & Delivery — $BDX $EMBC $STVN — 79/100\nBottom: Drug Discovery & Pipeline — $ALT $GPCR $VKTX — 11\n\nMoney isn't moving into GLP-1 & Obesity. It's moving into parts of it.",
    "chars": 267,
    "tickers": [
     "BDX",
@@ -37,28 +20,15 @@
    "approved": true
   },
   {
-   "type": "regime",
-   "auto": true,
-   "text": "SPY's 20-session return is +1.3% as of the 2026-10-28 close — 0.7pp from turning our board's regime line green.\n\n979 advancers against 935 decliners.\n\nA ranking says where something stands. It doesn't say which way the market went. That's why the line exists.",
-   "chars": 259,
-   "tickers": [],
-   "link": "https://overnightarc.com/method/",
-   "checks": [
-    "ret20 and breadth read from our own scored session",
-    "session named explicitly, so no after-hours confusion"
-   ],
-   "approved": false
-  },
-  {
    "type": "standing",
    "auto": false,
-   "text": "Biggest changes in standing on the 2026-10-28 session — momentum, not price:\n\nAXGN  22→53 (+31) on +31.5%\nBEAM  38→61 (+23) on +15.6%\nFFIV  59→34 (-25) on -20.4%\nZWS  72→50 (-22) on -11.5%\n\nA big move and a change in position are different things. This is the second.",
+   "text": "Biggest changes in standing on the 2026-10-29 session — momentum, not price:\n\nCROX  44→68 (+24) on +25.5%\nFTAI  24→45 (+21) on +17.3%\nNOW  83→48 (-35) on -26.9%\nIOVA  78→44 (-34) on -35.4%\n\nA big move and a change in position are different things. This is the second.",
    "chars": 267,
    "tickers": [
-    "AXGN",
-    "BEAM",
-    "FFIV",
-    "ZWS"
+    "CROX",
+    "FTAI",
+    "NOW",
+    "IOVA"
    ],
    "link": "https://overnightarc.com/",
    "checks": [
@@ -67,6 +37,21 @@
    "approved": false
   }
  ],
- "blocked": [],
+ "blocked": [
+  {
+   "type": "no_coverage",
+   "auto": false,
+   "text": null,
+   "blocked": "no uncovered mover above 8%",
+   "approved": false
+  },
+  {
+   "type": "regime",
+   "auto": false,
+   "text": null,
+   "blocked": "not near the switch (1.3pp away)",
+   "approved": false
+  }
+ ],
  "limit": 280
 }
