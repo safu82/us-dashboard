@@ -201,12 +201,26 @@ def fingerprint(text):
 
 
 def load_ledger():
-    try:
-        with io.open(LEDGER, encoding='utf-8') as fh:
-            d = json.load(fh)
-            return d if isinstance(d, dict) else {}
-    except (IOError, ValueError):
+    """The posting history, or {} only when there genuinely isn't one.
+
+    A missing file is the first run and is fine. A file that exists but will
+    not parse is NOT fine, and must not be treated as empty: save_ledger
+    would then overwrite it with just today's entries, destroying every
+    record and leaving the subject guard with no memory. The next run would
+    happily repeat posts it had already made.
+
+    So: absent is empty, unreadable is fatal. utf-8-sig because a byte order
+    mark is a plausible way for this file to arrive mangled, and tolerating
+    one is free.
+    """
+    if not os.path.exists(LEDGER):
         return {}
+    with io.open(LEDGER, encoding='utf-8-sig') as fh:
+        d = json.load(fh)        # deliberately unguarded
+    if not isinstance(d, dict):
+        raise ValueError(f'{LEDGER} is not an object; refusing to overwrite '
+                         f'it with a fresh ledger')
+    return d
 
 
 def save_ledger(led):
@@ -423,7 +437,14 @@ def main():
         print(f'X credentials {why}; nothing posted.', file=sys.stderr)
         return 0
 
-    ledger = load_ledger()
+    try:
+        ledger = load_ledger()
+    except (ValueError, OSError) as e:
+        # Posting with no history is worse than not posting: the subject
+        # guard would be blind and we could repeat yesterday's posts.
+        print(f'ledger unreadable, refusing to post: {e}', file=sys.stderr)
+        alarm('the posting ledger could not be read, so nothing was posted', e)
+        return 1
 
     already = []
     if live:
