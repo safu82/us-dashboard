@@ -221,6 +221,10 @@ __marimo__/
 migration/
 .claude/settings.local.json
 *.png
+# ...except anything under portal/, which is the deployed site. og.png is the
+# card every shared link renders as; without this negation it was ignored,
+# committed nothing, and 404'd in production while the meta tag pointed at it.
+!portal/**/*.png
 universe_preview.csv
 newsletter_data_pack.md
 market_events.json
