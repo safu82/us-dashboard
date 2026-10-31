@@ -177,6 +177,44 @@ CF_ANALYTICS_TOKEN = os.environ.get(
     'CF_ANALYTICS_TOKEN', 'd45aef33f45b49918e3ba6c4e5cbfe7c').strip()
 
 
+def social(title, desc, canon):
+    """Open Graph and Twitter card tags, plus a little JSON-LD.
+
+    Without these a link to the site posted anywhere renders as a bare URL.
+    Every link reply we sent on 2026-10-30 looked like that. og:image is the
+    1200x630 card from brand/make_og_image.py.
+
+    The JSON-LD says WebPage rather than Article: these pages are generated
+    reference tables, not written pieces, and claiming otherwise is the kind
+    of structured-data overreach search engines discount.
+    """
+    j = json.dumps({
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        'name': title,
+        'description': desc,
+        'url': canon,
+        'isPartOf': {'@type': 'WebSite', 'name': 'Overnight Arc',
+                     'url': SITE + '/'},
+        'publisher': {'@type': 'Organization',
+                      'name': 'Insight Arc Solutions',
+                      'url': SITE + '/'},
+        'inLanguage': 'en',
+    }, ensure_ascii=False)
+    return (
+        f'<meta property="og:type" content="website">\n'
+        f'<meta property="og:site_name" content="Overnight Arc">\n'
+        f'<meta property="og:title" content="{esc(title)}">\n'
+        f'<meta property="og:description" content="{esc(desc)}">\n'
+        f'<meta property="og:url" content="{esc(canon)}">\n'
+        f'<meta property="og:image" content="{SITE}/og.png">\n'
+        f'<meta property="og:image:width" content="1200">\n'
+        f'<meta property="og:image:height" content="630">\n'
+        f'<meta name="twitter:card" content="summary_large_image">\n'
+        f'<meta name="twitter:site" content="@overnightarc">\n'
+        f'<script type="application/ld+json">{j}</script>\n')
+
+
 def analytics():
     if not CF_ANALYTICS_TOKEN:
         return ''
@@ -200,7 +238,7 @@ def shell(path, title, desc, crumbs, body):
 <link rel="canonical" href="{esc(canon)}">
 <link rel="icon" href="{SITE}/arc.svg" type="image/svg+xml">
 <link rel="stylesheet" href="{'../' * (path.count('/') + 1) if path else ''}a.css">
-{analytics()}</head>
+{social(title, desc, canon)}{analytics()}</head>
 <body>
 <header><div class="wrap">
   <div class="brand"><svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="arcGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#3a4aa8"/><stop offset=".55" stop-color="#8a6ebe"/><stop offset="1" stop-color="#f2a44c"/></linearGradient></defs><path d="M14 78 Q42 6 88 30" fill="none" stroke="url(#arcGrad)" stroke-width="10" stroke-linecap="round"/><circle cx="88" cy="30" r="7.5" fill="#ffe2ba"/><circle cx="88" cy="30" r="2.6" fill="#fff"/></svg><span>Overnight Arc</span></div>
