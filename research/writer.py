@@ -34,6 +34,10 @@ except ImportError:
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'out')
 MODEL = 'claude-opus-5'
+
+# A quarter is about 91 days and a 10-Q lands within about 40 of its close, so
+# a facts-to-release gap beyond this cannot be the same quarter.
+STALE_FACTS_DAYS = 100
 RATE_IN, RATE_OUT = 15.00, 75.00
 
 
@@ -66,6 +70,40 @@ def gather(ticker):
         'call': _load(_newest(f'{t}_*_call.json')),
     }
     packs['history'] = H.review(t)
+
+    # Is the newest facts pack we hold actually the quarter just reported?
+    #
+    # A 10-Q covers a quarter and lands up to about forty days after it ends.
+    # So a gap much wider than one quarter between the facts pack's period and
+    # the 8-K we just read means the XBRL is from an EARLIER quarter than the
+    # results. That is not an edge case: AMD filed its Q2 8-K on 4 August and
+    # the 10-Q on the 5th, so on results night the newest XBRL is always last
+    # quarter's. Pairing them silently would value tonight's results on last
+    # quarter's earnings and compute margins from the wrong revenue — the
+    # vintage-mixing error, arrived at from a new direction.
+    fp = (packs.get('facts') or {}).get('period_end')
+    rf = (packs.get('release') or {}).get('filed')
+    if fp and rf:
+        gap = (date.fromisoformat(rf) - date.fromisoformat(fp)).days
+        if gap > STALE_FACTS_DAYS:
+            packs['facts_stale'] = {
+                'facts_period_end': fp, 'release_filed': rf, 'gap_days': gap,
+                'note': (f'The newest XBRL facts cover the quarter to {fp}, '
+                         f'but the results release was filed {rf}, {gap} days '
+                         f'later. These are different quarters. The release '
+                         f'is the current one; the facts pack is the prior '
+                         f'quarter and must not be used to value, to compute '
+                         f'a margin, or to state a current figure.')}
+            # The cross pack sitting beside a prior-quarter 10-Q holds that
+            # quarter's standing. Tonight the note needs where the name
+            # stands NOW, going into the results — not a description of
+            # August written in the present tense.
+            try:
+                import crosssection as X2
+                packs['cross'] = X2.cross_section(t, X2.latest_date())
+                packs['cross_is_current'] = True
+            except Exception as e:                            # noqa: BLE001
+                packs['cross_recompute_error'] = str(e)
 
     # One price for everything priced.
     #
@@ -128,6 +166,23 @@ def derive(packs):
     d, notes = {}, []
     if not f:
         return d, ['No facts pack: nothing can be computed.']
+    if packs.get('facts_stale'):
+        # Refuse the arithmetic rather than produce a plausible version of it.
+        # Everything below divides a price by an earnings figure or a profit
+        # by a revenue, and on results night both belong to the quarter the
+        # XBRL has not caught up to yet. The release's own figures are
+        # quote-verified and carry their basis; the note values on those or
+        # on consensus, and says which.
+        s = packs['facts_stale']
+        d['valuation_withheld'] = s['note']
+        d['prior_quarter_period_end'] = s['facts_period_end']
+        return d, [
+            s['note'],
+            'No trailing multiple, margin or per-share figure may be computed '
+            'for the reported quarter from this evidence. Use the figures the '
+            'release prints, which carry their own GAAP or non-GAAP basis, '
+            'and the forward multiples built on consensus.',
+        ]
 
     def q(k):
         v = (f.get('quarter') or {}).get(k)
@@ -141,10 +196,25 @@ def derive(packs):
     rev, op, ni = q('revenue'), q('operating_income'), q('net_income_attributable')
     shares_cover = b('shares_outstanding_cover')
     shares_dil = q('shares_diluted_wavg')
-    close = (x or {}).get('standing', {}).get('close') if x and x.get('covered') else None
+    # The latest close, not the close on the filing date. The cross-section
+    # pack deliberately carries the filing-date price because its job is to
+    # say where the name stood when the results landed, and multiples built
+    # on it silently price the company as of a past session: SanDisk's 5.47x
+    # was $1,150.89 / annualised EPS while the same note's levels table
+    # printed a $1,075.08 close, seven per cent apart and both current-looking.
+    lv = packs.get('levels') or {}
+    close = lv.get('close')
+    close_basis = f"last close, {lv.get('asof')}"
+    if close is None and x and x.get('covered'):
+        close = (x.get('standing') or {}).get('close')
+        close_basis = f"close on the filing date, {x.get('asof')}"
 
     d['period_end'] = f.get('period_end')
     d['accession'] = f.get('accession')
+    if close is not None:
+        # Named, so a note can say which price every multiple below is on.
+        d['valuation_price'] = close
+        d['valuation_price_basis'] = close_basis
     if eps_d is not None:
         d['eps_diluted_quarter'] = eps_d
         d['eps_annualised'] = round(eps_d * 4, 2)
@@ -275,6 +345,20 @@ HANDLING THE NUMBERS
 
 - Arithmetic is already done. Use the DERIVED and FORWARD_MULTIPLES blocks;
   do not recompute, do not produce a ratio that is not supplied.
+- If XBRL_IS_PRIOR_QUARTER is present, the tagged financial data has not
+  caught up to the results yet, which is normal on the night of a release.
+  Then: the reported quarter's figures are the ones in
+  press_release.reported_figures, each with its own basis and period; the
+  only multiples available are the forward ones on consensus; and no trailing
+  multiple, margin or per-share figure may be stated for the reported
+  quarter. Do not reach into the prior quarter's facts for a current number,
+  and do not present a prior-quarter figure without saying which quarter it
+  is. One clause covering the gap is enough — do not write a section about it.
+- Every figure from the release carries a GAAP or non-GAAP label. Keep it.
+  Comparing a GAAP actual against non-GAAP consensus, or against non-GAAP
+  guidance, is the single most common way these notes go wrong: consensus EPS
+  is almost always non-GAAP, so compare it with the non-GAAP actual and say
+  so. If you must cross bases, say that is what you are doing.
 - Say which basis a multiple is on — consensus FY, or a quarter annualised.
   Annualising one quarter of a cyclical business is a strong assumption and
   should be named as one, once, not repeatedly.
@@ -322,10 +406,21 @@ def build_context(packs, derived, derive_notes):
                          'filed': f.get('filed'), 'accession': f.get('accession'),
                          'source_url': f.get('source_url'),
                          'fields_not_tagged': f.get('missing')}
-        ctx['quarter_figures'] = {
-            k: v['value'] for k, v in (f.get('quarter') or {}).items() if v}
-        ctx['balance_figures'] = {
-            k: v['value'] for k, v in (f.get('balance') or {}).items() if v}
+        # On results night these are the PRIOR quarter's. Named so, because a
+        # key called quarter_figures beside a fresh release reads as the
+        # quarter just reported, and no instruction elsewhere in the brief
+        # survives that impression.
+        prior = bool(packs.get('facts_stale'))
+        qk = 'prior_quarter_figures' if prior else 'quarter_figures'
+        bk = 'prior_quarter_balance_figures' if prior else 'balance_figures'
+        ctx[qk] = {k: v['value'] for k, v in (f.get('quarter') or {}).items() if v}
+        ctx[bk] = {k: v['value'] for k, v in (f.get('balance') or {}).items() if v}
+        if prior:
+            ctx['prior_quarter_figures_note'] = (
+                f'These cover the quarter to {f.get("period_end")}, which is '
+                f'NOT the quarter just reported. Use them only to compare '
+                f'against the release, and whenever you cite one, say which '
+                f'quarter it is.')
         ctx['reporting_spans_days'] = {
             k: v.get('span_days') for k, v in (f.get('quarter') or {}).items() if v}
     if c:
@@ -390,27 +485,54 @@ def build_context(packs, derived, derive_notes):
                     'filing date. Quote this close and this date.'}
     if x and x.get('covered'):
         st = dict(x['standing'])
+        now = bool(packs.get('cross_is_current'))
         # Rename so it cannot be mistaken for today's price.
-        st['close_on_filing_date'] = st.pop('close', None)
+        st['close_on_that_session' if now else 'close_on_filing_date'] = \
+            st.pop('close', None)
         ctx['cross_section'] = {
-            'as_of_FILING_DATE': x['asof'], 'universe': x['universe_scored'],
+            ('as_of_LATEST_SESSION' if now else 'as_of_FILING_DATE'): x['asof'],
+            'universe': x['universe_scored'],
             **st, 'cohort': x['cohort'],
             'movement': x.get('movement'), 'chain': x.get('chain'),
             'staleness': x.get('chain_staleness'),
-            'note': ('This is where the name stood when the results landed. '
-                     'Do not price anything off close_on_filing_date — use '
-                     'valuation_price.')}
+            'note': (('This is where the name stands now, in the session '
+                      'before these results. The tagged data for the quarter '
+                      'is not filed yet, so there is no standing "as at the '
+                      'filing" to give.') if now else
+                     ('This is where the name stood when the results landed. '
+                      'Do not price anything off close_on_filing_date — use '
+                      'valuation_price.'))}
     elif x:
         ctx['cross_section'] = {'covered': False, 'note': x.get('note')}
     r = packs.get('release')
     if r and not (r.get('extraction') or {}).get('error'):
         e = r['extraction']
+        # Only figures whose sentence was located AND which appear inside it.
+        # An unverified figure is worse than a missing one, because it reads
+        # exactly like a verified one.
+        ok = {(c.get('financial'), c.get('value'))
+              for c in (r.get('quote_checks') or [])
+              if c.get('financial') and c.get('verdict') in ('VERBATIM',
+                                                             'SPLICED')}
+        fins = [f_ for f_ in (e.get('financials') or [])
+                if (f_.get('metric'), f_.get('value')) in ok]
         ctx['press_release'] = {
             'source': r.get('source_url'), 'filed': r.get('filed'),
             'quotes': e.get('quotes'), 'guidance': e.get('guidance'),
+            'reported_figures': fins,
+            'reported_figures_note': (
+                'Copied from the release and checked back against it: each '
+                'figure was found inside the sentence or table row quoted '
+                'beside it. Every entry states its own GAAP or non-GAAP '
+                'basis and its own period — do not compare across bases, and '
+                'do not compute a new figure from two of these.'),
+            'reported_figures_dropped': len(e.get('financials') or []) - len(fins),
+            'segments': e.get('segments'),
             'absent_from_this_document': e.get('absent_from_this_document')
                                          or e.get('notable_absences'),
             'quote_verification': r.get('quote_checks')}
+    if packs.get('facts_stale'):
+        ctx['xbrl_is_prior_quarter'] = packs['facts_stale']
     cl = packs.get('call')
     if cl:
         ctx['earnings_call'] = {
@@ -457,7 +579,11 @@ def write(ticker, model=MODEL):
              'output_tokens': resp.usage.output_tokens,
              'cost_usd': round(resp.usage.input_tokens / 1e6 * RATE_IN
                                + resp.usage.output_tokens / 1e6 * RATE_OUT, 4)}
-    stem = f"{ticker.upper()}_{derived.get('period_end')}"
+    # On results night there is no XBRL period end to name the file after,
+    # because the quarter's facts are not filed yet. Fall back to the date
+    # the release was filed rather than writing AMD_None.
+    stem = (f"{ticker.upper()}_"
+            f"{derived.get('period_end') or (packs.get('release') or {}).get('filed') or date.today().isoformat()}")
     body = (note + f"\n\n---\nGenerated {date.today().isoformat()} from "
                    f"evidence packs. {usage['model']}, "
                    f"${usage['cost_usd']:.4f}.\n")

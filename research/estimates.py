@@ -160,7 +160,15 @@ def render(p):
     if s.get('quarters'):
         L.append(f"  surprise history (beat streak {s.get('beat_streak')}):")
         for r in s['quarters'][:5]:
+            # The quarter a company is about to report is already in the feed,
+            # carrying consensus with no actual beside it. That row is the
+            # most interesting one tonight and the least printable: render it
+            # as pending rather than formatting None.
             if r['estimated_eps'] is None:
+                continue
+            if r['reported_eps'] is None:
+                L.append(f"    {r['period']}  reported        -  "
+                         f"est {r['estimated_eps']:>8}   not yet reported")
                 continue
             L.append(f"    {r['period']}  reported {r['reported_eps']:>8}  "
                      f"est {r['estimated_eps']:>8}  "

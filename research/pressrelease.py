@@ -134,6 +134,14 @@ strategy, other"}
      "value": "the figure or range as stated",
      "verbatim": "the sentence it came from, word for word"}
   ],
+  "financials": [
+    {"metric": "what the figure measures, e.g. revenue, gross margin, \
+operating income, net income, diluted EPS, free cash flow",
+     "period": "the period this figure is for, as the release labels it",
+     "basis": "GAAP, non-GAAP, or not stated",
+     "value": "the figure exactly as printed, including its unit and sign",
+     "verbatim": "the sentence or table row it came from, word for word"}
+  ],
   "segments": ["segment names that have their own reported figures"],
   "topics": ["subjects the release actually discusses"],
   "absent_from_this_document": ["things an earnings release often states \
@@ -152,6 +160,33 @@ paraphrase, never tidy, never join two sentences that are not adjacent.
 empty list is correct and useful; an invented quote is not.
 - Guidance means a forward statement the company makes about its own future \
 figures. A historical result is not guidance.
+- Financials: copy figures, never compute them. Do not convert units, do not \
+derive a margin from two other numbers, do not annualise, do not sum \
+segments. If the release prints it, extract it; if it does not, leave it out.
+- A press release usually prints the same metric twice, on a GAAP and a \
+non-GAAP basis, and often beside a prior-year comparative. These are \
+different figures: give each its own entry with its own basis and period. \
+Never merge them and never leave basis blank when the document states it — \
+the whole point of this block is that a later reader can tell which is which.
+- Financials: at most 20 entries. Take the headline figures a reader needs — \
+revenue, gross margin, operating income, net income, diluted EPS, cash flow — \
+with the prior-year comparative where the release prints one, plus any figure \
+the release itself leads on. Do not transcribe the financial statements or \
+the segment tables.
+- The verbatim for a financial MUST be the run of text you read the figure \
+from, copied exactly, and the figure MUST appear inside it in the same form. \
+Two specific failures to avoid, both of which look fine and are not:
+  (a) Taking the value from a table and quoting a sentence instead. If the \
+table says $11,536 and the prose says "revenue was $11.5 billion", then \
+either report $11,536 quoting the table row, or $11.5 billion quoting the \
+sentence. Never pair one with the other.
+  (b) Rebuilding a table row. Tables reach you as whole lines with pipe \
+separators, like "| Revenue ($M) | $11,536 | $7,685 | Up 50%". Quote the \
+entire line as it appears. Do not assemble a fragment such as "Q2'25 | \
+$7,685" out of a header cell and a data cell — that string is not in the \
+document, and it will be rejected.
+- If you cannot quote a run of text that actually contains the figure, leave \
+the entry out.
 - Return JSON and nothing else.
 
 DOCUMENT:
@@ -164,7 +199,10 @@ def extract(text, model=MODEL):
     client = anthropic.Anthropic()
     body = text[:MAX_CHARS]
     resp = client.messages.create(
-        model=model, max_tokens=4000,
+        # Each financial entry carries the sentence it came from, so the
+        # reply is long. At 4,000 it truncated mid-string and the JSON would
+        # not parse at all — a silent total loss, not a partial one.
+        model=model, max_tokens=12000,
         messages=[{'role': 'user', 'content': PROMPT + body}])
     raw = ''.join(b.text for b in resp.content if b.type == 'text').strip()
     raw = re.sub(r'^```(?:json)?|```$', '', raw, flags=re.M).strip()
@@ -197,6 +235,12 @@ def _norm(s):
     s = s.replace('“', '"').replace('”', '"')
     s = s.replace('—', '-').replace('–', '-')
     return re.sub(r'[^a-z0-9]+', ' ', s.lower()).strip()
+
+
+def _nums(s):
+    """Every figure in a string, commas stripped, as a set."""
+    return {m.group(0).replace(',', '')
+            for m in re.finditer(r'\d[\d,]*(?:\.\d+)?', s or '')}
 
 
 SHINGLE = 8          # words per window
@@ -283,6 +327,22 @@ def verify_quotes(pack, text):
         results.append({'guidance': g.get('metric'),
                         'coverage': round(cov, 3), 'splices': splices,
                         'verdict': judge(cov, splices, scattered)})
+    for fin in (pack.get('financials') or []):
+        verb = fin.get('verbatim') or ''
+        cov, n, splices, scattered = _coverage(_norm(verb), hay)
+        # Locating the sentence is not enough. A real sentence cited beside a
+        # misread figure is the failure this block exists to prevent, and it
+        # reads as perfectly sound. So the figure must also be in the sentence
+        # it claims to come from.
+        want, have = _nums(fin.get('value')), _nums(verb)
+        ok = None if not want else want <= have
+        results.append({'financial': fin.get('metric'),
+                        'basis': fin.get('basis'), 'period': fin.get('period'),
+                        'value': fin.get('value'),
+                        'coverage': round(cov, 3), 'splices': splices,
+                        'figure_in_sentence': ok,
+                        'verdict': ('FIGURE NOT IN SENTENCE' if ok is False
+                                    else judge(cov, splices, scattered))})
     return results
 
 
@@ -347,6 +407,18 @@ def render(o):
     for g in (e.get('guidance') or []):
         L.append(f"    GUIDANCE  {g.get('metric')} / {g.get('period')}: "
                  f"{g.get('value')}")
+    fins = e.get('financials') or []
+    if fins:
+        L.append(f"  reported figures ({len(fins)}), as printed in the release:")
+        for fin in fins:
+            chk = next((c for c in o['quote_checks']
+                        if c.get('financial') == fin.get('metric')
+                        and c.get('value') == fin.get('value')), {})
+            bad = chk.get('verdict') not in ('VERBATIM', 'SPLICED')
+            L.append(f"    [{chk.get('verdict','?'):<21}] "
+                     f"{fin.get('metric')} ({fin.get('basis')}) "
+                     f"{fin.get('period')}: {fin.get('value')}"
+                     + ('   <-- CHECK' if bad else ''))
     absent = e.get('absent_from_this_document') or e.get('notable_absences')
     if absent:
         # Labelled explicitly. Alphabet's Q3-26 release contained no guidance
