@@ -9,10 +9,14 @@ beside the output saying what it did and what it could not do.
 
 Two things make this different from running the stages by hand.
 
-It waits for the RIGHT filing. The newest earnings 8-K before the release is
-last quarter's, and the two are told apart by accession number, not by date:
-a filing accepted at 16:05 Eastern is already tomorrow in Dubai, so "filed
-today" is the wrong test and would either match the old one or nothing.
+It waits for the RIGHT filing, tested against the report date rather than
+against whatever was newest when it started. The first live run started a
+few minutes after the release had already been accepted, took that filing as
+its baseline, and then waited for something newer that did not exist. So the
+test is the filing's own date: any earnings 8-K stamped on or after the
+report date is the release, whether it arrived before this script did or
+after. EDGAR stamps in US Eastern and this runs from Dubai after the close,
+where it is already the next day, so the comparison is made in Eastern.
 
 It expects the XBRL to be missing. A 10-Q lands a day or more after the
 release — AMD filed Q2's on the day after its 8-K — so on results night there
@@ -27,7 +31,7 @@ import os
 import shutil
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -66,12 +70,19 @@ def newest_earnings_8k(ticker):
     return f[0] if f else None
 
 
-def wait_for_release(ticker, before, minutes, every):
-    """Poll until an earnings 8-K appears that is not the one we started with.
+def wait_for_release(ticker, since, minutes, every):
+    """Poll until an earnings 8-K filed on or after `since` is on file.
 
-    `before` is the accession held before the release, or None if the company
-    has never filed one. Identity, not date: the release is tomorrow's date
-    locally the moment it is accepted.
+    The test is the filing's own date against the expected report date, not
+    whether it differs from whatever was newest when this started. Comparing
+    against the start state assumes the script got there first, and on the
+    first live run it did not: the release had already been accepted, so the
+    new filing was recorded as the baseline and the script sat waiting for a
+    newer one that was never coming. A filing already on file is the result,
+    not the previous quarter's.
+
+    `since` is an EDGAR filing date (US Eastern), so the caller passes the
+    report date in Eastern terms — here it is already tomorrow.
     """
     deadline = time.time() + minutes * 60
     attempt = 0
@@ -82,13 +93,13 @@ def wait_for_release(ticker, before, minutes, every):
         except Exception as e:                                # noqa: BLE001
             log(f'  poll {attempt}: EDGAR error, will retry — {e}')
             f = None
-        if f and f['accession'] != before:
-            log(f'  poll {attempt}: NEW 8-K {f["accession"]} '
-                f'filed {f["filed"]} items {f["items"]}')
+        if f and f['filed'] >= since:
+            log(f'  poll {attempt}: release on file — {f["accession"]} '
+                f'filed {f["filed"]}, items {f["items"]}')
             return f
         if f:
-            log(f'  poll {attempt}: still {f["accession"]} '
-                f'(filed {f["filed"]}) — nothing new')
+            log(f'  poll {attempt}: newest is {f["accession"]} filed '
+                f'{f["filed"]}, before {since} — not the release yet')
         if time.time() + every > deadline:
             return None
         time.sleep(every)
@@ -118,16 +129,23 @@ def main():
                     help='seconds between polls (default 180)')
     ap.add_argument('--no-wait', action='store_true',
                     help='use the newest 8-K already on file')
+    ap.add_argument('--since', default=None,
+                    help='report date as EDGAR dates it, US Eastern '
+                         '(default: today in Eastern)')
     a = ap.parse_args()
     t = a.ticker.upper()
     os.makedirs(OUT, exist_ok=True)
     log(f'=== overnight {t} — {datetime.now():%Y-%m-%d %H:%M} local ===')
 
-    before = None
+    # EDGAR stamps filings in US Eastern. Run from Dubai after the close it is
+    # already the next day locally, so local date would reject the release.
+    since = a.since or (datetime.now(timezone.utc)
+                        - timedelta(hours=5)).strftime('%Y-%m-%d')
+
     try:
         b = newest_earnings_8k(t)
-        before = b['accession'] if b else None
-        log(f'held before: {before} (filed {b["filed"] if b else "-"})')
+        log(f'newest earnings 8-K on file: '
+            f'{b["accession"] if b else "-"} (filed {b["filed"] if b else "-"})')
     except Exception as e:                                    # noqa: BLE001
         log(f'could not read EDGAR: {e}')
         save_log(t)
@@ -137,9 +155,9 @@ def main():
         filing = b
         log('--no-wait: using the filing already on file')
     else:
-        log(f'waiting up to {a.wait}m for a new earnings 8-K, '
-            f'polling every {a.every}s')
-        filing = wait_for_release(t, before, a.wait, a.every)
+        log(f'release is any earnings 8-K filed on or after {since}; '
+            f'waiting up to {a.wait}m, polling every {a.every}s')
+        filing = wait_for_release(t, since, a.wait, a.every)
         if not filing:
             log(f'NO RELEASE FOUND within {a.wait} minutes. Nothing written. '
                 f'Either the company has not filed yet or it reports on a '
