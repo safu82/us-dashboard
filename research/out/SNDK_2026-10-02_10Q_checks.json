@@ -1,0 +1,75 @@
+{
+ "accession": "0001628280-26-068601",
+ "checks": [
+  {
+   "detail": "Cover-page shares outstanding 142,289,365 (as of 2026-10-26). Weighted-average basic for the quarter is 146,000,000, a -2.5% difference. Use the cover-page count for market cap; the gap is large enough to move a multiple.",
+   "evidence": "EntityCommonStockSharesOutstanding",
+   "id": "share_count",
+   "question": "Is a current share count available?",
+   "verdict": "FLAG"
+  },
+  {
+   "detail": "No noncontrolling interest. Attributable profit $8.10bn.",
+   "evidence": "NetIncomeLoss",
+   "id": "minority_interest",
+   "question": "Is profit attributable or total?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "EPS 55.49 x 146,000,000 shares = $8.10bn vs attributable $8.10bn; ties within 0.0%.",
+   "id": "eps_tie",
+   "question": "Does basic EPS tie to profit / shares?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "Basic 55.49, diluted 52.6 \u2014 5.2% dilution. Use diluted for forward multiples.",
+   "id": "dilution_gap",
+   "question": "How large is the basic-to-diluted gap?",
+   "verdict": "FLAG"
+  },
+  {
+   "detail": "Tax $1.22bn on pre-tax $9.32bn = 13.1%.",
+   "id": "tax_rate",
+   "question": "Is the effective tax rate normal?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "revenue $11.03bn over the quarter to 2026-10-02; operating margin 79.6%; net margin 73.4%. Exceptional for any industry \u2014 confirm against the press release and the prior quarter before treating it as a run rate.",
+   "id": "margins",
+   "question": "Is profitability in a normal range?",
+   "verdict": "FLAG"
+  },
+  {
+   "detail": "Operating cash flow $6.36bn, capex $54.0m, free cash flow $6.31bn over the quarter to 2026-10-02.",
+   "id": "capex_vs_ocf",
+   "question": "Is capex covered by operating cash flow?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "buybacks $5.00bn over the quarter to 2026-10-02.",
+   "id": "funding",
+   "question": "How was the period funded?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "None tagged. Note this is weaker than reading the statement \u2014 only tagged items are visible here.",
+   "id": "unusual_items",
+   "question": "Any restructuring or impairment?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "7 field(s) not tagged in this filing: debt_issued, dividends_paid, equity_incl_nci, long_term_debt, net_income_total, noncontrolling_interest, stock_issued. These must be read from the statement or left explicitly unverified \u2014 never inferred.",
+   "id": "coverage",
+   "question": "Did every schema field resolve?",
+   "verdict": "FLAG"
+  }
+ ],
+ "form": "10-Q",
+ "period_end": "2026-10-02",
+ "source_url": "https://www.sec.gov/Archives/edgar/data/2023554/000162828026068601/sndk-20261002.htm",
+ "tally": {
+  "FLAG": 4,
+  "PASS": 6
+ },
+ "ticker": "SNDK"
+}

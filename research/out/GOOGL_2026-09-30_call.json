@@ -1,0 +1,191 @@
+{
+ "ticker": "GOOGL",
+ "quarter": "2026Q3",
+ "period_end": "2026-09-30",
+ "from_cache": true,
+ "cache_path": "C:\\Users\\Sarfaraz Khimani\\Documents\\us-dashboard\\research\\cache\\GOOGL_2026Q3_transcript.json",
+ "segments": 36,
+ "chars": 52386,
+ "management_speakers": [
+  "Anat Ashkenazi",
+  "James Friedland",
+  "Philipp Schindler",
+  "Sundar Pichai",
+  "Thomas Kurian"
+ ],
+ "questions": 7,
+ "exchanges": [
+  {
+   "i": 0,
+   "responsiveness": "answered",
+   "agreement": "3/3",
+   "votes": {
+    "answered": 3
+   },
+   "asked_for_a_number": true,
+   "asked_agreement": "3/3",
+   "declined_phrase": "",
+   "subject": "Search growth deceleration drivers",
+   "analyst": "Douglas Anmuth",
+   "firm": "Analyst, JPMorgan",
+   "answered_by": [
+    "Sundar Pichai",
+    "Philipp Schindler"
+   ],
+   "answer_has_digits": true,
+   "model_claim_conflicts": false,
+   "asked_flag_contradiction": false,
+   "declined_verified": null
+  },
+  {
+   "i": 1,
+   "responsiveness": "partial",
+   "agreement": "3/3",
+   "votes": {
+    "partial": 3
+   },
+   "asked_for_a_number": true,
+   "asked_agreement": "3/3",
+   "declined_phrase": "",
+   "subject": "Search comp/FX headwinds outlook",
+   "analyst": "Brian Nowak",
+   "firm": "Analyst, Morgan Stanley",
+   "answered_by": [
+    "Sundar Pichai",
+    "Anat Ashkenazi"
+   ],
+   "answer_has_digits": true,
+   "model_claim_conflicts": false,
+   "asked_flag_contradiction": false,
+   "declined_verified": null
+  },
+  {
+   "i": 2,
+   "responsiveness": "deflected",
+   "agreement": "3/3",
+   "votes": {
+    "deflected": 3
+   },
+   "asked_for_a_number": false,
+   "asked_agreement": "3/3",
+   "declined_phrase": "",
+   "subject": "compute allocation priorities",
+   "analyst": "Eric Sheridan",
+   "firm": "Analyst, Goldman Sachs",
+   "answered_by": [
+    "Sundar Pichai",
+    "Thomas Kurian"
+   ],
+   "answer_has_digits": true,
+   "model_claim_conflicts": false,
+   "asked_flag_contradiction": true,
+   "declined_verified": null
+  },
+  {
+   "i": 3,
+   "responsiveness": "declined",
+   "agreement": "3/3",
+   "votes": {
+    "declined": 3
+   },
+   "asked_for_a_number": true,
+   "asked_agreement": "3/3",
+   "declined_phrase": "we don't provide specific financials at the product level",
+   "subject": "TPU revenue recognition percentage",
+   "analyst": "Ross Sandler",
+   "firm": "Analyst, Barclays",
+   "answered_by": [
+    "Anat Ashkenazi"
+   ],
+   "answer_has_digits": true,
+   "model_claim_conflicts": false,
+   "asked_flag_contradiction": false,
+   "declined_verified": true
+  },
+  {
+   "i": 4,
+   "responsiveness": "declined",
+   "agreement": "3/3",
+   "votes": {
+    "declined": 3
+   },
+   "asked_for_a_number": true,
+   "asked_agreement": "3/3",
+   "declined_phrase": "we don't break out margins for individual products",
+   "subject": "TPU system margins",
+   "analyst": "Justin Post",
+   "firm": "Analyst, Bank of America",
+   "answered_by": [
+    "Philipp Schindler",
+    "Sundar Pichai",
+    "Thomas Kurian"
+   ],
+   "answer_has_digits": false,
+   "model_claim_conflicts": false,
+   "asked_flag_contradiction": false,
+   "declined_verified": true
+  },
+  {
+   "i": 5,
+   "responsiveness": "partial",
+   "agreement": "3/3",
+   "votes": {
+    "partial": 3
+   },
+   "asked_for_a_number": true,
+   "asked_agreement": "3/3",
+   "declined_phrase": "",
+   "subject": "Cloud growth excluding TPU sales",
+   "analyst": "Mark Shmulik",
+   "firm": "Analyst, AllianceBernstein",
+   "answered_by": [
+    "Sundar Pichai",
+    "Thomas Kurian"
+   ],
+   "answer_has_digits": true,
+   "model_claim_conflicts": false,
+   "asked_flag_contradiction": false,
+   "declined_verified": null
+  },
+  {
+   "i": 6,
+   "responsiveness": "answered",
+   "agreement": "3/3",
+   "votes": {
+    "answered": 3
+   },
+   "asked_for_a_number": false,
+   "asked_agreement": "3/3",
+   "declined_phrase": "",
+   "subject": "platform strategy and trust",
+   "analyst": "Michael Nathanson",
+   "firm": "Analyst, MoffettNathanson",
+   "answered_by": [
+    "Sundar Pichai",
+    "James Friedland"
+   ],
+   "answer_has_digits": true,
+   "model_claim_conflicts": false,
+   "asked_flag_contradiction": false,
+   "declined_verified": null
+  }
+ ],
+ "score": {
+  "quantitative_questions": 6,
+  "answered_with_a_number": 1,
+  "unstable": 0,
+  "declined": 2,
+  "deflected": 1,
+  "partial": 2,
+  "answered": 2,
+  "model_contradictions": 1,
+  "duplicate_assessments_dropped": 0
+ },
+ "usage": {
+  "model": "claude-sonnet-5",
+  "passes": 3,
+  "input_tokens": 21324,
+  "output_tokens": 7097,
+  "cost_usd": 0.17043
+ }
+}

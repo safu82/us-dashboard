@@ -455,10 +455,41 @@ def newest_complete_session(latest_by_ticker, min_coverage):
     return None
 
 
+def archive_snapshots(sb):
+    """Copy scored rows into daily_snapshot_archive before anything is deleted.
+
+    MUST run before cleanup_old(). The operational table keeps only
+    STORE_DAYS of history, which is right for the portal's 60-session
+    lookback and far too short for research: a filing lands quarterly, so by
+    the next 10-Q the prior quarter's standing has already been pruned. The
+    scores are the part that cannot be rebuilt — prices can be re-pulled from
+    Yahoo, but momentum_score and rs_rank were computed against the universe
+    as it stood that day.
+
+    The copy runs inside Postgres (see the archive_snapshots function), so no
+    rows cross the wire. It is idempotent and re-checks a rolling window, so a
+    failed night is healed by the next successful one rather than leaving a
+    permanent hole.
+
+    Never fatal. Losing a night of archive is bad; failing the scan over it
+    would be worse.
+    """
+    try:
+        r = sb.rpc('archive_snapshots', {'lookback_days': 10}).execute()
+        n = r.data if isinstance(r.data, int) else (r.data or 0)
+        print(f'Archived {n:,} row(s) to daily_snapshot_archive')
+    except Exception as e:
+        print(f'WARN archive: {type(e).__name__}: {e} — history for this '
+              f'session may be lost once cleanup_old runs')
+
+
 def cleanup_old(sb):
     """Delete rows older than STORE_DAYS. At ~1,900 tickers a single bulk DELETE
     across the whole window exceeds Supabase's statement timeout, so we delete
-    one calendar date at a time (each ≤ universe size — fast, no timeout)."""
+    one calendar date at a time (each ≤ universe size — fast, no timeout).
+
+    Anything deleted here is already in daily_snapshot_archive — archive_snapshots()
+    runs first, deliberately."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=STORE_DAYS)).date()
     try:
         r = (sb.table('daily_stock_snapshots').select('snapshot_date')
@@ -569,7 +600,8 @@ def main():
         if i + BATCH_SIZE < len(universe):
             time.sleep(SLEEP_BATCH)
 
-    cleanup_old(sb)
+    archive_snapshots(sb)      # must precede cleanup_old — it preserves what
+    cleanup_old(sb)            # cleanup is about to delete permanently
     print('=' * 70)
     print(f'Done. {ok} tickers OK | {fail} failed | {total:,} rows upserted')
     print(f'Completed: {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}')

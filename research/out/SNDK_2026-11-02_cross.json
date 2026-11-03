@@ -1,0 +1,151 @@
+{
+ "asof": "2026-11-02",
+ "chain": [
+  {
+   "chain": "Artificial Intelligence",
+   "peers": [
+    {
+     "in_universe": true,
+     "momentum": 8,
+     "rs_rank": 1723,
+     "ticker": "STX"
+    },
+    {
+     "in_universe": true,
+     "momentum": 16,
+     "rs_rank": 1491,
+     "ticker": "MU"
+    },
+    {
+     "in_universe": true,
+     "momentum": 17,
+     "rs_rank": 1522,
+     "ticker": "WDC"
+    },
+    {
+     "in_universe": true,
+     "momentum": 32,
+     "rs_rank": 1199,
+     "ticker": "NTAP"
+    }
+   ],
+   "stage": "Memory & Storage (incl. HBM)",
+   "stage_momentum_asof_chains": 19,
+   "stage_rank_of": 94,
+   "stage_rank_weakest_first": 24,
+   "stage_scored": 5
+  }
+ ],
+ "chain_staleness": "Stage membership and stage momentum come from chains.json as of 2026-10-30, while prices and ranks are 2026-11-02. Peer momentum has been re-read from the 2026-11-02 snapshot; the stage-level score has not and is 2026-10-30 vintage.",
+ "chains_asof": "2026-10-30",
+ "cohort": {
+  "at_or_below_momentum": 48,
+  "band_names": [
+   "AAOI",
+   "CECO",
+   "FCEL",
+   "HUT",
+   "LRCX",
+   "MOD",
+   "NBIS",
+   "PLPC",
+   "POET",
+   "QBTS",
+   "SITM",
+   "SLNH",
+   "STEM",
+   "TTMI",
+   "UCTT",
+   "VELO",
+   "VNET",
+   "AESI",
+   "AEVA",
+   "ALMU"
+  ],
+  "band_size": 72,
+  "band_width": 2,
+  "share_pct": 2.49
+ },
+ "covered": true,
+ "movement": {
+  "momentum_1m_ago": 88,
+  "momentum_1w_ago": 8,
+  "rank_change_1m": -1538,
+  "rank_change_1w": -84,
+  "rs_rank_1m_ago": 235,
+  "rs_rank_1w_ago": 1689,
+  "sessions_available": 40
+ },
+ "peer_group": {
+  "members": 11,
+  "name": "Technology Hardware, Storage & Peripherals",
+  "strongest": [
+   {
+    "momentum": 51,
+    "rs_rank": 658,
+    "ticker": "AAPL"
+   },
+   {
+    "momentum": 37,
+    "rs_rank": 1089,
+    "ticker": "P"
+   },
+   {
+    "momentum": 32,
+    "rs_rank": 1180,
+    "ticker": "CRSR"
+   },
+   {
+    "momentum": 32,
+    "rs_rank": 1199,
+    "ticker": "NTAP"
+   },
+   {
+    "momentum": 33,
+    "rs_rank": 1229,
+    "ticker": "HPQ"
+   }
+  ],
+  "weakest": [
+   {
+    "momentum": 17,
+    "rs_rank": 1522,
+    "ticker": "WDC"
+   },
+   {
+    "momentum": 11,
+    "rs_rank": 1588,
+    "ticker": "SMCI"
+   },
+   {
+    "momentum": 11,
+    "rs_rank": 1615,
+    "ticker": "DELL"
+   },
+   {
+    "momentum": 8,
+    "rs_rank": 1723,
+    "ticker": "STX"
+   },
+   {
+    "momentum": 5,
+    "rs_rank": 1773,
+    "ticker": "SNDK"
+   }
+  ]
+ },
+ "standing": {
+  "bz_streak": 0,
+  "close": 1075.0799560546875,
+  "from_52w_high": -54.3,
+  "from_52w_low": 487.5,
+  "momentum": 5,
+  "peer_group": "Technology Hardware, Storage & Peripherals",
+  "peer_percentile": 9,
+  "rs_rank": 1773,
+  "rs_rank_of": 1929,
+  "sector_percentile": 13
+ },
+ "ticker": "SNDK",
+ "universe_scored": 1929
+}

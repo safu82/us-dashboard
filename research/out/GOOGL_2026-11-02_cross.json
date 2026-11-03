@@ -1,0 +1,166 @@
+{
+ "asof": "2026-11-02",
+ "chain": [
+  {
+   "chain": "Artificial Intelligence",
+   "peers": [
+    {
+     "momentum": 15,
+     "ticker": "META"
+    },
+    {
+     "momentum": 28,
+     "ticker": "ORCL"
+    },
+    {
+     "momentum": 33,
+     "ticker": "AMZN"
+    },
+    {
+     "momentum": 55,
+     "ticker": "MSFT"
+    }
+   ],
+   "stage": "Hyperscalers / Cloud (the Buyers)",
+   "stage_momentum": 28,
+   "stage_rank_of": 94,
+   "stage_rank_weakest_first": 38,
+   "stage_scored": 5
+  },
+  {
+   "chain": "Quantum Computing",
+   "peers": [
+    {
+     "momentum": 21,
+     "ticker": "NVDA"
+    },
+    {
+     "momentum": 55,
+     "ticker": "MSFT"
+    },
+    {
+     "momentum": 61,
+     "ticker": "HON"
+    },
+    {
+     "momentum": 89,
+     "ticker": "IBM"
+    }
+   ],
+   "stage": "Big Tech & Cloud",
+   "stage_momentum": 55,
+   "stage_rank_of": 94,
+   "stage_rank_weakest_first": 62,
+   "stage_scored": 5
+  }
+ ],
+ "chains_asof": "2026-10-30",
+ "cohort": {
+  "at_or_below_momentum": 150,
+  "floor_names": [
+   "BTBT",
+   "NUAI",
+   "ACMR",
+   "AEHR",
+   "CIFR",
+   "DGXX",
+   "IESC",
+   "MARA",
+   "SERV",
+   "BRUN",
+   "CLSK",
+   "DJT",
+   "HIVE",
+   "ICHR",
+   "INTC",
+   "IREN",
+   "KEEL",
+   "LAES",
+   "SATL",
+   "SHAZ"
+  ],
+  "share_pct": 7.78
+ },
+ "covered": true,
+ "movement": {
+  "momentum_1m_ago": 74,
+  "momentum_1w_ago": 26,
+  "rank_change_1m": -1359,
+  "rank_change_1w": -317,
+  "rs_rank_1m_ago": 538,
+  "rs_rank_1w_ago": 1580,
+  "sessions_available": 40
+ },
+ "peer_group": {
+  "members": 10,
+  "name": "Interactive Media & Services",
+  "strongest": [
+   {
+    "momentum": 80,
+    "rs_rank": 381,
+    "ticker": "GTM"
+   },
+   {
+    "momentum": 72,
+    "rs_rank": 777,
+    "ticker": "QNST"
+   },
+   {
+    "momentum": 65,
+    "rs_rank": 874,
+    "ticker": "CARG"
+   },
+   {
+    "momentum": 51,
+    "rs_rank": 912,
+    "ticker": "MTCH"
+   },
+   {
+    "momentum": 58,
+    "rs_rank": 973,
+    "ticker": "TRIP"
+   }
+  ],
+  "weakest": [
+   {
+    "momentum": 44,
+    "rs_rank": 1222,
+    "ticker": "YELP"
+   },
+   {
+    "momentum": 21,
+    "rs_rank": 1560,
+    "ticker": "PPLI"
+   },
+   {
+    "momentum": 13,
+    "rs_rank": 1708,
+    "ticker": "META"
+   },
+   {
+    "momentum": 10,
+    "rs_rank": 1897,
+    "ticker": "GOOGL"
+   },
+   {
+    "momentum": 10,
+    "rs_rank": 1901,
+    "ticker": "GOOG"
+   }
+  ]
+ },
+ "standing": {
+  "bz_streak": 0,
+  "close": 278.989990234375,
+  "from_52w_high": -31.6,
+  "from_52w_low": 3.3,
+  "momentum": 10,
+  "peer_group": "Interactive Media & Services",
+  "peer_percentile": 20,
+  "rs_rank": 1897,
+  "rs_rank_of": 1929,
+  "sector_percentile": 6
+ },
+ "ticker": "GOOGL",
+ "universe_scored": 1929
+}

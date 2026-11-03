@@ -1,0 +1,69 @@
+{
+ "accession": "0001652044-26-000084",
+ "checks": [
+  {
+   "detail": "No cover-page share count in the XBRL facts. This is the expected result for a multi-class issuer: Alphabet, Meta and Berkshire tag each share class against a dimensional member, and the companyfacts API returns only undimensioned facts. Market cap for this name must take its share count from the filing cover or another source, and no multiple should be computed until it does.",
+   "id": "share_count",
+   "question": "Is a current share count available?",
+   "verdict": "UNKNOWN"
+  },
+  {
+   "detail": "No noncontrolling interest. Attributable profit $26.47bn.",
+   "evidence": "NetIncomeLoss",
+   "id": "minority_interest",
+   "question": "Is profit attributable or total?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "EPS 2.14 x 12,256,000,000 shares = $26.23bn vs attributable $26.47bn; ties within 0.9%.",
+   "id": "eps_tie",
+   "question": "Does basic EPS tie to profit / shares?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "Basic 2.14, diluted 2.12 \u2014 0.9% dilution.",
+   "id": "dilution_gap",
+   "question": "How large is the basic-to-diluted gap?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "Tax $5.89bn on pre-tax $32.35bn = 18.2%.",
+   "id": "tax_rate",
+   "question": "Is the effective tax rate normal?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "Operating cash flow $127.15bn, capex $131.95bn, free cash flow $-4.80bn over nine months to 2026-09-30. The build is not self-funded over this span.",
+   "id": "capex_vs_ocf",
+   "question": "Is capex covered by operating cash flow?",
+   "verdict": "FLAG"
+  },
+  {
+   "detail": "buybacks $0; stock issued $42.87bn over nine months to 2026-09-30. Issuing stock with buybacks at zero.",
+   "id": "funding",
+   "question": "How was the period funded?",
+   "verdict": "FLAG"
+  },
+  {
+   "detail": "None tagged. Note this is weaker than reading the statement \u2014 only tagged items are visible here.",
+   "id": "unusual_items",
+   "question": "Any restructuring or impairment?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "9 field(s) not tagged in this filing: debt_issued, depreciation, dividends_paid, equity_incl_nci, impairment, net_income_total, noncontrolling_interest, restructuring, shares_outstanding_cover. These must be read from the statement or left explicitly unverified \u2014 never inferred.",
+   "id": "coverage",
+   "question": "Did every schema field resolve?",
+   "verdict": "FLAG"
+  }
+ ],
+ "form": "10-Q",
+ "period_end": "2026-09-30",
+ "source_url": "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000084/goog-20260930.htm",
+ "tally": {
+  "FLAG": 3,
+  "PASS": 5,
+  "UNKNOWN": 1
+ },
+ "ticker": "GOOGL"
+}

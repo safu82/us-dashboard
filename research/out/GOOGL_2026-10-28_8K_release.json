@@ -1,0 +1,159 @@
+{
+ "ticker": "GOOGL",
+ "form": "8-K",
+ "items": "2.02,9.01",
+ "filed": "2026-10-28",
+ "period": "2026-10-28",
+ "accession": "0001652044-26-000080",
+ "exhibit": "googexhibit991q32026.htm",
+ "source_url": "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000080/googexhibit991q32026.htm",
+ "text_chars": 26453,
+ "extraction": {
+  "quotes": [
+   {
+    "speaker": "Sundar Pichai",
+    "role": "CEO of Google and Alphabet",
+    "text": "We had a strong quarter and are now on a half-trillion dollar revenue run rate. Our deep full stack approach is driving momentum across the business, with Alphabet revenues growing 25% year-over year.",
+    "topic": "results"
+   },
+   {
+    "speaker": "Sundar Pichai",
+    "role": "CEO of Google and Alphabet",
+    "text": "Our AI investments are driving overall Search query growth, including commercial queries. In fact, our year-over-year query growth rate is the highest it's been in the last five years.",
+    "topic": "demand"
+   },
+   {
+    "speaker": "Sundar Pichai",
+    "role": "CEO of Google and Alphabet",
+    "text": "Google Cloud revenues grew 103%, powered by huge demand for our AI infrastructure and AI solutions. We're also seeing strong demand for our TPU systems across a wide range of customers.",
+    "topic": "demand"
+   },
+   {
+    "speaker": "Sundar Pichai",
+    "role": "CEO of Google and Alphabet",
+    "text": "Gemini 4 Argon and Carbon are now leading at the frontier. Overall, our first-party model APIs are now processing nearly 32 billion tokens per minute, more than four times what we processed a year ago.",
+    "topic": "strategy"
+   },
+   {
+    "speaker": "Sundar Pichai",
+    "role": "CEO of Google and Alphabet",
+    "text": "On top of that, the Gemini app has reached one billion users—making it the fastest-growing product in Google's history—and we surpassed 150 million YouTube Music and Premium subscribers globally, including trials.",
+    "topic": "results"
+   },
+   {
+    "speaker": "Sundar Pichai",
+    "role": "CEO of Google and Alphabet",
+    "text": "We're excited by the range of big opportunities ahead of us.",
+    "topic": "strategy"
+   }
+  ],
+  "guidance": [],
+  "segments": [
+   "Google Services",
+   "Google Cloud",
+   "Other Bets"
+  ],
+  "topics": [
+   "consolidated revenues",
+   "revenue growth",
+   "Google Services revenue",
+   "Google Search revenue",
+   "Google Cloud revenue",
+   "operating income",
+   "operating margin",
+   "net income",
+   "earnings per share",
+   "segment results",
+   "geographic revenue breakdown",
+   "AI infrastructure",
+   "AI solutions",
+   "TPU systems",
+   "Gemini models",
+   "YouTube Music subscribers",
+   "cash flows",
+   "capital expenditures",
+   "debt issuance",
+   "stock issuance",
+   "dividends",
+   "at-the-market offering",
+   "free cash flow",
+   "employee count"
+  ],
+  "absent_from_this_document": [
+   "no quantitative guidance for future quarters or years in this release",
+   "no forward guidance for revenue growth in this release",
+   "no forward guidance for operating margins in this release",
+   "no forward guidance for capital expenditures in this release"
+  ]
+ },
+ "quote_checks": [
+  {
+   "speaker": "Sundar Pichai",
+   "topic": "results",
+   "chars": 200,
+   "coverage": 1.0,
+   "windows": 28,
+   "splices": 0,
+   "scattered": false,
+   "verdict": "VERBATIM"
+  },
+  {
+   "speaker": "Sundar Pichai",
+   "topic": "demand",
+   "chars": 184,
+   "coverage": 1.0,
+   "windows": 25,
+   "splices": 0,
+   "scattered": false,
+   "verdict": "VERBATIM"
+  },
+  {
+   "speaker": "Sundar Pichai",
+   "topic": "demand",
+   "chars": 185,
+   "coverage": 1.0,
+   "windows": 25,
+   "splices": 0,
+   "scattered": false,
+   "verdict": "VERBATIM"
+  },
+  {
+   "speaker": "Sundar Pichai",
+   "topic": "strategy",
+   "chars": 201,
+   "coverage": 1.0,
+   "windows": 29,
+   "splices": 0,
+   "scattered": false,
+   "verdict": "VERBATIM"
+  },
+  {
+   "speaker": "Sundar Pichai",
+   "topic": "results",
+   "chars": 213,
+   "coverage": 1.0,
+   "windows": 28,
+   "splices": 0,
+   "scattered": false,
+   "verdict": "VERBATIM"
+  },
+  {
+   "speaker": "Sundar Pichai",
+   "topic": "strategy",
+   "chars": 60,
+   "coverage": 1.0,
+   "windows": 5,
+   "splices": 0,
+   "scattered": false,
+   "verdict": "VERBATIM"
+  }
+ ],
+ "usage": {
+  "model": "claude-haiku-4-5-20251001",
+  "input_tokens": 8669,
+  "output_tokens": 803,
+  "cost_usd": 0.01268,
+  "chars_sent": 26453,
+  "chars_truncated": 0
+ }
+}

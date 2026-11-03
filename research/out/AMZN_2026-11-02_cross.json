@@ -1,0 +1,151 @@
+{
+ "asof": "2026-11-02",
+ "chain": [
+  {
+   "chain": "Artificial Intelligence",
+   "peers": [
+    {
+     "in_universe": true,
+     "momentum": 10,
+     "rs_rank": 1897,
+     "ticker": "GOOGL"
+    },
+    {
+     "in_universe": true,
+     "momentum": 13,
+     "rs_rank": 1708,
+     "ticker": "META"
+    },
+    {
+     "in_universe": true,
+     "momentum": 22,
+     "rs_rank": 1393,
+     "ticker": "ORCL"
+    },
+    {
+     "in_universe": true,
+     "momentum": 45,
+     "rs_rank": 771,
+     "ticker": "MSFT"
+    }
+   ],
+   "stage": "Hyperscalers / Cloud (the Buyers)",
+   "stage_momentum_asof_chains": 28,
+   "stage_rank_of": 94,
+   "stage_rank_weakest_first": 38,
+   "stage_scored": 5
+  }
+ ],
+ "chain_staleness": "Stage membership and stage momentum come from chains.json as of 2026-10-30, while prices and ranks are 2026-11-02. Peer momentum has been re-read from the 2026-11-02 snapshot; the stage-level score has not and is 2026-10-30 vintage.",
+ "chains_asof": "2026-10-30",
+ "cohort": {
+  "at_or_below_momentum": 613,
+  "band_names": [
+   "ANIP",
+   "BKD",
+   "BRKR",
+   "CALM",
+   "CMI",
+   "CNXN",
+   "CZR",
+   "DNLI",
+   "GRBK",
+   "HPQ",
+   "ITT",
+   "KSPI",
+   "LOGI",
+   "LRN",
+   "MDB",
+   "PBF",
+   "PSMT",
+   "SRRK",
+   "STVN",
+   "TBBK"
+  ],
+  "band_size": 85,
+  "band_width": 2,
+  "share_pct": 31.78
+ },
+ "covered": true,
+ "movement": {
+  "momentum_1m_ago": 60,
+  "momentum_1w_ago": 49,
+  "rank_change_1m": -509,
+  "rank_change_1w": -386,
+  "rs_rank_1m_ago": 855,
+  "rs_rank_1w_ago": 978,
+  "sessions_available": 40
+ },
+ "peer_group": {
+  "members": 6,
+  "name": "Broadline Retail",
+  "strongest": [
+   {
+    "momentum": 89,
+    "rs_rank": 69,
+    "ticker": "KSS"
+   },
+   {
+    "momentum": 91,
+    "rs_rank": 230,
+    "ticker": "ETSY"
+   },
+   {
+    "momentum": 74,
+    "rs_rank": 244,
+    "ticker": "EBAY"
+   },
+   {
+    "momentum": 62,
+    "rs_rank": 565,
+    "ticker": "M"
+   },
+   {
+    "momentum": 53,
+    "rs_rank": 762,
+    "ticker": "OLLI"
+   }
+  ],
+  "weakest": [
+   {
+    "momentum": 91,
+    "rs_rank": 230,
+    "ticker": "ETSY"
+   },
+   {
+    "momentum": 74,
+    "rs_rank": 244,
+    "ticker": "EBAY"
+   },
+   {
+    "momentum": 62,
+    "rs_rank": 565,
+    "ticker": "M"
+   },
+   {
+    "momentum": 53,
+    "rs_rank": 762,
+    "ticker": "OLLI"
+   },
+   {
+    "momentum": 33,
+    "rs_rank": 1364,
+    "ticker": "AMZN"
+   }
+  ]
+ },
+ "standing": {
+  "bz_streak": 0,
+  "close": 245.6300048828125,
+  "from_52w_high": -14.5,
+  "from_52w_low": 25.3,
+  "momentum": 33,
+  "peer_group": "Broadline Retail",
+  "peer_percentile": 17,
+  "rs_rank": 1364,
+  "rs_rank_of": 1929,
+  "sector_percentile": 21
+ },
+ "ticker": "AMZN",
+ "universe_scored": 1929
+}

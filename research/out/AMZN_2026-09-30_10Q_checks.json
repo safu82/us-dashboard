@@ -1,0 +1,75 @@
+{
+ "accession": "0001018724-26-000040",
+ "checks": [
+  {
+   "detail": "Cover-page shares outstanding 10,813,138,306 (as of 2026-10-21). Weighted-average basic for the quarter is 10,797,000,000, a +0.1% difference.",
+   "evidence": "EntityCommonStockSharesOutstanding",
+   "id": "share_count",
+   "question": "Is a current share count available?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "No noncontrolling interest. Attributable profit $20.68bn.",
+   "evidence": "NetIncomeLoss",
+   "id": "minority_interest",
+   "question": "Is profit attributable or total?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "EPS 1.92 x 10,797,000,000 shares = $20.73bn vs attributable $20.68bn; ties within 0.2%.",
+   "id": "eps_tie",
+   "question": "Does basic EPS tie to profit / shares?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "Basic 1.92, diluted 1.89 \u2014 1.6% dilution.",
+   "id": "dilution_gap",
+   "question": "How large is the basic-to-diluted gap?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "Tax $6.18bn on pre-tax $26.87bn = 23.0%.",
+   "id": "tax_rate",
+   "question": "Is the effective tax rate normal?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "revenue $201.94bn over the quarter to 2026-09-30; operating margin 13.9%; net margin 10.2%.",
+   "id": "margins",
+   "question": "Is profitability in a normal range?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "Operating cash flow $42.42bn, capex $77.26bn, free cash flow $-34.84bn over the quarter to 2026-09-30. The build is not self-funded over this span.",
+   "id": "capex_vs_ocf",
+   "question": "Is capex covered by operating cash flow?",
+   "verdict": "FLAG"
+  },
+  {
+   "detail": "debt raised $48.10bn.",
+   "id": "funding",
+   "question": "How was the period funded?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "None tagged. Note this is weaker than reading the statement \u2014 only tagged items are visible here.",
+   "id": "unusual_items",
+   "question": "Any restructuring or impairment?",
+   "verdict": "PASS"
+  },
+  {
+   "detail": "9 field(s) not tagged in this filing: buybacks, dividends_paid, equity_incl_nci, impairment, net_income_total, noncontrolling_interest, rd_expense, restructuring, stock_issued. These must be read from the statement or left explicitly unverified \u2014 never inferred.",
+   "id": "coverage",
+   "question": "Did every schema field resolve?",
+   "verdict": "FLAG"
+  }
+ ],
+ "form": "10-Q",
+ "period_end": "2026-09-30",
+ "source_url": "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000040/amzn-20260930.htm",
+ "tally": {
+  "FLAG": 2,
+  "PASS": 8
+ },
+ "ticker": "AMZN"
+}

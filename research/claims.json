@@ -1,0 +1,38 @@
+[
+ {
+  "id": "SNDK-001",
+  "ticker": "SNDK",
+  "made_on": "2026-11-03",
+  "source_note": "EXAMPLE - written while building the historian, not a view",
+  "text": "Operating margin holds above 50% through FY27",
+  "metric": "operating_margin",
+  "op": ">=",
+  "value": 50,
+  "horizon": "2027-06-30",
+  "status": "open"
+ },
+ {
+  "id": "SNDK-002",
+  "ticker": "SNDK",
+  "made_on": "2026-11-03",
+  "source_note": "EXAMPLE - written while building the historian, not a view",
+  "text": "Momentum recovers above 30 by end-2026",
+  "metric": "momentum",
+  "op": ">=",
+  "value": 30,
+  "horizon": "2026-12-31",
+  "status": "open"
+ },
+ {
+  "id": "SNDK-003",
+  "ticker": "SNDK",
+  "made_on": "2026-11-03",
+  "source_note": "EXAMPLE - deliberately references a metric the pack does not carry, to show the unresolvable verdict",
+  "text": "Net debt stays below $2bn at FY27",
+  "metric": "net_debt",
+  "op": "<",
+  "value": 2000000000,
+  "horizon": "2027-06-30",
+  "status": "open"
+ }
+]

@@ -1,0 +1,117 @@
+{
+ "ticker": "SNDK",
+ "form": "8-K",
+ "items": "2.02,8.01,9.01",
+ "filed": "2026-10-29",
+ "period": "2026-10-29",
+ "accession": "0001628280-26-068243",
+ "exhibit": "sndkq1-27ex991xpressrelease.htm",
+ "source_url": "https://www.sec.gov/Archives/edgar/data/2023554/000162828026068243/sndkq1-27ex991xpressrelease.htm",
+ "text_chars": 27526,
+ "extraction": {
+  "quotes": [
+   {
+    "speaker": "David Goeckeler",
+    "role": "Chairman and Chief Executive Officer of Sandisk",
+    "text": "We have started fiscal year 2027 with another quarter of strong performance, with robust and growing demand for our products driving outpaced growth in our data center business. We are executing on the strategy that we outlined at Investor Day, delivering growing and durable free cash flow through our technology leadership, deep customer partnerships, and disciplined financial management.",
+    "topic": "results"
+   }
+  ],
+  "guidance": [
+   {
+    "metric": "Revenue",
+    "period": "Fiscal second quarter 2027",
+    "value": "$12.2 billion to $12.6 billion",
+    "verbatim": "Expect second quarter 2027 revenue to be in the range of $12.2 billion to $12.6 billion"
+   },
+   {
+    "metric": "Non-GAAP diluted net income per share",
+    "period": "Fiscal second quarter 2027",
+    "value": "$55.00 to $57.00",
+    "verbatim": "with expected Non-GAAP diluted net income per share on a pre-split basis in the range of $55.00 to $57.001"
+   },
+   {
+    "metric": "Gross Margin",
+    "period": "Fiscal second quarter 2027",
+    "value": "84.4% - 85.4% (GAAP); 84.5% - 85.5% (Non-GAAP)",
+    "verbatim": "Gross Margin | 84.4% - 85.4% | 84.5% - 85.5%"
+   },
+   {
+    "metric": "Operating Expenses",
+    "period": "Fiscal second quarter 2027",
+    "value": "$677 - $745 (GAAP); $540 - $560 (Non-GAAP)",
+    "verbatim": "Operating Expenses | $677 - $745 | $540 - $560"
+   }
+  ],
+  "segments": [
+   "Datacenter",
+   "Edge",
+   "Consumer"
+  ],
+  "topics": [
+   "fiscal first quarter 2027 revenue",
+   "GAAP and Non-GAAP net income",
+   "diluted net income per share",
+   "share repurchases",
+   "stock split",
+   "second quarter 2027 guidance",
+   "gross margin",
+   "operating expenses",
+   "end market performance",
+   "datacenter business growth",
+   "free cash flow",
+   "technology leadership",
+   "customer partnerships"
+  ],
+  "notable_absences": [
+   "No segment operating margins disclosed",
+   "No guidance for GAAP diluted net income per share for Q2 2027",
+   "No specific geographic revenue breakdown",
+   "No product category revenue breakdown"
+  ]
+ },
+ "quote_checks": [
+  {
+   "speaker": "David Goeckeler",
+   "topic": "results",
+   "chars": 391,
+   "coverage": 0.863,
+   "windows": 51,
+   "splices": 1,
+   "scattered": false,
+   "verdict": "SPLICED"
+  },
+  {
+   "guidance": "Revenue",
+   "coverage": 1.0,
+   "splices": 0,
+   "verdict": "VERBATIM"
+  },
+  {
+   "guidance": "Non-GAAP diluted net income per share",
+   "coverage": 1.0,
+   "splices": 0,
+   "verdict": "VERBATIM"
+  },
+  {
+   "guidance": "Gross Margin",
+   "coverage": 1.0,
+   "splices": 0,
+   "verdict": "VERBATIM"
+  },
+  {
+   "guidance": "Operating Expenses",
+   "coverage": 1.0,
+   "splices": 0,
+   "verdict": "VERBATIM"
+  }
+ ],
+ "usage": {
+  "model": "claude-haiku-4-5-20251001",
+  "input_tokens": 8189,
+  "output_tokens": 728,
+  "cost_usd": 0.01183,
+  "chars_sent": 27526,
+  "chars_truncated": 0
+ }
+}
