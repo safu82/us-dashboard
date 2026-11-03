@@ -142,15 +142,41 @@ def do_login():
         ctx = b.new_context()
         page = ctx.new_page()
         page.goto('https://x.com/login')
-        try:
-            page.wait_for_url('**/home', timeout=300000)
-        except Exception:
-            print('Did not reach the home timeline within 5 minutes; '
-                  'nothing saved.')
-            b.close()
+
+        # Poll for the auth cookie rather than waiting for a URL. Waiting for
+        # **/home was wrong: a successful login often lands on an interstitial
+        # or an /i/flow/ page and only reaches the timeline after a click, so
+        # the wait timed out on sessions that had in fact succeeded. The
+        # auth_token cookie is the thing that actually makes the session work,
+        # which makes it the right thing to wait for.
+        deadline = time.time() + 300
+        last = ''
+        while time.time() < deadline:
+            try:
+                if any(c['name'] == 'auth_token' and c['value']
+                       for c in ctx.cookies()):
+                    print('\nSigned in — saving the session.')
+                    ctx.storage_state(path=STATE)
+                    b.close()
+                    break
+                where = (page.url or '')[:72]
+                if where != last:
+                    print(f'  waiting... currently on {where}')
+                    last = where
+            except Exception:
+                # The window was closed, or navigated mid-read.
+                break
+            time.sleep(2)
+        else:
+            print('\nNo auth cookie after 5 minutes; nothing saved.')
+            try:
+                b.close()
+            except Exception:
+                pass
             return 1
-        ctx.storage_state(path=STATE)
-        b.close()
+        if not os.path.exists(STATE):
+            print('Window closed before sign-in completed; nothing saved.')
+            return 1
     print(f'Saved session to {STATE}')
     print('That file is a live credential. It is gitignored; keep it out of '
           'anywhere shared, and put it in a secret if this ever runs in CI.')
@@ -248,7 +274,16 @@ def main():
     from playwright.sync_api import sync_playwright
     out, no_entity = [], 0
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless='--headed' not in sys.argv)
+        # Same browser the session was saved from. A cookie works either way,
+        # but a session captured in real Chrome and replayed in a bundled
+        # Chromium presents a different fingerprint than the one it was issued
+        # to, which is exactly the mismatch a site looks for.
+        headless = '--headed' not in sys.argv
+        try:
+            browser = pw.chromium.launch(channel='chrome', headless=headless)
+        except Exception:
+            print('  (real Chrome unavailable; using bundled Chromium)')
+            browser = pw.chromium.launch(headless=headless)
         ctx = browser.new_context(storage_state=STATE,
                                   viewport={'width': 1280, 'height': 2000})
         page = ctx.new_page()
