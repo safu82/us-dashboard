@@ -3,24 +3,24 @@
   {
    "type": "no_coverage",
    "auto": true,
-   "text": "Bit Digital fell 14.3% on the 2026-10-30 session.\n\nWe read 56 separate outlets. Not one of them wrote about it.\n\n10x Genomics fell 14.0%. Also nothing.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
-   "chars": 243,
+   "text": "COMPASS Pathways Plc - Ameri fell 27.3% on the 2026-11-02 session.\n\nWe read 62 separate outlets. Not one of them wrote about it.\n\nIdexx Laboratories rose 21.8%. Also nothing.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
+   "chars": 266,
    "tickers": [
-    "BTBT",
-    "TXG"
+    "CMPS",
+    "IDXX"
    ],
-   "link": "https://overnightarc.com/digest/2026-10-30/",
+   "link": "https://overnightarc.com/digest/2026-11-02/",
    "checks": [
-    "matcher healthy: 56 sources, 229 wire items",
+    "matcher healthy: 62 sources, 255 wire items",
     "mover chased individually and returned nothing",
-    "move 14.3% clears the 8% floor"
+    "move 27.3% clears the 8% floor"
    ],
    "approved": true
   },
   {
    "type": "chain",
    "auto": true,
-   "text": "9 stages in our Cybersecurity value chain; 8 have enough scored names to rank. They are not moving together.\n\nTop: Services — $ACN $BAH $CACI — 90/100\nBottom: Email & Web — $AKAM $MSFT $NET — 20\n\nMoney isn't moving into Cybersecurity. It's moving into parts of it.",
+   "text": "9 stages in our Cybersecurity value chain; 8 have enough scored names to rank. They are not moving together.\n\nTop: Services — $ACN $BAH $CACI — 91/100\nBottom: Email & Web — $AKAM $MSFT $NET — 18\n\nMoney isn't moving into Cybersecurity. It's moving into parts of it.",
    "chars": 264,
    "tickers": [
     "ACN",
@@ -39,13 +39,13 @@
   {
    "type": "standing",
    "auto": false,
-   "text": "Biggest changes in standing on the 2026-10-30 session — momentum, not price:\n\nGPN  47→69 (+22) on +13.0%\nSMP  48→68 (+20) on +10.9%\nATEC  71→34 (-37) on -38.1%\nILMN  72→48 (-24) on -18.6%\n\nA big move and a change in position are different things. This is the second.",
-   "chars": 266,
+   "text": "Biggest changes in standing on the 2026-11-02 session — momentum, not price:\n\nEVGO  29→60 (+31) on +46.8%\nPHIN  48→68 (+20) on +12.5%\nNSSC  83→56 (-27) on -18.4%\nDRUG  46→24 (-22) on -52.3%\n\nA big move and a change in position are different things. This is the second.",
+   "chars": 268,
    "tickers": [
-    "GPN",
-    "SMP",
-    "ATEC",
-    "ILMN"
+    "EVGO",
+    "PHIN",
+    "NSSC",
+    "DRUG"
    ],
    "link": "https://overnightarc.com/",
    "checks": [
@@ -59,7 +59,7 @@
    "type": "regime",
    "auto": false,
    "text": null,
-   "blocked": "not near the switch (3.8pp away)",
+   "blocked": "not near the switch (4.9pp away)",
    "approved": false
   }
  ],
