@@ -258,6 +258,12 @@ digest.html
 # Cached third-party transcripts; re-fetchable, 25 calls/day available.
 research/cache/
 
+# Generated notes, evidence packs and critiques. Every one is reproducible
+# from the filing and the snapshot archive, each run rewrites them, and the
+# packs are large. The pipeline is the artefact worth versioning, not its
+# output.
+research/out/
+
 # Stray downloaded images (X media, WhatsApp). Not project files.
 *.jpeg
 *.jpg

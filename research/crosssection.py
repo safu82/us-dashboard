@@ -87,6 +87,46 @@ def nearest_date(on_or_before):
     return r.data[0]['snapshot_date'] if r.data else None
 
 
+def levels(ticker, asof=None):
+    """The price map: where the stock sits against the lines people watch.
+
+    Read from the live table rather than the archive, because moving averages
+    are only meaningful at the current date and the archive deliberately does
+    not carry them. Each level is returned with its distance from the close,
+    which is the form a note uses it in.
+    """
+    asof = asof or _max_date(LIVE)
+    r = (sb.table(LIVE).select(
+            'close,high_52w,low_52w,ema_20,ema_50,ema_200,atr_14,rsi_14,'
+            'vol_ratio,snapshot_date')
+         .eq('ticker', ticker.upper()).eq('snapshot_date', asof)
+         .limit(1).execute())
+    if not r.data:
+        return None
+    d = r.data[0]
+    close = d.get('close')
+    if not close:
+        return None
+    out = {'asof': asof, 'close': close, 'levels': []}
+    for label, key in (('52-week high', 'high_52w'), ('200-day EMA', 'ema_200'),
+                       ('50-day EMA', 'ema_50'), ('20-day EMA', 'ema_20'),
+                       ('52-week low', 'low_52w')):
+        v = d.get(key)
+        if v:
+            out['levels'].append({
+                'level': label, 'price': round(float(v), 2),
+                'from_close_pct': round((float(v) - close) / close * 100, 1)})
+    out['levels'].sort(key=lambda x: -x['price'])
+    atr = d.get('atr_14')
+    if atr:
+        out['atr_14'] = round(float(atr), 2)
+        out['atr_pct_of_close'] = round(float(atr) / close * 100, 2)
+    for k in ('rsi_14', 'vol_ratio'):
+        if d.get(k) is not None:
+            out[k] = round(float(d[k]), 2)
+    return out
+
+
 def _page(table, columns, filters, page=1000):
     out, frm = [], 0
     while True:
@@ -265,7 +305,14 @@ def cross_section(ticker, asof=None, uni=None, stage_data=None):
                           'rs_rank': row['rs_rank'] if row else None,
                           'in_universe': bool(row)})
         peers.sort(key=lambda m: (m['momentum'] is None, m['momentum']))
+        # The distribution, computed, so a note cannot describe the stage by
+        # picking the members that suit it. A SanDisk note argued its fall
+        # was group-wide while quietly omitting NTAP, the one peer that had
+        # held up.
+        import chain as _C
+        peer_spread = _C.spread(peers + [{'ticker': ticker, 'momentum': mom}])
         pack['chain'].append({
+            'spread_including_subject': peer_spread,
             'chain': s['chain'], 'stage': s['stage'],
             'stage_momentum_asof_chains': s['mom'],
             'stage_scored': s['scored'],
