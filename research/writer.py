@@ -284,6 +284,56 @@ def derive(packs):
 # the note
 # ---------------------------------------------------------------------------
 
+# Shared by the writer and the reviser. The reviser used to be told only to
+# keep "every rule from the original brief", which it had never seen, so a
+# revision corrected the facts and left the prose exactly as dense as before.
+STYLE = """
+HOW TO WRITE IT
+
+This is read by a person, once, probably early in the morning. Every rule
+below exists because a draft broke it and became hard to read.
+
+- Round every figure to what a reader can hold. $13.4bn, not $13,377 million.
+  $7.62, not $7.6207. An RSI of 29, not 29.25. Two decimal places is the most
+  anything needs and most things need none. Precision that cannot be acted on
+  is noise, and ten of them in a paragraph is a table pretending to be prose.
+- Say the thing, then the number that shows it. "Revenue grew faster than the
+  company had guided, reaching $13.4bn against the $13bn it promised in
+  August" — not "revenue $13,377m vs guide $13.0bn +/- $300m".
+- At most two figures in a sentence. A third belongs in the next sentence or
+  in the table. The table carries the precise values; the prose carries the
+  argument.
+- Write complete sentences with verbs in them. No "For: ... Against: ..."
+  constructions, no lists wearing the clothes of a paragraph, no strings of
+  figures joined by commas and left without a predicate.
+- One idea per paragraph, three to five sentences, never more than ninety
+  words. If a paragraph turns to a second subject, start a new paragraph.
+- At most one subordinate clause per sentence. A sentence carrying two
+  dashes, or a semicolon and a dash, is two sentences that have not been
+  separated yet.
+- Dates belong in the table, not in the prose. Write "in the latest session"
+  or "a month ago", and give the actual date once if it matters. A sentence
+  carrying three ISO dates is unreadable.
+- No sell-side shorthand: year on year, not y/y; the quarter just reported,
+  not Q3'26. Write a technical term out the first time it carries weight.
+- Prefer the short word. A business converts cash, it does not "exhibit cash
+  conversion characteristics".
+- Never end a sentence with a clause about what the evidence failed to say.
+  "...though the basis is not stated", "...on a basis the release does not
+  give", "...the release does not disclose what drove it" — these are notes
+  to yourself about the pack, and three of them in a note makes every figure
+  look doubtful. If something unknown genuinely changes the conclusion, give
+  it one plain sentence of its own and say what it would take to resolve it.
+  Otherwise leave it out: the tables carry the basis.
+- No double negatives. "No retraction is not yet evidence that intent is
+  intact" cannot be read once and understood. Say what is true: the budgets
+  stand until the next set of results, and standing is weaker than repeating.
+
+Read the draft back before returning it. If a sentence has to be read twice
+to be understood, it is the sentence that is wrong, not the reader. No hedging
+stacks, no "it is worth noting", no summary paragraph at the end.
+"""
+
 PROMPT = """You are an analyst writing an internal note from a prepared
 evidence pack. Write the note a portfolio manager would act on.
 
@@ -374,6 +424,12 @@ STRUCTURE
 why, and the level or event that would change it. Be decisive. If the
 evidence genuinely does not support a view, say what is missing that would.
 
+The verdict and the target must agree. If the most you would pay is below the
+current price, the verdict is not BUY on any wording — it is HOLD, or AVOID,
+and the thing to say is the level at which it becomes a buy. A note that
+recommends buying something it has just valued below the market is not being
+decisive, it is contradicting itself in two places a reader will notice.
+
 ### The argument
 Three or four paragraphs. This is the note. Use the quarter, the estimates,
 the positioning and management's words as material for a case, not as
@@ -390,9 +446,8 @@ evidence.
 Four or five specific, checkable triggers. Each must name a figure or a
 level, not a sentiment.
 
-Under 800 words. Plain declarative sentences. No hedging stacks, no "it is
-worth noting", no summary paragraph at the end. Markdown.
-
+Under 800 words. Markdown.
+""" + STYLE + """
 EVIDENCE
 """
 
@@ -435,6 +490,31 @@ def build_context(packs, derived, derive_notes):
     est = packs.get('estimates') or {}
     if est.get('surprises'):
         ctx['surprise_history'] = est['surprises']
+        # Which basis is the consensus on? The feed does not say, and a note
+        # that guesses is comparing a non-GAAP actual against an unknown, or
+        # hedging the beat into meaninglessness. It is decidable: take the
+        # most recent quarter the feed HAS an actual for and compare it with
+        # the GAAP diluted EPS the XBRL reported for that quarter. AMD's feed
+        # says 1.66 for the June quarter where GAAP diluted was 1.38 and
+        # non-GAAP was 1.66, so the feed is adjusted.
+        gaap = ((f or {}).get('quarter') or {}).get('eps_diluted') or {}
+        gaap_eps = gaap.get('value')
+        prior = next((q for q in (est['surprises'].get('quarters') or [])
+                      if q.get('reported_eps') is not None), None)
+        if gaap_eps and prior:
+            same = abs(prior['reported_eps'] - gaap_eps) <= 0.02 * abs(gaap_eps)
+            ctx['consensus_basis'] = {
+                'verdict': 'GAAP' if same else 'non-GAAP (adjusted)',
+                'how': (f"For the quarter to {prior['period']} the consensus "
+                        f"feed reports {prior['reported_eps']} as the actual, "
+                        f"while the filed GAAP diluted EPS for the quarter "
+                        f"ending {(f or {}).get('period_end')} was {gaap_eps}. "
+                        f"They "
+                        + ('agree, so the feed is GAAP.' if same else
+                           'disagree, so the feed is not GAAP: it is the '
+                           'adjusted figure. Compare it with the non-GAAP '
+                           'actual and say so plainly — this is established, '
+                           'not assumed, so do not hedge it.'))}
     if est.get('consensus'):
         ctx['forward_consensus'] = [c_ for c_ in est['consensus']
                                     if c_.get('horizon') == 'fiscal year']
@@ -632,10 +712,15 @@ Do not simply append caveats. Rewrite the argument so the corrections are
 part of it. If the corrections change the conclusion, change the conclusion —
 a verdict that survives only because you ignored a correction is worthless.
 
-Keep the structure, the length limit and every rule from the original brief:
-no mention of verification, packs, coverage scores or provenance; every
-figure from the evidence; one price for all multiples.
+Keep the structure and the length limit, and these rules from the original
+brief: no mention of verification, packs, coverage scores or provenance;
+every figure from the evidence; one price for all multiples.
 
+A revision is not an opportunity to make the prose denser. Correcting a
+figure usually means adding a clause, and clauses accumulate — the rewrite
+must come back as readable as the brief below demands, or more so. If a
+correction will not fit in a sentence, give it its own sentence.
+""" + STYLE + """
 Return the revised note as markdown and nothing else.
 
 ORIGINAL NOTE
