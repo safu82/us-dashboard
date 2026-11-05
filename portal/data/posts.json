@@ -3,24 +3,24 @@
   {
    "type": "no_coverage",
    "auto": true,
-   "text": "Bit Digital rose 15.1% on the 2026-11-03 session.\n\nWe read 63 separate outlets. Not one of them wrote about it.\n\nDynatrace fell 14.7%. Also nothing.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
-   "chars": 240,
+   "text": "Amdocs Limited fell 30.1% on the 2026-11-04 session.\n\nWe read 55 separate outlets. Not one of them wrote about it.\n\nDream Finders Homes rose 26.8%. Also nothing.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
+   "chars": 253,
    "tickers": [
-    "BTBT",
-    "DT"
+    "DOX",
+    "DFH"
    ],
-   "link": "https://overnightarc.com/digest/2026-11-03/",
+   "link": "https://overnightarc.com/digest/2026-11-04/",
    "checks": [
-    "matcher healthy: 63 sources, 356 wire items",
+    "matcher healthy: 55 sources, 325 wire items",
     "mover chased individually and returned nothing",
-    "move 15.1% clears the 8% floor"
+    "move 30.1% clears the 8% floor"
    ],
    "approved": true
   },
   {
    "type": "chain",
    "auto": true,
-   "text": "9 stages in our Cybersecurity value chain; 8 have enough scored names to rank. They are not moving together.\n\nTop: Services — $ACN $BAH $CACI — 89/100\nBottom: Email & Web — $AKAM $MSFT $NET — 17\n\nMoney isn't moving into Cybersecurity. It's moving into parts of it.",
+   "text": "9 stages in our Cybersecurity value chain; 8 have enough scored names to rank. They are not moving together.\n\nTop: Services — $ACN $BAH $CACI — 87/100\nBottom: Email & Web — $AKAM $MSFT $NET — 16\n\nMoney isn't moving into Cybersecurity. It's moving into parts of it.",
    "chars": 264,
    "tickers": [
     "ACN",
@@ -39,13 +39,13 @@
   {
    "type": "standing",
    "auto": false,
-   "text": "Biggest changes in standing on the 2026-11-03 session — momentum, not price:\n\nARRY  26→54 (+28) on +22.1%\nGPK  46→71 (+25) on +21.2%\nSYY  63→46 (-17) on -9.3%\nCVI  55→38 (-17) on -13.1%\n\nA big move and a change in position are different things. This is the second.",
-   "chars": 264,
+   "text": "Biggest changes in standing on the 2026-11-04 session — momentum, not price:\n\nRYTM  37→63 (+26) on +28.0%\nAHCO  47→66 (+19) on +16.4%\nNRIX  78→39 (-39) on -38.2%\nDOX  70→34 (-36) on -30.1%\n\nA big move and a change in position are different things. This is the second.",
+   "chars": 267,
    "tickers": [
-    "ARRY",
-    "GPK",
-    "SYY",
-    "CVI"
+    "RYTM",
+    "AHCO",
+    "NRIX",
+    "DOX"
    ],
    "link": "https://overnightarc.com/",
    "checks": [
@@ -59,7 +59,7 @@
    "type": "regime",
    "auto": false,
    "text": null,
-   "blocked": "not near the switch (5.2pp away)",
+   "blocked": "not near the switch (3.3pp away)",
    "approved": false
   }
  ],
