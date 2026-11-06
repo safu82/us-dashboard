@@ -1,4 +1,13 @@
 {
+ "18475209efec0871b1cce2796461d16c6a38be8da4f617aa00255cdfbca457ed": {
+  "at": "2026-11-06T08:32:48Z",
+  "id": "2118622616109953435",
+  "tickers": [
+   "CAI",
+   "KEEL"
+  ],
+  "type": "no_coverage"
+ },
  "5e9320360cbf968f77213183e38740d3ba15591b2ed4dda3705d42192dbef7be": {
   "at": "2026-10-29T12:13:55Z",
   "id": null,
