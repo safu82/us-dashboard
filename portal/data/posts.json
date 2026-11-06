@@ -3,24 +3,24 @@
   {
    "type": "no_coverage",
    "auto": true,
-   "text": "Amdocs Limited fell 30.1% on the 2026-11-04 session.\n\nWe read 55 separate outlets. Not one of them wrote about it.\n\nDream Finders Homes rose 26.8%. Also nothing.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
-   "chars": 253,
+   "text": "Caris Life Sciences fell 21.6% on the 2026-11-05 session.\n\nWe read 62 separate outlets. Not one of them wrote about it.\n\nKeel Infrastructure Corp. fell 21.4%. Also nothing.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
+   "chars": 264,
    "tickers": [
-    "DOX",
-    "DFH"
+    "CAI",
+    "KEEL"
    ],
-   "link": "https://overnightarc.com/digest/2026-11-04/",
+   "link": "https://overnightarc.com/digest/2026-11-05/",
    "checks": [
-    "matcher healthy: 55 sources, 325 wire items",
+    "matcher healthy: 62 sources, 338 wire items",
     "mover chased individually and returned nothing",
-    "move 30.1% clears the 8% floor"
+    "move 21.6% clears the 8% floor"
    ],
    "approved": true
   },
   {
    "type": "chain",
    "auto": true,
-   "text": "9 stages in our Cybersecurity value chain; 8 have enough scored names to rank. They are not moving together.\n\nTop: Services — $ACN $BAH $CACI — 87/100\nBottom: Email & Web — $AKAM $MSFT $NET — 16\n\nMoney isn't moving into Cybersecurity. It's moving into parts of it.",
+   "text": "9 stages in our Cybersecurity value chain; 8 have enough scored names to rank. They are not moving together.\n\nTop: Services — $ACN $BAH $CACI — 86/100\nBottom: Email & Web — $AKAM $MSFT $NET — 15\n\nMoney isn't moving into Cybersecurity. It's moving into parts of it.",
    "chars": 264,
    "tickers": [
     "ACN",
@@ -39,13 +39,13 @@
   {
    "type": "standing",
    "auto": false,
-   "text": "Biggest changes in standing on the 2026-11-04 session — momentum, not price:\n\nRYTM  37→63 (+26) on +28.0%\nAHCO  47→66 (+19) on +16.4%\nNRIX  78→39 (-39) on -38.2%\nDOX  70→34 (-36) on -30.1%\n\nA big move and a change in position are different things. This is the second.",
+   "text": "Biggest changes in standing on the 2026-11-05 session — momentum, not price:\n\nAPP  19→47 (+28) on +31.0%\nECPG  41→66 (+25) on +26.3%\nVCYT  79→35 (-44) on -54.3%\nRELY  75→49 (-26) on -20.4%\n\nA big move and a change in position are different things. This is the second.",
    "chars": 267,
    "tickers": [
-    "RYTM",
-    "AHCO",
-    "NRIX",
-    "DOX"
+    "APP",
+    "ECPG",
+    "VCYT",
+    "RELY"
    ],
    "link": "https://overnightarc.com/",
    "checks": [
@@ -59,7 +59,7 @@
    "type": "regime",
    "auto": false,
    "text": null,
-   "blocked": "not near the switch (3.3pp away)",
+   "blocked": "not near the switch (7.3pp away)",
    "approved": false
   }
  ],
