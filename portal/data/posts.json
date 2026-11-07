@@ -3,33 +3,33 @@
   {
    "type": "no_coverage",
    "auto": true,
-   "text": "Caris Life Sciences fell 21.6% on the 2026-11-05 session.\n\nWe read 62 separate outlets. Not one of them wrote about it.\n\nKeel Infrastructure Corp. fell 21.4%. Also nothing.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
-   "chars": 264,
+   "text": "Firefly Aerospace Inc. rose 36.8% on the 2026-11-06 session.\n\nWe read 61 separate outlets. Not one of them wrote about it.\n\nNew Era Energy & Digital rose 27.0%. Also nothing.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
+   "chars": 266,
    "tickers": [
-    "CAI",
-    "KEEL"
+    "FLY",
+    "NUAI"
    ],
-   "link": "https://overnightarc.com/digest/2026-11-05/",
+   "link": "https://overnightarc.com/digest/2026-11-06/",
    "checks": [
-    "matcher healthy: 62 sources, 338 wire items",
+    "matcher healthy: 61 sources, 262 wire items",
     "mover chased individually and returned nothing",
-    "move 21.6% clears the 8% floor"
+    "move 36.8% clears the 8% floor"
    ],
    "approved": true
   },
   {
    "type": "chain",
    "auto": true,
-   "text": "9 stages in our Cybersecurity value chain; 8 have enough scored names to rank. They are not moving together.\n\nTop: Services — $ACN $BAH $CACI — 86/100\nBottom: Email & Web — $AKAM $MSFT $NET — 15\n\nMoney isn't moving into Cybersecurity. It's moving into parts of it.",
-   "chars": 264,
+   "text": "5 stages in our EVs & Batteries value chain. They are not moving together.\n\nTop: Charging & Infrastructure — $BLNK $CHPT $EVGO — 86/100\nBottom: EV Chips & Power Electronics — $ALGM $NXPI $ON — 16\n\nMoney isn't moving into EVs & Batteries. It's moving into parts of it.",
+   "chars": 267,
    "tickers": [
-    "ACN",
-    "BAH",
-    "CACI"
+    "BLNK",
+    "CHPT",
+    "EVGO"
    ],
-   "link": "https://overnightarc.com/themes/cyber/",
+   "link": "https://overnightarc.com/themes/ev/",
    "checks": [
-    "8 scoreable stages of 9 ranked in full",
+    "5 scoreable stages of 5 ranked in full",
     "thin stages excluded; each kept stage has 3+ scored names",
     "the post states k, so \"top\" and \"bottom\" cannot be read as covering stages we excluded",
     "superlatives derived from the ranking, not asserted"
@@ -39,13 +39,13 @@
   {
    "type": "standing",
    "auto": false,
-   "text": "Biggest changes in standing on the 2026-11-05 session — momentum, not price:\n\nAPP  19→47 (+28) on +31.0%\nECPG  41→66 (+25) on +26.3%\nVCYT  79→35 (-44) on -54.3%\nRELY  75→49 (-26) on -20.4%\n\nA big move and a change in position are different things. This is the second.",
-   "chars": 267,
+   "text": "Biggest changes in standing on the 2026-11-06 session — momentum, not price:\n\nGOGO  54→80 (+26) on +71.5%\nBLNK  18→41 (+23) on +26.0%\nBL  84→53 (-31) on -23.1%\nIRTC  91→62 (-29) on -30.7%\n\nA big move and a change in position are different things. This is the second.",
+   "chars": 266,
    "tickers": [
-    "APP",
-    "ECPG",
-    "VCYT",
-    "RELY"
+    "GOGO",
+    "BLNK",
+    "BL",
+    "IRTC"
    ],
    "link": "https://overnightarc.com/",
    "checks": [
@@ -59,7 +59,7 @@
    "type": "regime",
    "auto": false,
    "text": null,
-   "blocked": "not near the switch (7.3pp away)",
+   "blocked": "not near the switch (7.6pp away)",
    "approved": false
   }
  ],
