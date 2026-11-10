@@ -49,6 +49,11 @@ Exits:
   - T2/T3/T4: 33% at +2R + breakeven, 33% at +4R + 2xATR trail, rest trails.
   - Universal book-25%: book 25% if up >25% within 15 trading days.
   - Time stop: close if flat (-2%..+2%) after 25 trading days.
+  - Early breakeven arm: stop to entry at +5% MFE (PAPER_BE_PCT), before any
+    partial and regardless of R. The R-denominated paths reach breakeven at
+    +12-18% of price on a typical name and the trail arms at +10%, by which
+    point only 4 of 37 trades were still losing. 59 trades reached +5% and 20
+    of those closed at -5.65%.
   - Early trail arm: at +10% MFE.
 
 Inputs:  entry_signals, presignal_scores, daily_stock_snapshots, holdings,
@@ -104,6 +109,23 @@ UNIVERSAL_BOOK_PCT = 25.0
 UNIVERSAL_BOOK_QTY_PCT = 25
 PARTIAL_QTY_PCT = 33
 EARLY_TRAIL_PCT = 10.0
+# Bring the stop up to entry once the trade has shown this much, before the
+# trail arms and regardless of how many R that is.
+#
+# Both existing paths to breakeven are denominated in risk: the first partial
+# lands at +3R (T1) or +2R (T2-T4), which on a 2xATR stop means +12% to +18%
+# of price for a typical 3% ATR name. The early trail-arm is at +10%. All of
+# them protect the trade only after the danger has passed — of 121 closed
+# trades, 37 reached +10% unrealised and just 4 of those went on to lose, by
+# an average of 0.52%.
+#
+# The damage sits below that. 59 trades reached +5% and 20 of them still
+# closed at -5.65%; the average trade peaked at +8.24% and finished at
+# -1.64%. Arming the ATR trail earlier would not have caught them, because a
+# 2xATR trail hung off a +5% peak sits below the entry on anything with a 3%
+# ATR. What those trades needed was the stop at entry, which is a different
+# thing from a trail and arrives here first.
+EARLY_BREAKEVEN_PCT = float(os.environ.get('PAPER_BE_PCT', '5.0'))
 MAX_OPEN_POSITIONS = 20
 MAX_DEPLOYED_PCT = 0.95
 MAX_SECTOR_CONC = 0.25
@@ -851,6 +873,16 @@ def process_exits(sb, open_trades, today_snap, today_date):
             closed_today += 1
             actions.append({'id': tr['id'], 'ticker': ticker, 'action': 'partials_full'})
             continue
+
+        # 2a. Early breakeven-arm via MFE threshold.
+        #
+        # Deliberately after the stop check above, not before it. Within one
+        # bar there is no way to know whether the high came before the low, so
+        # arming off this bar's high and then testing this bar's low would be
+        # assuming the favourable order. The protection starts next session.
+        if not breakeven_armed and max_unrealized_pct >= EARLY_BREAKEVEN_PCT:
+            current_stop = max(current_stop, entry_price)
+            breakeven_armed = True
 
         # 2b. Early trail-arm via MFE threshold
         if not trail_armed and max_unrealized_pct >= EARLY_TRAIL_PCT:
