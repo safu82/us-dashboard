@@ -31,7 +31,11 @@ Universal gates:
   - Not in holdings, not already in open/pending paper, 21 trading-day cooldown.
   - Position floor $800, sector concentration <= 25%, max 20 open,
     committed notional <= 95% of sleeve, <= MAX_NEW_PER_DAY new entries/day.
-  - Kill switches: pause entries if daily P&L < -2% or DD < -8% from ATH.
+  - Kill switches: pause entries if daily P&L < -2%, or if the OPEN positions
+    are more than 8% below what was paid for them. The drawdown leg used to
+    measure total equity against its all-time high and deadlocked: once it
+    fired the book sat in cash, which cannot appreciate, so the condition
+    could never clear itself.
 
 Execution model (India parity):
   D0 22:35 UTC — this script writes candidates as PENDING (status='pending')
@@ -88,6 +92,14 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     sys.exit('ERROR: SUPABASE_URL and SUPABASE_SERVICE_KEY must be set')
 
 SLEEVE = 50_000  # $50,000 paper sleeve
+
+# The live cohort. Every read of paper_trades is scoped to it, so a sleeve is
+# reset by re-tagging the previous cohort's rows (paper -> paper_v1) rather
+# than deleting them: the record stays in the table and queryable, while the
+# new book starts from SLEEVE with no realised P&L and no open positions
+# behind it. The Railway worker scopes its reads the same way, so a retired
+# cohort stops being filled and stopped as well.
+MODE = 'paper'
 
 COOLDOWN_DAYS = 21
 
@@ -320,7 +332,8 @@ def load_pending_paper_trades(sb):
 def load_recent_closed_tickers(sb, today):
     cutoff = (today - timedelta(days=COOLDOWN_DAYS + 7)).isoformat()
     resp = (sb.table('paper_trades').select('ticker, exit_date')
-              .eq('status', 'closed').gte('exit_date', cutoff).execute())
+              .eq('status', 'closed').eq('mode', MODE)
+              .gte('exit_date', cutoff).execute())
     return {r['ticker']: r['exit_date'] for r in (resp.data or [])}
 
 
@@ -354,7 +367,13 @@ def load_recent_equity(sb, limit=60):
 
 
 def load_cumulative_closed_pnl(sb):
-    resp = sb.table('paper_trades').select('total_pnl').eq('status', 'closed').execute()
+    # Scoped to the live cohort. Without this the sleeve can never be reset:
+    # every equity figure is SLEEVE plus the realised P&L of every closed
+    # trade ever, so a fresh book would open already carrying the last one's
+    # losses. Retiring a cohort is re-tagging its mode, which keeps every row
+    # queryable and leaves this sum starting from zero.
+    resp = (sb.table('paper_trades').select('total_pnl')
+              .eq('status', 'closed').eq('mode', MODE).execute())
     return sum(to_float(r.get('total_pnl'), 0) for r in (resp.data or []))
 
 
@@ -1090,7 +1109,7 @@ def process_entries(sb, candidates, today_snap, today_date, holdings,
             'conviction_score': c.get('conviction_score'),
             'conviction_grade': c.get('conviction_grade'),
             'status': 'pending',
-            'mode': 'paper',
+            'mode': MODE,
         }
         row.update(compute_entry_context(ticker, today_snap, prior_snap, snap_3d, market_regime))
         sb.table('paper_trades').insert(row).execute()
@@ -1126,18 +1145,42 @@ def open_capital_tied(open_trades):
     )
 
 
-def kill_switch(equity_history, provisional_total):
-    if not equity_history:
-        return False, None
-    ath = max([SLEEVE] + [to_float(e['total_value'], SLEEVE) for e in equity_history])
-    dd_pct = (provisional_total - ath) / ath * 100 if ath else 0
-    if dd_pct < DD_KILL_PCT:
-        return True, f'drawdown_{dd_pct:.2f}%'
-    last_value = to_float(equity_history[0].get('total_value'), SLEEVE)
-    if last_value > 0:
-        daily_pct = (provisional_total - last_value) / last_value * 100
-        if daily_pct < DAILY_KILL_PCT:
-            return True, f'daily_{daily_pct:.2f}%'
+def kill_switch(equity_history, provisional_total, open_trades, positions_value):
+    """Stop opening new trades while the book is bleeding — on capital at risk.
+
+    This used to measure total equity against its own all-time high, and that
+    deadlocked. Once it fired the book sat in cash, cash does not appreciate,
+    so equity could not climb back and the switch could not release. By 9
+    November 2026 the sleeve was 89% cash and $575 short of the threshold,
+    and the only path out was a single $4,902 position rising 12% — with
+    every other position already closed and no new one permitted. A control
+    that the thing it controls cannot clear is a trap, not a control.
+
+    So the drawdown is now what the open positions are showing against what
+    was paid for them. Flat reads zero, which is the truth: a book holding
+    only cash is not in drawdown, it is out of the market. Closing the losers
+    clears it, which is the behaviour a kill switch is meant to encourage,
+    and a run of bad trades still stops the book because the losses show up
+    in the open positions before they are realised.
+
+    What it no longer does is remember. A cohort that lost money months ago
+    and closed out no longer blocks anything; that is the equity curve's job
+    to record, not this function's job to enforce for ever.
+
+    The daily guard is untouched. It compares with yesterday, so a quiet day
+    clears it, and it was never capable of trapping anything.
+    """
+    cost = open_capital_tied(open_trades)
+    if cost > 0:
+        dd_pct = (positions_value - cost) / cost * 100
+        if dd_pct < DD_KILL_PCT:
+            return True, f'open_drawdown_{dd_pct:.2f}%'
+    if equity_history:
+        last_value = to_float(equity_history[0].get('total_value'), SLEEVE)
+        if last_value > 0:
+            daily_pct = (provisional_total - last_value) / last_value * 100
+            if daily_pct < DAILY_KILL_PCT:
+                return True, f'daily_{daily_pct:.2f}%'
     return False, None
 
 
@@ -1283,7 +1326,9 @@ def main():
         provisional_total = (
             SLEEVE - open_capital_tied(open_trades) + realised_total + pv_now
         )
-        kill, kill_reason = kill_switch(equity_history, provisional_total)
+        kill, kill_reason = kill_switch(
+            equity_history, provisional_total, open_trades, pv_now
+        )
 
         inserted = []
         if kill:
