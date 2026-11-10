@@ -37,6 +37,14 @@ on:
           green. Does not refetch or recompute anything.
         type: boolean
         default: false
+      post_to_x:
+        description: >-
+          Post the approved drafts to @overnightarc. Off by default and off
+          on every scheduled run — daily posting was stopped on 2026-11-10
+          after thirteen days and nine posts produced no measurable reach.
+          Tick this only to send a specific run by hand.
+        type: boolean
+        default: false
 
 jobs:
   scan:
@@ -303,8 +311,13 @@ jobs:
       # carrying a link into the site, and on a digest page that link is to a
       # page this run has only just built. Posting first would advertise a
       # URL that 404s until Netlify catches up.
+      # Stopped on 2026-11-10. Thirteen days of daily posting produced nine
+      # posts and no measurable reach, against $0.215 a post — $0.015 for the
+      # post and $0.200 for the link reply that carries the URL. The step and
+      # the script stay exactly as they are; only the trigger is gone, so
+      # turning it back on is ticking post_to_x on a manual run.
       - name: 17/17 post_to_x.py
-        if: steps.ohlc.outputs.published == 'true' || inputs.republish
+        if: inputs.post_to_x
         continue-on-error: true   # a post that does not go out is not a failed scan
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}
@@ -326,7 +339,7 @@ jobs:
       # timeline and skips anything already there - but the ledger is what
       # stops the same company headlining a reworded post two days running.
       - name: Record what was posted
-        if: steps.ohlc.outputs.published == 'true' || inputs.republish
+        if: inputs.post_to_x
         continue-on-error: true
         run: |
           git add portal/data/posted.json 2>/dev/null || exit 0
