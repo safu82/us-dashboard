@@ -22,6 +22,12 @@ Universal gates:
   - Earnings filter: latest quarter YoY positive for BOTH revenue and net income.
     Needs >=5 quarters (yfinance cap). Relaxed vs India's 6-quarter "improving"
     check because yfinance.quarterly_income_stmt only returns ~5 quarters.
+  - Entry-timing gate: reject a candidate already more than 10% above its
+    20-day EMA, or following a three-day run of more than 7%. On this book's
+    own 121 closed trades that cohort was 40% of the entries, won 18%, and
+    lost $4,760 while everything else made $908; across 116,000 ticker-days
+    the forward ten-day return is -2.48% at 10-20% over the EMA against
+    -0.28% at 0-3% over. Set PAPER_EXT_GATE=0 to measure without it.
   - Not in holdings, not already in open/pending paper, 21 trading-day cooldown.
   - Position floor $800, sector concentration <= 25%, max 20 open,
     committed notional <= 95% of sleeve, <= MAX_NEW_PER_DAY new entries/day.
@@ -152,6 +158,30 @@ CONVICTION_GRADE_FLOOR = 'D'   # candidates AT this grade or worse are rejected
 # already faded intraday and we'd be entering into distribution. See the
 # MRVL 2026-05-27 case (signal day closed at 0.11 of range, then gapped down -9%).
 MIN_INTRADAY_CLOSE_POSITION = 0.30
+
+# Entry-timing gate: refuse a candidate that has already made the move.
+#
+# The intraday filter above asks whether today's close was strong. This asks
+# the opposite question — whether the move is already spent — and it is the
+# single largest effect in this book's own record. Of 121 closed trades,
+# those entered more than 10% above the 20-day EMA, or after a three-day run
+# of more than 7%, won 18% of the time and averaged -4.13%. Everything else
+# won 42% and averaged +0.05%. That cohort was 40% of the trades and more
+# than the whole of the loss: -$4,760 against +$908 for the rest.
+#
+# It is not an artefact of 121 trades. Across 116,000 ticker-days in
+# daily_stock_snapshots the forward ten-day return averages -0.28% for a name
+# sitting 0-3% over its 20-day EMA and -2.48% at 10-20% over; inside the
+# strongest momentum band (80-100) the same split is -1.63% against -4.01%.
+# Extension costs most precisely where the signals are strongest.
+MAX_ENTRY_EXT_EMA20_PCT = 10.0
+MAX_ENTRY_PRIOR_3D_PCT = 7.0
+# Off switch, so the gate can be lifted without editing code when comparing.
+EXT_GATE_ENABLED = os.environ.get('PAPER_EXT_GATE', '1') not in ('0', 'false', 'False')
+# Blocked candidates are recorded by name and figure, not merely counted, so
+# that in a few months this can be checked against what those names actually
+# did. A filter nobody can falsify is a belief, not a rule.
+EXT_GATE_LOG_LIMIT = 40
 
 BENCHMARK_TICKER = '^GSPC'    # market regime + bench column on paper_equity
 SECONDARY_BENCHMARK = 'QQQ'
@@ -585,6 +615,46 @@ def passes_intraday_filter(ticker, today_snap):
     if pos < MIN_INTRADAY_CLOSE_POSITION:
         return False, f'close_in_bottom_{int(pos * 100)}pct'
     return True, None
+
+
+def passes_extension_filter(ticker, today_snap, snap_3d):
+    """Reject a candidate that has already made the move.
+
+    Returns (ok, reason, detail). The third value is unlike the other filters
+    here, which return a pair: the measured figures travel with the decision
+    so a blocked name can be audited later against what it went on to do.
+
+    An unmeasurable candidate passes. The gate exists to block names known to
+    be extended, and a missing 20-day EMA — a recent listing, usually — says
+    nothing about whether this one is. It passes with its reason recorded
+    rather than silently, so the gap stays visible in the funnel.
+    """
+    snap = today_snap.get(ticker)
+    if not snap:
+        return True, 'ext_unknown_no_snapshot', {}
+    close = to_float(snap.get('close'))
+    ema20 = to_float(snap.get('ema_20'))
+    detail = {}
+
+    if close and ema20 and ema20 > 0:
+        ext = (close - ema20) / ema20 * 100
+        detail['ext_ema20_pct'] = round(ext, 2)
+    elif close:
+        return True, 'ext_unknown_no_ema20', detail
+
+    close_3d = to_float((snap_3d.get(ticker) or {}).get('close'))
+    if close and close_3d and close_3d > 0:
+        detail['prior_3d_pct'] = round((close - close_3d) / close_3d * 100, 2)
+
+    # Checked after both figures are measured, so the detail carries the whole
+    # picture of why a name was turned away and not just the first trip-wire.
+    ext = detail.get('ext_ema20_pct')
+    if ext is not None and ext >= MAX_ENTRY_EXT_EMA20_PCT:
+        return False, f'ext_ema20_over_{int(MAX_ENTRY_EXT_EMA20_PCT)}pct', detail
+    pop = detail.get('prior_3d_pct')
+    if pop is not None and pop >= MAX_ENTRY_PRIOR_3D_PCT:
+        return False, f'pop_3d_over_{int(MAX_ENTRY_PRIOR_3D_PCT)}pct', detail
+    return True, None, detail
 
 
 def size_position(tier, entry_price, atr):
@@ -1098,7 +1168,7 @@ def main():
         'signal_rows': 0, 'unique_tickers': 0,
         'no_bucket': 0,
         'sector_rejected': 0, 'earnings_rejected': 0, 'intraday_rejected': 0,
-        'conviction_rejected': 0,
+        'conviction_rejected': 0, 'extension_rejected': 0,
         'in_holdings': 0, 'in_cooldown': 0, 'already_open': 0,
         'qualified': 0, 'inserted': 0,
         'qty_zero_rejected': 0, 'cash_rejected': 0, 'sector_conc_rejected': 0,
@@ -1106,6 +1176,11 @@ def main():
         'bucket_counts': {},
         'sector_reasons': {}, 'earnings_reasons': {}, 'intraday_reasons': {},
         'conviction_reasons': {},
+        'extension_reasons': {},
+        # Named, with their figures, so the gate can be audited against what
+        # the names it turned away went on to do.
+        'extension_blocked': [],
+        'extension_gate_enabled': EXT_GATE_ENABLED,
     }
     errors = []
 
@@ -1260,6 +1335,28 @@ def main():
                         funnel['intraday_reasons'].get(i_reason, 0) + 1
                     )
                     continue
+                # Entry timing: is the move already spent? Measured even when
+                # the gate is off, so the counterfactual keeps accumulating
+                # either way and the two runs stay comparable.
+                x_ok, x_reason, x_detail = passes_extension_filter(
+                    ticker, today_snap, snap_3d
+                )
+                if x_reason:
+                    funnel['extension_reasons'][x_reason] = (
+                        funnel['extension_reasons'].get(x_reason, 0) + 1
+                    )
+                if not x_ok:
+                    funnel['extension_rejected'] += 1
+                    if len(funnel['extension_blocked']) < EXT_GATE_LOG_LIMIT:
+                        funnel['extension_blocked'].append(
+                            dict(ticker=ticker, tier=c.get('tier'),
+                                 reason=x_reason, **x_detail)
+                        )
+                    if EXT_GATE_ENABLED:
+                        continue
+                    funnel['extension_would_block'] = (
+                        funnel.get('extension_would_block', 0) + 1
+                    )
                 # Conviction floor: reject any candidate at grade D (score < 45).
                 # Missing conviction data is treated as a pass (data should
                 # exist; missing implies the nightly compute hasn't caught up).
@@ -1288,7 +1385,9 @@ def main():
                 realised_total=realised_total,
             )
             funnel['inserted'] = len(inserted)
-            log(f'entries: qualified={len(candidates)} inserted={len(inserted)}')
+            log(f'entries: qualified={len(candidates)} inserted={len(inserted)} '
+                f'extension_{"blocked" if EXT_GATE_ENABLED else "would_block"}='
+                f'{funnel["extension_rejected"]}')
 
         final_open = load_open_paper_trades(sb)
         final_pending = load_pending_paper_trades(sb)
