@@ -1145,7 +1145,7 @@ def open_capital_tied(open_trades):
     )
 
 
-def kill_switch(equity_history, provisional_total, open_trades, positions_value):
+def kill_switch(equity_history, provisional_total, open_trades, today_snap):
     """Stop opening new trades while the book is bleeding — on capital at risk.
 
     This used to measure total equity against its own all-time high, and that
@@ -1167,12 +1167,36 @@ def kill_switch(equity_history, provisional_total, open_trades, positions_value)
     and closed out no longer blocks anything; that is the equity curve's job
     to record, not this function's job to enforce for ever.
 
+    Only positions that have a price today count, and they count on both
+    sides. A position the snapshot cannot price contributes nothing to the
+    value and nothing to the cost, because an unknown price is not a loss.
+    Counting it on the cost side alone reads a missing bar as a wipeout: on
+    2026-11-11 the 01:52 scan exited before publishing — which still finishes
+    green, so this ran anyway — and with no snapshot for the session every
+    position priced at zero and the switch fired at open_drawdown_-100.00%.
+
     The daily guard is untouched. It compares with yesterday, so a quiet day
     clears it, and it was never capable of trapping anything.
     """
-    cost = open_capital_tied(open_trades)
+    cost = value = 0.0
+    priced = 0
+    for tr in open_trades:
+        close = to_float((today_snap.get(tr['ticker']) or {}).get('close'))
+        if not close:
+            continue
+        priced += 1
+        qty = to_int(tr['current_quantity'])
+        cost += qty * to_float(tr['entry_price'], 0)
+        value += qty * close
+    if open_trades and priced == 0:
+        # Holding positions and able to price none of them: the session has
+        # not published. Both legs are blind here, not just this one — the
+        # caller's provisional_total marks those same positions at nothing,
+        # so the daily comparison collapses too. Deciding on no data is not
+        # deciding; wait for the run that has a session behind it.
+        return False, None
     if cost > 0:
-        dd_pct = (positions_value - cost) / cost * 100
+        dd_pct = (value - cost) / cost * 100
         if dd_pct < DD_KILL_PCT:
             return True, f'open_drawdown_{dd_pct:.2f}%'
     if equity_history:
@@ -1327,7 +1351,7 @@ def main():
             SLEEVE - open_capital_tied(open_trades) + realised_total + pv_now
         )
         kill, kill_reason = kill_switch(
-            equity_history, provisional_total, open_trades, pv_now
+            equity_history, provisional_total, open_trades, today_snap
         )
 
         inserted = []

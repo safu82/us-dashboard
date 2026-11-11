@@ -466,21 +466,56 @@ def archive_snapshots(sb):
     Yahoo, but momentum_score and rs_rank were computed against the universe
     as it stood that day.
 
-    The copy runs inside Postgres (see the archive_snapshots function), so no
-    rows cross the wire. It is idempotent and re-checks a rolling window, so a
-    failed night is healed by the next successful one rather than leaving a
-    permanent hole.
+    The copy runs inside Postgres, so no rows cross the wire, and it is
+    idempotent over a rolling window, so a failed night is healed by the next
+    one rather than leaving a permanent hole.
+
+    One session per statement, deliberately. The first version asked Postgres
+    to take the whole window in a single INSERT ... SELECT, and because its
+    cutoff was measured back from the ARCHIVE's newest date rather than from
+    today, every night that failed made the next night's statement larger. By
+    2026-11-11 it had been stuck six sessions and was reaching for ~25,000
+    rows; PostgREST cancelled it with 57014, which widened the window again.
+    A rolling re-check is only self-healing if the work it retries stays the
+    same size. cleanup_old() had already learned this and deletes one date at
+    a time; this now does the same, and each date commits on its own so one
+    slow session cannot roll back the others.
 
     Never fatal. Losing a night of archive is bad; failing the scan over it
     would be worse.
     """
     try:
-        r = sb.rpc('archive_snapshots', {'lookback_days': 10}).execute()
-        n = r.data if isinstance(r.data, int) else (r.data or 0)
-        print(f'Archived {n:,} row(s) to daily_snapshot_archive')
+        pending = (sb.rpc('archive_pending_dates', {'lookback_days': 10})
+                     .execute().data) or []
     except Exception as e:
-        print(f'WARN archive: {type(e).__name__}: {e} — history for this '
-              f'session may be lost once cleanup_old runs')
+        print(f'WARN archive: could not list pending sessions: '
+              f'{type(e).__name__}: {e}')
+        return
+
+    if not pending:
+        print('Archive already current')
+        return
+
+    total, failed = 0, []
+    for row in pending:
+        d = row['snapshot_date']
+        try:
+            r = sb.rpc('archive_snapshots_day', {'for_date': d}).execute()
+            n = r.data if isinstance(r.data, int) else (r.data or 0)
+            total += n
+            print(f'  archived {n:,} row(s) for {d}')
+        except Exception as e:
+            failed.append(d)
+            print(f'  WARN archive {d}: {type(e).__name__}: {e}')
+    print(f'Archived {total:,} row(s) to daily_snapshot_archive '
+          f'across {len(pending) - len(failed)}/{len(pending)} session(s)')
+    if failed:
+        # Named, because the window only reaches back ten days: a session that
+        # keeps failing has that long to be noticed before cleanup_old takes
+        # it for good.
+        print(f'WARN archive: {len(failed)} session(s) still unarchived '
+              f'({", ".join(failed)}) — they leave the ten-day retry window '
+              f'before cleanup_old removes them permanently')
 
 
 def cleanup_old(sb):
