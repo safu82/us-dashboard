@@ -3,14 +3,14 @@
   {
    "type": "no_coverage",
    "auto": true,
-   "text": "Hycroft Mining Holding Corpo fell 11.3% on the 2026-11-10 session.\n\nWe read 63 separate outlets. Not one of them wrote about it.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
+   "text": "Hycroft Mining Holding Corpo fell 11.3% on the 2026-11-10 session.\n\nWe read 85 separate outlets. Not one of them wrote about it.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
    "chars": 220,
    "tickers": [
     "HYMC"
    ],
    "link": "https://overnightarc.com/digest/2026-11-10/",
    "checks": [
-    "matcher healthy: 63 sources, 341 wire items",
+    "matcher healthy: 85 sources, 535 wire items",
     "mover chased individually and returned nothing",
     "move 11.3% clears the 8% floor"
    ],
