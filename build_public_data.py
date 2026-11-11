@@ -164,7 +164,7 @@ def main():
 
     snaps = {r['ticker']: r for r in page(
         'daily_stock_snapshots',
-        'ticker,momentum_score,rs_rank,close,high_52w,bz_streak',
+        'ticker,momentum_score,rs_rank,rank_slope,close,ema_20,high_52w,bz_streak',
         lambda q: q.eq('snapshot_date', stock_asof).not_.is_('momentum_score', 'null'))}
 
     # Absolute return for stocks, over the same windows the fund board uses.
@@ -445,6 +445,31 @@ def main():
     # It sits at 84 today against a cutoff of 88, which is luck rather than
     # design. Anything that is a fund on our own board is not an individual name.
     funds_by_symbol = set(meta)
+    def timing(sn):
+        """How late in the move a name is, and which way its rank is going.
+
+        Two measured facts, published together because neither is worth much
+        alone. `ext` is how far the price sits above its own 20-day average;
+        `slope` is the five-day slope of RS rank, where NEGATIVE means the
+        rank is improving because rank 1 is the strongest.
+
+        Published together because they are correlated, -0.296 across the
+        paper book's entries: a rank improving fast is very often a name that
+        has already run, and 53% of the fastest improvers there were already
+        more than 10% above the 20-day. Shown on its own, "RS improving
+        fastest" would read as the best thing to buy while selecting for the
+        cohort that lost 4% a trade. Extension is what gives it a sign.
+
+        The 10% line is the one with evidence behind it: across 116,000
+        ticker-days the forward ten-day return averages -0.28% for a name
+        0-3% above its 20-day and -2.48% at 10-20% above, and inside the
+        strongest momentum band the same split is -1.63% against -4.01%.
+        """
+        close, ema20 = sn.get('close'), sn.get('ema_20')
+        ext = (round((close / ema20 - 1) * 100, 2)
+               if close and ema20 and ema20 > 0 else None)
+        return ext, sn.get('rank_slope')
+
     leaders = []
     for tk, sn in snaps.items():
         if sn.get('momentum_score') is None or tk in funds_by_symbol:
@@ -464,6 +489,9 @@ def main():
                         # has just bounced to them. Only 47% of the names
                         # scoring 90+ have any streak at all.
                         'bzStreak': sn.get('bz_streak'),
+                        # How far above the 20-day the price already is, and
+                        # which way the RS rank is moving. See timing().
+                        'ext': timing(sn)[0], 'rsSlope': timing(sn)[1],
                         'themes': sorted(mapped.get(tk, []))})
     leaders.sort(key=lambda r: (-r['mom'], r['rsRank'] or 9999))
     write('leaders.json', {
@@ -511,6 +539,7 @@ def main():
                       'fromHigh': from_high(tk), 'mktCap': mkt_cap(tk),
                       'ret20': sret(tk, 20), 'ret60': sret(tk, 60),
                       'bzStreak': (sn or {}).get('bz_streak'),
+                      'ext': timing(sn or {})[0], 'rsSlope': timing(sn or {})[1],
                       'themes': sorted(mapped.get(tk, []))}
     write('stocks.json', {'asOf': stock_asof, 'stocks': stocks})
 

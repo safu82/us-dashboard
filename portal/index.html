@@ -123,7 +123,7 @@
      overrides their narrower default. Columns drop in order of how much they
      say about leadership: size and valuation first, then everything but the
      name, the score and what the price actually did. */
-  .lhead,.lrow{grid-template-columns:30px 1fr 46px 92px 88px 66px 90px 62px 54px 0.9fr;}
+  .lhead,.lrow{grid-template-columns:30px 1fr 46px 70px 92px 88px 66px 90px 62px 54px 0.9fr;}
   /* Any column whose meaning is not obvious from its label carries an
      explanation; the dotted rule is what tells you to go looking for it. */
   .th .hlp{cursor:help;}
@@ -178,7 +178,7 @@
   @media(max-width:1040px){
     .th,.tr{grid-template-columns:34px 1fr 50px 54px 82px 88px 88px 56px 68px;}
     .hm{display:none;}
-    .lhead,.lrow{grid-template-columns:28px 1fr 44px 86px 82px 58px 50px 0.8fr;}
+    .lhead,.lrow{grid-template-columns:28px 1fr 44px 64px 86px 82px 58px 50px 0.8fr;}
     .lm{display:none;}
   }
   /* At phone width, four columns. Five left the name about 70px at 360px wide,
@@ -283,6 +283,44 @@ const rsTitle = r => {
   if (r == null) return base;
   const pct = Math.round((r / Math.max(uni(), 1)) * 100);
   return `${base}\n\nThis name is #${r} of ${n} — stronger than about ${100 - pct}% of the market.`;
+};
+// Stretch: how far above its own 20-day average the price already sits, with
+// an arrow for which way its RS rank is travelling.
+//
+// This is the column that answers the question a momentum board otherwise
+// leaves hanging — not "is this strong" but "is there any of the move left".
+// Across 116,000 ticker-days the next ten sessions average -0.28% for a name
+// 0-3% above its 20-day and -2.48% at 10-20% above, and inside the strongest
+// momentum band the same split is -1.63% against -4.01%. Extension costs most
+// precisely where the scores look best, which is why it sits beside the score.
+//
+// The arrow is RS rank direction, drawn from a five-day slope that is NEGATIVE
+// when the rank is improving, because #1 is the strongest. Nobody should have
+// to hold that in their head, so the raw number never appears — up means
+// climbing the rankings. It is deliberately not sortable and deliberately not
+// a score: a rank improving fast is very often a name that has already run.
+const STRETCH_LATE = 10;
+const stretch = r => {
+  if (r.ext == null) return '–';
+  const late = r.ext >= STRETCH_LATE;
+  const arrow = r.rsSlope == null ? '' : (r.rsSlope < 0 ? '↑' : '↓');
+  return `<span style="color:${late ? 'var(--orange)' : 'var(--text2)'};`
+       + `font-weight:${late ? 700 : 500}">${r.ext.toFixed(1)}%</span>`
+       + (arrow ? `<span style="opacity:.5;font-size:10px"> ${arrow}</span>` : '');
+};
+const stretchTitle = r => {
+  const base = `How far the price already sits above its own 20-day average, and `
+    + `an arrow for which way its relative-strength rank is moving — up means climbing the rankings.\n\n`
+    + `A momentum score says how strong a name is, not whether there is any of the move left. `
+    + `Measured across 116,000 ticker-days, the next ten sessions average -0.3% for a name sitting `
+    + `0-3% above its 20-day average and -2.5% for one sitting 10-20% above. Among the very strongest `
+    + `names the gap is wider still: -1.6% against -4.0%. Orange marks ${STRETCH_LATE}% or more.\n\n`
+    + `It is not a sell signal and not a score. It is the cost of arriving late.`;
+  if (!r || r.ext == null) return base;
+  const dir = r.rsSlope == null ? 'flat'
+    : r.rsSlope < 0 ? 'improving' : 'slipping';
+  return `${base}\n\nThis one is ${r.ext.toFixed(1)}% above its 20-day average, `
+       + `with its rank ${dir}.`;
 };
 // P/E shown next to its distance from the company's own three-year average.
 // The absolute figure has to be there: StoneCo's P/E of 4.8 reads as "+205%
@@ -801,6 +839,7 @@ function leaders(){
   // reached by the media queries that drop columns at narrower widths.
   const head=`<div class="shead lhead"><div class="ls"></div><div>Company</div>
     <div class="r" title="0-100, scored against every US stock we cover. Higher is stronger; 50 is the median stock.">Mom</div>
+    <div class="r ls" title="${stretchTitle()}">Stretch</div>
     <div class="r" title="What the share price actually did, which the score does not tell you. Bright is ${winl(20,'d20')}; dimmed is ${winl(60,'d60')}. The two together are the point: a big bright figure next to a red dimmed one is a bounce inside a broken chart, not a trend — and it scores just as highly as sustained leadership.">Return 20·60</div>
     <div class="r ls" title="${rsTitle()}">RS rank</div>
     <div class="r lm ls" title="Total market value of the company. Worth reading alongside momentum: the same score means something very different on a $400m company than on a $400bn one — small companies move further on less, in both directions.">Size</div>
@@ -813,6 +852,7 @@ function leaders(){
     <div><a class="sym" style="font-size:13px" href="${tv(r.ticker)}" target="_blank" rel="noopener">${r.ticker} <span class="tvi">↗</span></a>
          <span class="nm">${esc((r.company||'').slice(0,34))}</span></div>
     <div class="r" style="font-weight:800;color:${momCol(r.mom)}">${r.mom}</div>
+    <div class="r nm ls" title="${stretchTitle(r)}">${stretch(r)}</div>
     <div class="r two" style="font-weight:600" title="${retTitle(r)}"><span style="color:${col(r.ret20)}">${sg(r.ret20,1)}</span><span class="s" style="color:${col(r.ret60)}">${sg(r.ret60)}</span></div>
     <div class="r nm ls" title="${rsTitle(r.rsRank)}">${rs(r.rsRank)}</div>
     <div class="r nm lm ls">${cap(r.mktCap)}</div>
