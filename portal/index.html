@@ -309,17 +309,25 @@ const stretch = r => {
        + (arrow ? `<span style="opacity:.5;font-size:10px"> ${arrow}</span>` : '');
 };
 const stretchTitle = r => {
-  const base = `How far the price already sits above its own 20-day average, and `
-    + `an arrow for which way its relative-strength rank is moving — up means climbing the rankings.\n\n`
+  const base = `How far the price already sits above its own 20-day EXPONENTIAL moving `
+    + `average (EMA20), and an arrow for which way its relative-strength rank is moving — `
+    + `up means climbing the rankings.\n\n`
+    + `Exponential, not simple, and the difference is not small: an EMA weights recent days `
+    + `more heavily, so in a rising market it sits above the simple average and this figure `
+    + `reads LOWER than the one on a chart set to SMA20. Across today's strongest names the `
+    + `gap averages about 3.5 points, which is enough to put roughly one name in five on the `
+    + `other side of the ${STRETCH_LATE}% line. If this says 9% and your chart says 13%, that `
+    + `is the reason, and neither is wrong.\n\n`
     + `A momentum score says how strong a name is, not whether there is any of the move left. `
-    + `Measured across 116,000 ticker-days, the next ten sessions average -0.3% for a name sitting `
-    + `0-3% above its 20-day average and -2.5% for one sitting 10-20% above. Among the very strongest `
-    + `names the gap is wider still: -1.6% against -4.0%. Orange marks ${STRETCH_LATE}% or more.\n\n`
+    + `Measured across 116,000 ticker-days — all of it against the EMA, which is why the `
+    + `threshold belongs to the EMA — the next ten sessions average -0.3% for a name sitting `
+    + `0-3% above and -2.5% for one sitting 10-20% above. Among the very strongest names the `
+    + `gap is wider still: -1.6% against -4.0%. Orange marks ${STRETCH_LATE}% or more.\n\n`
     + `It is not a sell signal and not a score. It is the cost of arriving late.`;
   if (!r || r.ext == null) return base;
   const dir = r.rsSlope == null ? 'flat'
     : r.rsSlope < 0 ? 'improving' : 'slipping';
-  return `${base}\n\nThis one is ${r.ext.toFixed(1)}% above its 20-day average, `
+  return `${base}\n\nThis one is ${r.ext.toFixed(1)}% above its EMA20, `
        + `with its rank ${dir}.`;
 };
 // P/E shown next to its distance from the company's own three-year average.
@@ -881,6 +889,7 @@ function leaders(){
     })()}.</div></div>
   <div class="panel" style="margin-top:0"><div class="ptitle">🏆 Strongest names in the market</div>
     <div class="psub">Top 40 by momentum, out of ${(L.universe||0).toLocaleString()} scored. Click a theme tag to open its value chain, or a ticker for a chart.
+      <b>Stretch</b> is measured against the 20-day <b>exponential</b> average, so it reads a few points lower than a chart set to a simple SMA20 — about 3.5 points lower across these names today.
       ${leadFilter==='all'&&unmapped?`<b>${unmapped} of these ${Math.min(40,all.length)} sit in none of our themes yet</b> — they are here because they are strong, not because we have written them up.`:''}</div>
     <div class="bar">
       <span class="chip ${leadFilter==='all'?'on':''}" onclick="setLead('all')">All stocks</span>
