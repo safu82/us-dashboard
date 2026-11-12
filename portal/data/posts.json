@@ -3,23 +3,24 @@
   {
    "type": "no_coverage",
    "auto": true,
-   "text": "Hycroft Mining Holding Corpo fell 11.3% on the 2026-11-10 session.\n\nWe read 85 separate outlets. Not one of them wrote about it.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
-   "chars": 220,
+   "text": "Avalo Therapeutics rose 18.9% on the 2026-11-11 session.\n\nWe read 68 separate outlets. Not one of them wrote about it.\n\nAxoGen rose 15.2%. Also nothing.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
+   "chars": 244,
    "tickers": [
-    "HYMC"
+    "AVTX",
+    "AXGN"
    ],
-   "link": "https://overnightarc.com/digest/2026-11-10/",
+   "link": "https://overnightarc.com/digest/2026-11-11/",
    "checks": [
-    "matcher healthy: 85 sources, 535 wire items",
+    "matcher healthy: 68 sources, 287 wire items",
     "mover chased individually and returned nothing",
-    "move 11.3% clears the 8% floor"
+    "move 18.9% clears the 8% floor"
    ],
    "approved": true
   },
   {
    "type": "chain",
    "auto": true,
-   "text": "5 stages in our EVs & Batteries value chain. They are not moving together.\n\nTop: Charging & Infrastructure — $BLNK $CHPT $EVGO — 93/100\nBottom: Battery Materials — $ALB $LAC $MP — 20\n\nMoney isn't moving into EVs & Batteries. It's moving into parts of it.",
+   "text": "5 stages in our EVs & Batteries value chain. They are not moving together.\n\nTop: Charging & Infrastructure — $BLNK $CHPT $EVGO — 96/100\nBottom: Battery Materials — $ALB $LAC $MP — 20\n\nMoney isn't moving into EVs & Batteries. It's moving into parts of it.",
    "chars": 254,
    "tickers": [
     "BLNK",
@@ -38,11 +39,12 @@
   {
    "type": "standing",
    "auto": false,
-   "text": "Biggest changes in standing on the 2026-11-10 session — momentum, not price:\n\nQLYS  51→35 (-16) on -13.5%\nGSHD  75→60 (-15) on -15.6%\n\nA big move and a change in position are different things. This is the second.",
-   "chars": 212,
+   "text": "Biggest changes in standing on the 2026-11-11 session — momentum, not price:\n\nCAPR  62→78 (+16) on +26.5%\nLSCC  29→44 (+15) on +10.4%\nPACB  65→48 (-17) on -6.7%\n\nA big move and a change in position are different things. This is the second.",
+   "chars": 239,
    "tickers": [
-    "QLYS",
-    "GSHD"
+    "CAPR",
+    "LSCC",
+    "PACB"
    ],
    "link": "https://overnightarc.com/",
    "checks": [
@@ -56,7 +58,7 @@
    "type": "regime",
    "auto": false,
    "text": null,
-   "blocked": "not near the switch (5.6pp away)",
+   "blocked": "not near the switch (3.3pp away)",
    "approved": false
   }
  ],
