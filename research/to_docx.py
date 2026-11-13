@@ -106,8 +106,29 @@ def convert(md_path, docx_path=None):
             p = doc.add_paragraph(style='List Number')
             add_runs(p, re.sub(r'^\s*\d+\.\s+', '', line))
         else:
+            # Gather the whole paragraph, not just this line. In Markdown a
+            # paragraph ends at a blank line; a line break inside one is soft
+            # and means nothing. Treating each line as its own paragraph turned
+            # hard-wrapped prose into a column of orphaned fragments — fine for
+            # notes the model writes as single long lines, wrong for anything
+            # wrapped by hand.
+            para = [line]
+            j = i + 1
+            while j < len(lines):
+                nxt = lines[j].rstrip()
+                if (not nxt.strip()
+                        or nxt.lstrip().startswith('|')
+                        or nxt.startswith('#')
+                        or re.fullmatch(r'-{3,}', nxt.strip())
+                        or re.match(r'\s*[-*]\s+', nxt)
+                        or re.match(r'\s*\d+\.\s+', nxt)):
+                    break
+                para.append(nxt)
+                j += 1
             p = doc.add_paragraph()
-            add_runs(p, line)
+            add_runs(p, ' '.join(s.strip() for s in para))
+            i = j
+            continue
         i += 1
 
     doc.save(docx_path)
