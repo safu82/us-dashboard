@@ -481,6 +481,17 @@ def archive_snapshots(sb):
     a time; this now does the same, and each date commits on its own so one
     slow session cannot roll back the others.
 
+    Scored rows only, which is why the archive always trails by a session.
+    This runs at step 1 of the nightly chain and compute_cross_sectional.py
+    writes momentum_score at step 3, so today's rows have prices and no
+    scores when we get here. On 11 and 12 November 2026 they were archived
+    anyway and, under ON CONFLICT DO NOTHING, could never be corrected: two
+    sessions of prices with no scores, which is the one thing the archive
+    exists to keep. latest_date() then pointed at an unscored day and all 18
+    chains dropped off the board. The function now takes only scored rows and
+    heals a row stored without them, so a day reached too early is simply
+    picked up tomorrow.
+
     Never fatal. Losing a night of archive is bad; failing the scan over it
     would be worse.
     """
