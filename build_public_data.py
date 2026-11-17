@@ -465,10 +465,17 @@ def main():
         0-3% above its 20-day and -2.48% at 10-20% above, and inside the
         strongest momentum band the same split is -1.63% against -4.01%.
         """
-        close, ema20 = sn.get('close'), sn.get('ema_20')
+        close, ema20, ema9 = sn.get('close'), sn.get('ema_20'), sn.get('ema_9')
         ext = (round((close / ema20 - 1) * 100, 2)
                if close and ema20 and ema20 > 0 else None)
-        return ext, sn.get('rank_slope')
+        # The 9 as well as the 20. They correlate 0.946, which sounds like one
+        # of them is spare, but 15% of the universe disagrees on SIGN: today
+        # 246 names sit below the 9 and above the 20 — pulling back inside an
+        # uptrend — and 44 the other way, bouncing inside a downtrend. The
+        # pair says which of those is happening; neither number says it alone.
+        ext9 = (round((close / ema9 - 1) * 100, 2)
+                if close and ema9 and ema9 > 0 else None)
+        return ext, ext9, sn.get('rank_slope')
 
     leaders = []
     for tk, sn in snaps.items():
@@ -489,9 +496,10 @@ def main():
                         # has just bounced to them. Only 47% of the names
                         # scoring 90+ have any streak at all.
                         'bzStreak': sn.get('bz_streak'),
-                        # How far above the 20-day the price already is, and
-                        # which way the RS rank is moving. See timing().
-                        'ext': timing(sn)[0], 'rsSlope': timing(sn)[1],
+                        # How far above the 9- and 20-day the price already is,
+                        # and which way the RS rank is moving. See timing().
+                        'ext': timing(sn)[0], 'ext9': timing(sn)[1],
+                        'rsSlope': timing(sn)[2],
                         'themes': sorted(mapped.get(tk, []))})
     leaders.sort(key=lambda r: (-r['mom'], r['rsRank'] or 9999))
     write('leaders.json', {
@@ -539,7 +547,8 @@ def main():
                       'fromHigh': from_high(tk), 'mktCap': mkt_cap(tk),
                       'ret20': sret(tk, 20), 'ret60': sret(tk, 60),
                       'bzStreak': (sn or {}).get('bz_streak'),
-                      'ext': timing(sn or {})[0], 'rsSlope': timing(sn or {})[1],
+                      'ext': timing(sn or {})[0], 'ext9': timing(sn or {})[1],
+                      'rsSlope': timing(sn or {})[2],
                       'themes': sorted(mapped.get(tk, []))}
     write('stocks.json', {'asOf': stock_asof, 'stocks': stocks})
 

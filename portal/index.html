@@ -123,7 +123,7 @@
      overrides their narrower default. Columns drop in order of how much they
      say about leadership: size and valuation first, then everything but the
      name, the score and what the price actually did. */
-  .lhead,.lrow{grid-template-columns:30px 1fr 46px 70px 92px 88px 66px 90px 62px 54px 0.9fr;}
+  .lhead,.lrow{grid-template-columns:30px 1fr 46px 104px 92px 88px 66px 90px 62px 54px 0.9fr;}
   /* Any column whose meaning is not obvious from its label carries an
      explanation; the dotted rule is what tells you to go looking for it. */
   .th .hlp{cursor:help;}
@@ -178,7 +178,7 @@
   @media(max-width:1040px){
     .th,.tr{grid-template-columns:34px 1fr 50px 54px 82px 88px 88px 56px 68px;}
     .hm{display:none;}
-    .lhead,.lrow{grid-template-columns:28px 1fr 44px 64px 86px 82px 58px 50px 0.8fr;}
+    .lhead,.lrow{grid-template-columns:28px 1fr 44px 96px 86px 82px 58px 50px 0.8fr;}
     .lm{display:none;}
   }
   /* At phone width, four columns. Five left the name about 70px at 360px wide,
@@ -300,18 +300,37 @@ const rsTitle = r => {
 // climbing the rankings. It is deliberately not sortable and deliberately not
 // a score: a rank improving fast is very often a name that has already run.
 const STRETCH_LATE = 10;
+// Two figures: distance from the 9-day first, from the 20-day dimmed beside
+// it. The 9 is coloured by its own sign, because above-or-below is the whole
+// question it answers. The 20 keeps the orange late marker, because the 10%
+// threshold was measured on the 20 and belongs to it.
+//
+// Both, rather than either, because the pair disagrees on sign for 15% of the
+// universe and the disagreement is the signal: below the 9 and above the 20
+// is a pullback inside an uptrend, the reverse is a bounce inside a downtrend.
 const stretch = r => {
-  if (r.ext == null) return '–';
-  const late = r.ext >= STRETCH_LATE;
+  if (r.ext == null && r.ext9 == null) return '–';
   const arrow = r.rsSlope == null ? '' : (r.rsSlope < 0 ? '↑' : '↓');
-  return `<span style="color:${late ? 'var(--orange)' : 'var(--text2)'};`
-       + `font-weight:${late ? 700 : 500}">${r.ext.toFixed(1)}%</span>`
-       + (arrow ? `<span style="opacity:.5;font-size:10px"> ${arrow}</span>` : '');
+  const nine = r.ext9 == null ? '' :
+    `<span style="color:${r.ext9 >= 0 ? 'var(--green)' : 'var(--red)'}">`
+    + `${r.ext9 >= 0 ? '+' : ''}${r.ext9.toFixed(1)}%</span>`;
+  const twenty = r.ext == null ? '' :
+    `<span class="s" style="color:${r.ext >= STRETCH_LATE ? 'var(--orange)' : 'var(--text2)'};`
+    + `${r.ext >= STRETCH_LATE ? 'font-weight:700;opacity:1;' : ''}">`
+    + `${r.ext >= 0 ? '+' : ''}${r.ext.toFixed(1)}%</span>`;
+  return nine + twenty
+       + (arrow ? `<span style="opacity:.45;font-size:10px"> ${arrow}</span>` : '');
 };
 const stretchTitle = r => {
-  const base = `How far the price already sits above its own 20-day EXPONENTIAL moving `
-    + `average (EMA20), and an arrow for which way its relative-strength rank is moving — `
+  const base = `Two distances: from the 9-day exponential average first, from the 20-day `
+    + `dimmed beside it, with an arrow for which way the relative-strength rank is moving — `
     + `up means climbing the rankings.\n\n`
+    + `The 9 is the short read and is green above, red below. The 20 is the one that turns `
+    + `orange past ${STRETCH_LATE}%, because that threshold was measured on the 20.\n\n`
+    + `Read the pair, not either alone. They agree most of the time, but about 15% of the `
+    + `market disagrees on sign on any given day, and that is where the information is: `
+    + `below the 9 while still above the 20 is a pullback inside an uptrend; above the 9 `
+    + `while below the 20 is a bounce inside a downtrend.\n\n`
     + `Exponential, not simple, and the difference is not small: an EMA weights recent days `
     + `more heavily, so in a rising market it sits above the simple average and this figure `
     + `reads LOWER than the one on a chart set to SMA20. Across today's strongest names the `
@@ -324,11 +343,18 @@ const stretchTitle = r => {
     + `0-3% above and -2.5% for one sitting 10-20% above. Among the very strongest names the `
     + `gap is wider still: -1.6% against -4.0%. Orange marks ${STRETCH_LATE}% or more.\n\n`
     + `It is not a sell signal and not a score. It is the cost of arriving late.`;
-  if (!r || r.ext == null) return base;
+  if (!r || (r.ext == null && r.ext9 == null)) return base;
   const dir = r.rsSlope == null ? 'flat'
     : r.rsSlope < 0 ? 'improving' : 'slipping';
-  return `${base}\n\nThis one is ${r.ext.toFixed(1)}% above its EMA20, `
-       + `with its rank ${dir}.`;
+  const side = v => `${Math.abs(v).toFixed(1)}% ${v >= 0 ? 'above' : 'below'}`;
+  const parts = [];
+  if (r.ext9 != null) parts.push(`${side(r.ext9)} its 9-day`);
+  if (r.ext != null) parts.push(`${side(r.ext)} its 20-day`);
+  const split = (r.ext9 != null && r.ext != null && (r.ext9 >= 0) !== (r.ext >= 0))
+    ? (r.ext9 < 0 ? ' — a pullback inside an uptrend.'
+                  : ' — a bounce inside a downtrend.')
+    : '.';
+  return `${base}\n\nThis one is ${parts.join(' and ')}${split} Rank ${dir}.`;
 };
 // P/E shown next to its distance from the company's own three-year average.
 // The absolute figure has to be there: StoneCo's P/E of 4.8 reads as "+205%
@@ -847,7 +873,7 @@ function leaders(){
   // reached by the media queries that drop columns at narrower widths.
   const head=`<div class="shead lhead"><div class="ls"></div><div>Company</div>
     <div class="r" title="0-100, scored against every US stock we cover. Higher is stronger; 50 is the median stock.">Mom</div>
-    <div class="r ls" title="${stretchTitle()}">Stretch</div>
+    <div class="r ls" title="${stretchTitle()}">Stretch 9·20</div>
     <div class="r" title="What the share price actually did, which the score does not tell you. Bright is ${winl(20,'d20')}; dimmed is ${winl(60,'d60')}. The two together are the point: a big bright figure next to a red dimmed one is a bounce inside a broken chart, not a trend — and it scores just as highly as sustained leadership.">Return 20·60</div>
     <div class="r ls" title="${rsTitle()}">RS rank</div>
     <div class="r lm ls" title="Total market value of the company. Worth reading alongside momentum: the same score means something very different on a $400m company than on a $400bn one — small companies move further on less, in both directions.">Size</div>
@@ -860,7 +886,7 @@ function leaders(){
     <div><a class="sym" style="font-size:13px" href="${tv(r.ticker)}" target="_blank" rel="noopener">${r.ticker} <span class="tvi">↗</span></a>
          <span class="nm">${esc((r.company||'').slice(0,34))}</span></div>
     <div class="r" style="font-weight:800;color:${momCol(r.mom)}">${r.mom}</div>
-    <div class="r nm ls" title="${stretchTitle(r)}">${stretch(r)}</div>
+    <div class="r two ls" title="${stretchTitle(r)}">${stretch(r)}</div>
     <div class="r two" style="font-weight:600" title="${retTitle(r)}"><span style="color:${col(r.ret20)}">${sg(r.ret20,1)}</span><span class="s" style="color:${col(r.ret60)}">${sg(r.ret60)}</span></div>
     <div class="r nm ls" title="${rsTitle(r.rsRank)}">${rs(r.rsRank)}</div>
     <div class="r nm lm ls">${cap(r.mktCap)}</div>
@@ -889,7 +915,7 @@ function leaders(){
     })()}.</div></div>
   <div class="panel" style="margin-top:0"><div class="ptitle">🏆 Strongest names in the market</div>
     <div class="psub">Top 40 by momentum, out of ${(L.universe||0).toLocaleString()} scored. Click a theme tag to open its value chain, or a ticker for a chart.
-      <b>Stretch</b> is measured against the 20-day <b>exponential</b> average, so it reads a few points lower than a chart set to a simple SMA20 — about 3.5 points lower across these names today.
+      <b>Stretch</b> gives the distance from the 9-day exponential average, then the 20-day dimmed beside it. Both are <b>exponential</b>, so they read a few points lower than a chart set to a simple average — about 3.5 points on the 20 across these names today.
       ${leadFilter==='all'&&unmapped?`<b>${unmapped} of these ${Math.min(40,all.length)} sit in none of our themes yet</b> — they are here because they are strong, not because we have written them up.`:''}</div>
     <div class="bar">
       <span class="chip ${leadFilter==='all'?'on':''}" onclick="setLead('all')">All stocks</span>
