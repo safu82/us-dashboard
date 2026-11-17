@@ -3,7 +3,7 @@
   {
    "type": "no_coverage",
    "auto": true,
-   "text": "LifeMD fell 15.9% on the 2026-11-16 session.\n\nWe read 64 separate outlets. Not one of them wrote about it.\n\nEditas Medicine Inc fell 13.8%. Also nothing.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
+   "text": "LifeMD fell 15.9% on the 2026-11-16 session.\n\nWe read 72 separate outlets. Not one of them wrote about it.\n\nEditas Medicine Inc fell 13.8%. Also nothing.\n\nThe biggest movers are often the least covered — general market feeds don't push mid-caps.",
    "chars": 245,
    "tickers": [
     "LFMD",
@@ -11,7 +11,7 @@
    ],
    "link": "https://overnightarc.com/digest/2026-11-16/",
    "checks": [
-    "matcher healthy: 64 sources, 206 wire items",
+    "matcher healthy: 72 sources, 283 wire items",
     "mover chased individually and returned nothing",
     "move 15.9% clears the 8% floor"
    ],
