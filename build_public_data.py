@@ -164,7 +164,7 @@ def main():
 
     snaps = {r['ticker']: r for r in page(
         'daily_stock_snapshots',
-        'ticker,momentum_score,rs_rank,rank_slope,close,ema_20,high_52w,bz_streak',
+        'ticker,momentum_score,rs_rank,rank_slope,close,ema_9,ema_20,high_52w,bz_streak',
         lambda q: q.eq('snapshot_date', stock_asof).not_.is_('momentum_score', 'null'))}
 
     # Absolute return for stocks, over the same windows the fund board uses.
