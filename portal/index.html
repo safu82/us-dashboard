@@ -654,7 +654,7 @@ function boardView(o){
         <div class="nm" style="text-align:center">${open?'<span class="caret">▾</span>':i+1}</div>
         <div><a class="sym" href="${tv(f.symbol)}" target="_blank" rel="noopener" onclick="event.stopPropagation()"
              title="Chart for ${f.symbol}">${f.symbol} <span class="tvi">↗</span></a><span class="tagx">${esc(f.group||'')}</span>
-          <div class="nm"><a class="pg" href="/${o.root}/${f.symbol}/" onclick="event.stopPropagation()"
+          <div class="nm"><a class="pg" href="/${o.root}/${String(f.symbol).toLowerCase()}/" onclick="event.stopPropagation()"
              title="${f.symbol} on its own page — scores, returns${o.drill?', holdings':''} — a page that does not change when the board is rebuilt">${esc((f.name||'').replace(/^iShares MSCI /,'').replace(/ ETF$| Trust$/,''))}</a></div></div>
         <div class="r" style="font-weight:800;color:${momCol(f.mom)}">${f.mom}</div>
         <div class="r hs two">${dlt(rNow[f.symbol],rD1[f.symbol])}<span class="s">${dlt(rNow[f.symbol],rD5[f.symbol])}</span></div>

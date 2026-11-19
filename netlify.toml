@@ -69,13 +69,27 @@
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 
-# Nothing here collects input or embeds anything, so the browser can be told to
-# allow very little. Scripts and styles are inline in the page, hence the
-# 'unsafe-inline' allowances; there are no external resources of any kind.
+# Nothing here collects input, so the browser can be told to allow very little.
+# Scripts and styles are inline in the page, hence the 'unsafe-inline'
+# allowances.
+#
+# The two cloudflareinsights allowances are the Web Analytics beacon, and they
+# are not optional decoration: this policy used to read `script-src 'self'` with
+# `connect-src 'none'`, which blocked the beacon outright. Every page carried the
+# tag, the dashboard was configured, and nothing was ever recorded — a
+# script-src-elem violation on load, so the script never ran and had nothing to
+# send. Analytics that silently measure zero are worse than none, because the
+# zero reads as a finding. Checked 2026-11-19 with a SecurityPolicyViolation
+# listener on the live site.
+#
+# static.cloudflareinsights.com serves beacon.min.js; cloudflareinsights.com is
+# where the beacon POSTs (/cdn-cgi/rum) via sendBeacon, which connect-src
+# governs. connect-src stays otherwise closed: the board loads its data through
+# <script src="data/data.js">, not fetch, so nothing else here needs it.
 [[headers]]
   for = "/*"
   [headers.values]
     X-Frame-Options = "DENY"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
-    Content-Security-Policy = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data:; base-uri 'none'; form-action 'none'"
+    Content-Security-Policy = "default-src 'none'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; connect-src https://cloudflareinsights.com; img-src 'self' data:; base-uri 'none'; form-action 'none'"

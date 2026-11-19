@@ -225,6 +225,17 @@ def analytics():
 
 def shell(path, title, desc, crumbs, body):
     """One page. `path` is the published directory, '' for the site root."""
+    # Lowercased, because Netlify's edge normalises every request path to
+    # lowercase and 301s anything that is not already there — /funds/SMH/ has
+    # always answered "301 -> /funds/smh/". Callers pass a ticker in its own
+    # casing, so without this the canonical tag, the og:url, the JSON-LD url
+    # and the sitemap entry all named a URL that redirects away. Search Console
+    # duly indexed /funds/smh/ and /funds/SMH/ as two pages (582 impressions
+    # against 93) and filed seven more under "page with redirect".
+    #
+    # One lower() here covers all four, because they are all derived from
+    # `path`, as is the directory the file is written to.
+    path = path.lower()
     canon = f'{SITE}/{path}/' if path else f'{SITE}/'
     trail = ' › '.join(
         f'<a href="{esc(h)}">{esc(t)}</a>' if h else esc(t) for t, h in crumbs)
@@ -498,7 +509,10 @@ def board_index(path, title, h1, lede, rows, asof):
     for r in rows:
         body.append(
             f'<tr><td>{r["rank"]}</td>'
-            f'<td class="t"><a href="{SITE}/{path}/{esc(r["symbol"])}/">{esc(r["symbol"])}</a></td>'
+            # Link lowercase, label as the ticker is written: the href must
+            # match what shell() published or every row costs a redirect hop.
+            f'<td class="t"><a href="{SITE}/{path}/{esc(str(r["symbol"]).lower())}/">'
+            f'{esc(r["symbol"])}</a></td>'
             f'<td class="w">{esc(r["name"])}</td><td class="w">{esc(r.get("group") or "")}</td>'
             f'<td>{num(r["mom"])}</td>'
             f'<td class="{tone(r.get("ret20")).strip()}">{pct(r.get("ret20"))}</td>'
@@ -796,7 +810,12 @@ def sitemap():
         dirnames[:] = [d for d in dirnames if d != 'data']
         if 'index.html' not in filenames:
             continue
-        rel = os.path.relpath(dirpath, OUT).replace(os.sep, '/')
+        # .lower() guards the walk, not the writer: on Windows, makedirs() of
+        # funds/smh over an existing funds/SMH reuses the directory and keeps
+        # the old name, so the path read back off disk can still be uppercase
+        # even once shell() is emitting lowercase. The URL has to be lowercase
+        # either way — see the note in shell().
+        rel = os.path.relpath(dirpath, OUT).replace(os.sep, '/').lower()
         loc = f'{SITE}/' if rel == '.' else f'{SITE}/{rel}/'
         mt = datetime.fromtimestamp(
             os.path.getmtime(os.path.join(dirpath, 'index.html')), timezone.utc)
