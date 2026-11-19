@@ -316,6 +316,26 @@ def main():
         if h.get('complete'):
             complete_for.add(h['etf'])
 
+    # Published depth is capped; the table is not. Every held ticker earns a
+    # full entry in stocks.json so the drill-down can score it, so holdings
+    # drive the bundle size far more than their own bytes suggest: adding the
+    # issuer files took it from 465KB to 849KB, and IWM was almost all of it.
+    #
+    # The cap is set above the second-largest fund on purpose. Only IWM is
+    # truncated — a Russell 2000 tracker where "does it hold this" is nearly
+    # always yes and the tail weights round to nothing — while every thematic
+    # fund, the ones anyone actually drills into, stays whole. IBB at 222 and
+    # XBI at 159 are equal-weighted enough that their tails carry real
+    # information, which a cap of 60 or 100 would have thrown away.
+    PUBLISH_MAX_HOLDINGS = 250
+    held_total = {k: len(v) for k, v in held.items()}
+    for k, v in held.items():
+        if len(v) > PUBLISH_MAX_HOLDINGS:
+            top = sorted(v.items(), key=lambda kv: kv[1] or 0,
+                         reverse=True)[:PUBLISH_MAX_HOLDINGS]
+            held[k] = dict(top)
+            print(f'  holdings: {k} published {len(top)} of {held_total[k]}')
+
     # Two boards, two pools. compute_etf_momentum ranks country funds in their
     # own cross-section, so a country's momentum describes where it sits among
     # countries and is not comparable with a sector fund's score. They are kept
@@ -366,6 +386,10 @@ def main():
             # rather than "we cannot see inside this one", so it is left off.
             row['holdings'] = held.get(sym, {})
             row['holdingsComplete'] = sym in complete_for
+            # What the fund holds, which is not always what we publish. A page
+            # saying "250 published positions" for a 1,703-name index fund
+            # would be a worse lie than the partial list it replaced.
+            row['holdingsCount'] = held_total.get(sym, 0)
         if m.get('benchmark_only'):
             benchmarks[sym] = {'symbol': sym, 'name': m.get('name'),
                                'ret20': s.get('ret_20'), 'ret60': s.get('ret_60')}

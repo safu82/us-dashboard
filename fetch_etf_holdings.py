@@ -1,17 +1,34 @@
 #!/usr/bin/env python3
 """ETF holdings, as deep as each issuer will give them.
 
-Two sources, because they give very different depth:
+Sources, in the order they are tried, because they give very different depth:
 
-  SSGA (the SPDR funds)  publishes a complete daily holdings file. XLK comes
-                         back with all 166 positions and their weights.
-  Yahoo (everything else) exposes only the top 10, covering roughly 60% of a
-                         fund by weight. There is no deeper endpoint.
+  SSGA (the SPDR funds)  complete daily holdings file. XLK comes back with all
+                         166 positions and their weights.
+  ARK                    complete daily CSV per fund.
+  VanEck                 complete XLSX. SMH is the single most-found page on
+                         the site — 868 impressions in six days on "smh
+                         holdings" alone — and it was being served ten names
+                         from Yahoo against the twenty-eight it holds.
+  iShares                complete CSV, keyed by numeric product id.
+  Yahoo (the rest)       only the top 10, covering roughly 60% of a fund by
+                         weight. There is no deeper endpoint.
 
 That difference is recorded per fund in `complete`, and it matters downstream:
 with a full list we can say a name is NOT in a fund; with a top 10 we can only
 ever say it IS one of the largest. Claiming absence from a top-10 list would be
 wrong for every name in the fund's tail.
+
+Every issuer here was found by asking the fund page what its own download link
+is, not by guessing a URL. A guessed endpoint is the dangerous kind of wrong:
+it returns an HTML page with a 200, parses to zero rows, and the fund silently
+reads as holding nothing. So each parser returns None unless it found both a
+ticker and a weight column, and the caller falls through to the next source.
+
+Global X (8 funds) and First Trust (5) stay on Yahoo. Global X renders only
+its top 10 into the page and keeps the rest behind an interaction; First
+Trust's holdings page has thirteen tables and none of them carries a usable
+header. Both are worth another look, neither is worth a brittle scraper.
 
 Writes etf_holdings. Also reports how much of each fund sits outside our scan
 universe, which is the input to deciding whether to widen it.
@@ -27,6 +44,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 import pandas as pd
+import requests
 import yfinance as yf
 from dotenv import load_dotenv
 from supabase import create_client
@@ -53,6 +71,31 @@ ARK = {
 ARK_BASE = 'https://assets.ark-funds.com/fund-documents/funds-etf-csv/'
 ARK_MAX_AGE_DAYS = 14
 UA = {'User-Agent': 'Mozilla/5.0'}
+
+# VanEck's own fund page links to this path. The segment after /etf/ is the
+# asset class and it is not the same for every fund: SMH and MOO answer under
+# /equity/, NLR and REMX answer HTML under every segment tried, so those two
+# fall through to Yahoo rather than being guessed at.
+VANECK = 'https://www.vaneck.com/us/en/etf/equity/{}/holdings/download/xlsx/'
+
+# iShares serves latest-holdings.csv off the numeric product id; the slug in
+# the middle of the path is ignored entirely, so only the id has to be right.
+# These came from the product screener at
+#   /us/product-screener/product-screener-v3.1.jsn
+# which lists all 527 products. Hard-coded rather than fetched because that
+# call is 1.9MB for seven lookups, and a fund missing from here falls through
+# to Yahoo exactly as it does today.
+#
+# SLV is deliberately absent: it is a silver trust holding metal, not equities,
+# and the endpoint 400s for it.
+ISHARES = {'IBB': '239699', 'SOXX': '239705', 'IWM': '239710',
+           'ICLN': '239738', 'IGV': '239771', 'ITA': '239502'}
+
+SESSION = requests.Session()
+SESSION.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                  ' (KHTML, like Gecko) Chrome/131.0 Safari/537.36',
+    'Accept': '*/*', 'Accept-Language': 'en-US,en;q=0.9'})
 # A ticker with a dot-suffix or non-letter characters is a foreign listing
 # (6954.T, BHP.AX, CCO.TO) and will never be in a US scan universe.
 US_LIKE = lambda t: t.isalpha() or (t.replace('-', '').isalpha() and len(t) <= 6)
@@ -113,6 +156,84 @@ def ark_full(sym):
     return out or None
 
 
+def _weights(df, tick_col, wt_col):
+    """Rows of (TICKER, fraction) from a frame, or None if nothing parsed.
+
+    Weights arrive as "17.42%" from VanEck and as 17.42 from iShares, so the
+    percent sign is stripped and the result divided either way. A row without
+    both a ticker and a number is dropped rather than defaulted: a holding at
+    weight zero and a holding we failed to read must not look alike.
+    """
+    out = []
+    for _, r in df.iterrows():
+        t = str(r[tick_col]).strip().upper()
+        w = pd.to_numeric(str(r[wt_col]).replace('%', '').replace(',', '').strip(),
+                          errors='coerce')
+        if t and t not in ('NAN', '-', '', '--') and pd.notna(w) and w > 0:
+            out.append((t, float(w) / 100.0))
+    return out or None
+
+
+def _find_cols(df):
+    """The ticker and weight columns, by name, or (None, None)."""
+    tick = wt = None
+    for c in df.columns:
+        n = str(c).strip().lower()
+        if tick is None and n in ('ticker', 'symbol', 'holding ticker'):
+            tick = c
+        if wt is None and ('% of net assets' in n or n.startswith('weight')
+                           or n == 'net assets (%)'):
+            wt = c
+    return tick, wt
+
+
+def vaneck_full(sym):
+    """Complete holdings from VanEck's XLSX, or None if this is not one."""
+    try:
+        r = SESSION.get(VANECK.format(sym.lower()), timeout=40)
+        # An unknown fund answers 200 with the marketing page, not a 404.
+        if r.status_code != 200 or r.content[:4] != b'PK\x03\x04':
+            return None
+        df = pd.read_excel(io.BytesIO(r.content), skiprows=2)
+    except Exception:
+        return None
+    tick, wt = _find_cols(df)
+    if tick is None or wt is None:
+        return None
+    if 'Asset Class' in df.columns:
+        df = df[df['Asset Class'].astype(str).str.contains('Stock|Equity', na=False)]
+    return _weights(df, tick, wt)
+
+
+def ishares_full(sym):
+    """Complete holdings from iShares' CSV, or None if this is not one."""
+    pid = ISHARES.get(sym)
+    if not pid:
+        return None
+    try:
+        r = SESSION.get(f'https://www.ishares.com/us/products/{pid}/x/'
+                        f'latest-holdings.csv', timeout=40)
+        if r.status_code != 200:
+            return None
+        txt = r.content.decode('utf-8-sig', 'replace')
+    except Exception:
+        return None
+    # Eight lines of fund-level preamble sit above the header, and the count
+    # has changed before, so the header is searched for rather than assumed.
+    for skip in range(0, 14):
+        try:
+            df = pd.read_csv(io.StringIO(txt), skiprows=skip)
+        except Exception:
+            continue
+        tick, wt = _find_cols(df)
+        if tick is None or wt is None:
+            continue
+        if 'Asset Class' in df.columns:
+            df = df[df['Asset Class'].astype(str).str.contains('Equity', na=False)]
+        return _weights(df, tick, wt)
+    return None
+
+
 def yahoo_top(sym):
     try:
         h = yf.Ticker(sym).funds_data.top_holdings
@@ -148,7 +269,8 @@ def main():
     today = datetime.now(timezone.utc).date().isoformat()
     for e in sorted(etfs, key=lambda r: r['symbol']):
         sym = e['symbol']
-        hold = ssga_full(sym) or ark_full(sym)
+        hold = (ssga_full(sym) or ark_full(sym)
+                or vaneck_full(sym) or ishares_full(sym))
         complete = hold is not None
         if hold is None:
             hold, complete = yahoo_top(sym), False
@@ -183,6 +305,22 @@ def main():
     for i in range(0, len(rows), 500):
         sb.table('etf_holdings').upsert(rows[i:i + 500], on_conflict='etf,ticker').execute()
     print(f'\nupserted {len(rows)} holding rows.')
+
+    # A fund's holdings are a snapshot, not an accumulation. Upsert alone
+    # never removes anything, so a fund that just moved from Yahoo's top 10 to
+    # a full issuer file keeps its ten old rows alongside the new ones, and a
+    # name the fund has since sold stays listed for ever. Every row written
+    # above carries today's as_of; anything older, for a fund we actually
+    # refreshed this run, is a leftover.
+    #
+    # Scoped to `touched` deliberately. A fund whose fetch failed wrote no
+    # rows at all, and deleting by date alone would empty it rather than leave
+    # yesterday's answer standing.
+    touched = sorted({r['etf'] for r in rows})
+    if touched:
+        gone = sb.table('etf_holdings').delete() \
+            .in_('etf', touched).lt('as_of', today).execute()
+        print(f'removed {len(gone.data or [])} rows that this run did not refresh.')
 
 
 if __name__ == '__main__':

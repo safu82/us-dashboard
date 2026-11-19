@@ -356,6 +356,11 @@ def fund_page(f, kind, asof, ret_dates, bench, stocks):
     h = f.get('holdings') or {}
     ranked = sorted(h.items(), key=lambda kv: kv[1] or 0, reverse=True)
     shown = ranked[:25]
+    # What the fund holds, not what the bundle carries. The publish step caps
+    # depth at 250 so that one Russell 2000 tracker cannot double the weight of
+    # every page on the site; holdingsCount is the real number, and a page
+    # quoting the capped one would state a figure we know to be wrong.
+    total = f.get('holdingsCount') or len(h)
 
     def holder(tk):
         return (stocks.get(tk) or {}).get('company') or tk
@@ -374,7 +379,7 @@ def fund_page(f, kind, asof, ret_dates, bench, stocks):
 
     if shown:
         title = f'{sym} holdings — {name} | Overnight Arc'
-        lede = (f'The {len(h)} published holdings of {name} ({sym}) by weight '
+        lede = (f'The {total} published holdings of {name} ({sym}) by weight '
                 f'— {top3_short} — with momentum rank and 20-day return. '
                 f'Close of {asof}.')
     else:
@@ -397,7 +402,7 @@ def fund_page(f, kind, asof, ret_dates, bench, stocks):
             + (f', and returned {pct(f.get("ret20"))} over the 20 sessions '
                f'since {esc(d20)}' if f.get('ret20') is not None else '')
             + '.'
-            + (f' Its {len(h)} published holdings are led by {esc(top3)}.'
+            + (f' Its {total} published holdings are led by {esc(top3)}.'
                if shown else '')
             + '</p>',
             cells([
@@ -440,9 +445,9 @@ def fund_page(f, kind, asof, ret_dates, bench, stocks):
         # searches that, and 868 impressions a week arrive on "smh holdings".
         body.append(f'<h2>What does {esc(sym)} hold?</h2>')
         body.append(
-            f'<p>{esc(name)} ({esc(sym)}) holds {len(h)} published positions'
+            f'<p>{esc(name)} ({esc(sym)}) holds {total} published positions'
             f'{"" if complete else ", as far as the issuer file we have goes"}. '
-            f'{"They are" if len(h) <= 25 else f"The {min(25, len(h))} largest are"} '
+            f'{"They are" if total <= 25 else f"The {min(25, total)} largest are"} '
             f'listed below by weight, each with its momentum score and rank '
             f'against every US stock we score, not just against this fund.'
             + ('' if complete else ' This list is partial: treat an absence '
@@ -475,7 +480,7 @@ def fund_page(f, kind, asof, ret_dates, bench, stocks):
 
     labels[f'{root}/{sym}'.lower()] = (
         f'{sym} — {name}'
-        + (f', {len(h)} published holdings' if shown else ''))
+        + (f', {total} published holdings' if shown else ''))
     return shell(f'{root}/{sym}', title, lede,
                  [('Overnight Arc', f'{SITE}/'),
                   ('Funds' if kind == 'fund' else 'Countries', f'{SITE}/{root}/'),
