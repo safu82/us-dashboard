@@ -40,6 +40,11 @@ SITE = 'https://overnightarc.com'
 
 written = []
 
+# Published path -> how to name that page to a reader, for llms.txt. The
+# directory is a ticker or a slug, which is all the sitemap needs and nowhere
+# near enough for a file whose whole job is to describe the site in words.
+labels = {}
+
 
 # ---------------------------------------------------------------- formatting
 
@@ -109,6 +114,12 @@ h3{font-size:15px;margin:0 0 4px;}
 p{margin:10px 0;max-width:68ch;}
 .lede{color:var(--text2);font-size:16px;}
 .meta{color:var(--text2);font-size:12.5px;margin-top:4px;}
+/* The standalone summary. It restates what the tables below already say, so
+   it is set as a quiet inset rather than as a lede competing with the one
+   above it — present for anything reading the page as text, unobtrusive to
+   anyone reading it as a page. */
+.sum{border-left:2px solid var(--border);padding:2px 0 2px 12px;
+color:var(--text);font-size:13.5px;}
 /* Always exactly eight stats, so four columns fill two rows with no dead cell.
    auto-fit chose five at this width and left a gap that read as a broken tile. */
 .grid{display:grid;grid-template-columns:repeat(4,1fr);
@@ -177,8 +188,33 @@ CF_ANALYTICS_TOKEN = os.environ.get(
     'CF_ANALYTICS_TOKEN', 'd45aef33f45b49918e3ba6c4e5cbfe7c').strip()
 
 
-def social(title, desc, canon):
-    """Open Graph and Twitter card tags, plus a little JSON-LD.
+def ld(obj):
+    """One JSON-LD block."""
+    return ('<script type="application/ld+json">'
+            + json.dumps(obj, ensure_ascii=False) + '</script>\n')
+
+
+def breadcrumbs(crumbs):
+    """BreadcrumbList from the same trail the header prints.
+
+    Worth emitting for its own sake — it is a recognised rich result — but the
+    reason it is here is that it states the site's shape in a form a machine
+    reads without inferring it from a nav bar. An answer engine deciding
+    whether this page is a fund page or a theme page should not have to guess.
+    """
+    items = [c for c in crumbs if c[1]] or crumbs
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'BreadcrumbList',
+        'itemListElement': [
+            {'@type': 'ListItem', 'position': i, 'name': t,
+             **({'item': h} if h else {})}
+            for i, (t, h) in enumerate(crumbs, 1)],
+    }
+
+
+def social(title, desc, canon, modified=None, extra=None):
+    """Open Graph and Twitter card tags, plus the JSON-LD.
 
     Without these a link to the site posted anywhere renders as a bare URL.
     Every link reply we sent on 2026-10-30 looked like that. og:image is the
@@ -187,8 +223,15 @@ def social(title, desc, canon):
     The JSON-LD says WebPage rather than Article: these pages are generated
     reference tables, not written pieces, and claiming otherwise is the kind
     of structured-data overreach search engines discount.
+
+    `modified` carries the close the page was built from. Every figure here is
+    dated and the whole claim against a fund issuer's own factsheet is that
+    this one is current, so the date belongs in the markup and not only in the
+    prose. `extra` takes page-specific blocks — the holdings list, the theme
+    Q&A — each emitted as its own script, which is how multiple types are
+    meant to be declared.
     """
-    j = json.dumps({
+    page = {
         '@context': 'https://schema.org',
         '@type': 'WebPage',
         'name': title,
@@ -200,7 +243,11 @@ def social(title, desc, canon):
                       'name': 'Insight Arc Solutions',
                       'url': SITE + '/'},
         'inLanguage': 'en',
-    }, ensure_ascii=False)
+    }
+    if modified:
+        page['dateModified'] = modified
+    j = json.dumps(page, ensure_ascii=False)
+    tail = ''.join(ld(o) for o in (extra or []) if o)
     return (
         f'<meta property="og:type" content="website">\n'
         f'<meta property="og:site_name" content="Overnight Arc">\n'
@@ -212,7 +259,7 @@ def social(title, desc, canon):
         f'<meta property="og:image:height" content="630">\n'
         f'<meta name="twitter:card" content="summary_large_image">\n'
         f'<meta name="twitter:site" content="@overnightarc">\n'
-        f'<script type="application/ld+json">{j}</script>\n')
+        f'<script type="application/ld+json">{j}</script>\n' + tail)
 
 
 def analytics():
@@ -223,7 +270,7 @@ def analytics():
             % esc(CF_ANALYTICS_TOKEN))
 
 
-def shell(path, title, desc, crumbs, body):
+def shell(path, title, desc, crumbs, body, modified=None, extra=None):
     """One page. `path` is the published directory, '' for the site root."""
     # Lowercased, because Netlify's edge normalises every request path to
     # lowercase and 301s anything that is not already there — /funds/SMH/ has
@@ -249,7 +296,8 @@ def shell(path, title, desc, crumbs, body):
 <link rel="canonical" href="{esc(canon)}">
 <link rel="icon" href="{SITE}/arc.svg" type="image/svg+xml">
 <link rel="stylesheet" href="{'../' * (path.count('/') + 1) if path else ''}a.css">
-{social(title, desc, canon)}{analytics()}</head>
+{social(title, desc, canon, modified,
+        [breadcrumbs(crumbs)] + list(extra or []))}{analytics()}</head>
 <body>
 <header><div class="wrap">
   <div class="brand"><svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="arcGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#3a4aa8"/><stop offset=".55" stop-color="#8a6ebe"/><stop offset="1" stop-color="#f2a44c"/></linearGradient></defs><path d="M14 78 Q42 6 88 30" fill="none" stroke="url(#arcGrad)" stroke-width="10" stroke-linecap="round"/><circle cx="88" cy="30" r="7.5" fill="#ffe2ba"/><circle cx="88" cy="30" r="2.6" fill="#fff"/></svg><span>Overnight Arc</span></div>
@@ -304,14 +352,54 @@ def fund_page(f, kind, asof, ret_dates, bench, stocks):
     d20 = (ret_dates or {}).get('d20', '')
     d60 = (ret_dates or {}).get('d60', '')
 
-    lede = (f"{name} ({sym}) ranks {f['rank']} on the "
-            f"{'sector and theme' if kind == 'fund' else 'country'} board with a "
-            f"momentum score of {f['mom']} out of 100, as of {asof}.")
+    board = 'sector and theme' if kind == 'fund' else 'country'
+    h = f.get('holdings') or {}
+    ranked = sorted(h.items(), key=lambda kv: kv[1] or 0, reverse=True)
+    shown = ranked[:25]
+
+    def holder(tk):
+        return (stocks.get(tk) or {}).get('company') or tk
+
+    # Named, weighted and in order, because this is the sentence an answer
+    # engine lifts. "SMH holds semiconductors" is not quotable; "led by Nvidia
+    # at 19.31%" is, and it is the same fact the table carries two screens
+    # further down where nothing extracting a passage will ever reach it.
+    top3 = ', '.join(f'{holder(tk)} {pct(w, 1, False)}' for tk, w in ranked[:3])
+    # Tickers rather than company names in the description only. Three full
+    # names ran it to 222 characters, and a result truncates at about 160 —
+    # "Advanced Micro Devic…" is where that landed. On the page itself the
+    # names stay, because there the length costs nothing and the prose is the
+    # point.
+    top3_short = ', '.join(f'{tk} {pct(w, 1, False)}' for tk, w in ranked[:3])
+
+    if shown:
+        title = f'{sym} holdings — {name} | Overnight Arc'
+        lede = (f'The {len(h)} published holdings of {name} ({sym}) by weight '
+                f'— {top3_short} — with momentum rank and 20-day return. '
+                f'Close of {asof}.')
+    else:
+        title = f'{sym} — {name} | Overnight Arc'
+        lede = (f"{name} ({sym}) ranks {f['rank']} on the {board} board with a "
+                f"momentum score of {f['mom']} out of 100, as of {asof}.")
 
     body = [f'<h1>{esc(sym)} &#183; {esc(name)}</h1>',
             f'<p class="lede">{esc(f.get("group") or "")}'
             f'{" &#183; " + esc(f["sector"]) if f.get("sector") else ""}</p>',
             f'<p class="meta">Closes to {esc(asof)}. Rank {f["rank"]} of its board.</p>',
+            # A standalone summary, before any table. Everything an extractor
+            # needs is in these two sentences — the entity, the date, the
+            # numbers, the holdings — because a passage is what gets quoted
+            # and a <td> is not one. It repeats the tables below on purpose.
+            f'<p class="sum"><b>{esc(sym)}</b> is {esc(name)}. '
+            f'At the close on {esc(asof)} it ranks {f["rank"]} on the '
+            f'{board} board with a momentum score of {num(f["mom"])} out of 100'
+            # "to {d20}" had the window backwards: d20 is where it starts.
+            + (f', and returned {pct(f.get("ret20"))} over the 20 sessions '
+               f'since {esc(d20)}' if f.get('ret20') is not None else '')
+            + '.'
+            + (f' Its {len(h)} published holdings are led by {esc(top3)}.'
+               if shown else '')
+            + '</p>',
             cells([
                 ('Momentum', num(f['mom']), ''),
                 ('Return 20d', pct(f.get('ret20')), tone(f.get('ret20'))),
@@ -334,10 +422,10 @@ def fund_page(f, kind, asof, ret_dates, bench, stocks):
             f'trend; <i>from high</i> is the check when a green return sits beside a '
             f'deep drawdown.</p>')
 
-    h = f.get('holdings') or {}
-    if h:
+    extra = []
+    if shown:
         rows = []
-        for tk, w in sorted(h.items(), key=lambda kv: kv[1], reverse=True)[:25]:
+        for tk, w in shown:
             s = stocks.get(tk) or {}
             rows.append(
                 f'<tr><td class="t">{esc(tk)}</td>'
@@ -347,34 +435,77 @@ def fund_page(f, kind, asof, ret_dates, bench, stocks):
                 f'<td>{num(s.get("rsRank"))}</td>'
                 f'<td class="{tone(s.get("ret20")).strip()}">{pct(s.get("ret20"))}</td></tr>')
         complete = f.get('holdingsComplete')
-        body.append(f'<h2>What is inside it</h2>')
+        # The heading is the question people actually type. "What is inside it"
+        # described the section to someone already reading the page; nobody
+        # searches that, and 868 impressions a week arrive on "smh holdings".
+        body.append(f'<h2>What does {esc(sym)} hold?</h2>')
         body.append(
-            f'<p>{"The published holdings" if complete else "The published holdings we have"}, '
-            f'largest weight first{"" if complete else " (partial)"}. '
-            f'{len(h)} positions in all; the {min(25, len(h))} biggest are shown.</p>')
+            f'<p>{esc(name)} ({esc(sym)}) holds {len(h)} published positions'
+            f'{"" if complete else ", as far as the issuer file we have goes"}. '
+            f'{"They are" if len(h) <= 25 else f"The {min(25, len(h))} largest are"} '
+            f'listed below by weight, each with its momentum score and rank '
+            f'against every US stock we score, not just against this fund.'
+            + ('' if complete else ' This list is partial: treat an absence '
+                                   'from it as missing data, not as evidence '
+                                   'the fund does not hold something.')
+            + '</p>')
         body.append('<div class="scroll"><table><thead><tr>'
                     '<th>Ticker</th><th>Company</th><th>Weight</th><th>Mom</th>'
                     '<th>RS rank</th><th>20d</th></tr></thead><tbody>'
                     + ''.join(rows) + '</tbody></table></div>')
+        # The same rows as data. A table is layout; this is the list in a form
+        # that survives being read by something that is not a browser.
+        extra.append({
+            '@context': 'https://schema.org',
+            '@type': 'ItemList',
+            'name': f'{sym} holdings',
+            'description': f'Published holdings of {name} ({sym}), by weight, '
+                           f'at the close on {asof}.',
+            'numberOfItems': len(shown),
+            'itemListOrder': 'https://schema.org/ItemListOrderDescending',
+            'itemListElement': [
+                {'@type': 'ListItem', 'position': i,
+                 'name': holder(tk),
+                 'description': f'{tk} — {pct(w, 2, False)} of {sym}'}
+                for i, (tk, w) in enumerate(shown, 1)],
+        })
 
     body.append(f'<p><a href="{SITE}/{root}/">All {label} pages</a> '
                 f'&#183; <a href="{SITE}/">The live board</a></p>')
 
-    return shell(f'{root}/{sym}',
-                 f'{sym} — {name} | Overnight Arc',
-                 lede,
+    labels[f'{root}/{sym}'.lower()] = (
+        f'{sym} — {name}'
+        + (f', {len(h)} published holdings' if shown else ''))
+    return shell(f'{root}/{sym}', title, lede,
                  [('Overnight Arc', f'{SITE}/'),
                   ('Funds' if kind == 'fund' else 'Countries', f'{SITE}/{root}/'),
                   (sym, None)],
-                 '\n'.join(body))
+                 '\n'.join(body), modified=asof, extra=extra)
 
 
 def theme_page(ch, asof):
     slug, name = ch['slug'], ch['name']
+    links = ch['links']
+    stages = [L['name'] for L in links]
+    members = sum(len(L.get('members') or []) for L in links)
+    best = max((L for L in links if L.get('mom') is not None),
+               key=lambda L: L['mom'], default=None)
+
     body = [f'<h1>{esc(name)}</h1>',
             f'<p class="lede">{esc(ch.get("description") or "")}</p>',
             f'<p class="meta">{esc(ch.get("category") or "")} &#183; '
-            f'{len(ch["links"])} stages &#183; closes to {esc(asof)}</p>',
+            f'{len(links)} stages &#183; closes to {esc(asof)}</p>',
+            # The whole map in one sentence, in order, before the stages
+            # themselves. "map the value chain for obesity drugs" already
+            # ranks 2nd without this; what it was matching was a page whose
+            # answer only existed as eighteen separate <h3>s.
+            f'<p class="sum">The {esc(name)} value chain has '
+            f'{len(links)} stages, in order: {esc(", ".join(stages))}. '
+            f'{members} companies are mapped across them'
+            + (f', and at the close on {esc(asof)} the strongest stage by '
+               f'momentum is {esc(best["name"])} at {num(best["mom"])} out of '
+               f'100' if best else '')
+            + '.</p>',
             '<p>A value chain is the order in which value is actually added, from '
             'raw inputs through to whoever sells the finished thing. Reading a theme '
             'this way shows where in it the money is moving, which is rarely evenly '
@@ -387,7 +518,7 @@ def theme_page(ch, asof):
     # stages — so using it as the numerator against a count of links printed
     # "Stage 3 of 7" twice on 17 of the 18 chains. The header above counts
     # links as stages, and so does the chain post, so this follows them.
-    for i, L in enumerate(ch['links'], 1):
+    for i, L in enumerate(links, 1):
         rows = []
         for m in L.get('members') or []:
             rows.append(
@@ -399,7 +530,7 @@ def theme_page(ch, asof):
         thin = ' &#183; too few scored names to read the stage' if L.get('thin') else ''
         body.append(
             f'<div class="link"><div class="pos">Stage {i} of '
-            f'{len(ch["links"])}</div><h3>{esc(L["name"])}</h3>'
+            f'{len(links)}</div><h3>{esc(L["name"])}</h3>'
             f'<div class="what">{esc(L.get("what") or "")}</div>'
             f'<div class="meta">Stage momentum {num(L.get("mom"))} &#183; '
             f'{L.get("scored", 0)} names scored{thin}</div>'
@@ -408,14 +539,64 @@ def theme_page(ch, asof):
                f'<tbody>{"".join(rows)}</tbody></table></div>' if rows else '')
             + '</div>')
 
+    # Questions in the shape they actually arrive in. The queries this site
+    # already wins are long and spoken — "map the value chain for obesity
+    # drugs" at position 2, "which companies are at the forefront of genetic
+    # research?" at 11 — while the keyword forms lose at position 46 to 96.
+    # So the page states the questions and answers them in prose, rather than
+    # leaving the answer implicit in a table and hoping it gets assembled.
+    #
+    # The matching FAQPage block is for answer engines, not for a rich result:
+    # Google restricted those to government and health sites in 2023 and this
+    # will not get one. It costs nothing and it declares what the prose says.
+    qa = [(f'What are the stages of the {name} value chain?',
+           f'{len(links)} stages, in order: {", ".join(stages)}. Value is '
+           f'added along that order, from raw inputs through to whoever sells '
+           f'the finished thing.'),
+          (f'Which companies are in the {name} value chain?',
+           f'{members} companies are mapped across the {len(links)} stages, '
+           f'each scored against every US stock we rank rather than only '
+           f'against the others here. Every stage and its companies are '
+           f'listed on this page, at the close on {asof}.')]
+    if best:
+        qa.append((f'Which part of the {name} value chain has the strongest '
+                   f'momentum?',
+                   f'{best["name"]}, at {best["mom"]} out of 100 at the close '
+                   f'on {asof}. Momentum is cross-sectional — it ranks these '
+                   f'companies against the rest of the US market — so in a '
+                   f'falling market the leading stage is the one that fell '
+                   f'least, not one that rose.'))
+    qa.append((f'Does the {name} value chain match an index or an ETF?',
+               f'No. The mapping is ours and hand-made: {members} companies '
+               f'placed at {len(links)} stages by a judgement about what '
+               f'belongs where. It matches no index and no fund’s '
+               f'holdings, and it will sometimes be wrong or out of date.'))
+
+    body.append('<h2>Questions about this value chain</h2>')
+    for q, a in qa:
+        body.append(f'<h3>{esc(q)}</h3>\n<p>{esc(a)}</p>')
+
     body.append(f'<p><a href="{SITE}/themes/">All eighteen themes</a> '
                 f'&#183; <a href="{SITE}/">The live board</a></p>')
 
-    return shell(f'themes/{slug}',
-                 f'{name} value chain — every stage and the companies in it | Overnight Arc',
-                 (ch.get('description') or name)[:300],
-                 [('Overnight Arc', f'{SITE}/'), ('Themes', f'{SITE}/themes/'), (name, None)],
-                 '\n'.join(body))
+    labels[f'themes/{slug}'.lower()] = (
+        f'{name} — {len(links)} stages, {members} companies: '
+        + ', '.join(stages))
+    return shell(
+        f'themes/{slug}',
+        # Was 96 characters for Fintech, which truncates in a result at
+        # roughly 60 and threw away the half that said what the page is.
+        f'{name} value chain — stage by stage | Overnight Arc',
+        f'The {name} value chain mapped stage by stage: {len(links)} stages '
+        f'and {members} companies, each with its momentum rank against the '
+        f'whole US market. Close of {asof}.',
+        [('Overnight Arc', f'{SITE}/'), ('Themes', f'{SITE}/themes/'), (name, None)],
+        '\n'.join(body), modified=asof,
+        extra=[{'@context': 'https://schema.org', '@type': 'FAQPage',
+                'mainEntity': [
+                    {'@type': 'Question', 'name': q,
+                     'acceptedAnswer': {'@type': 'Answer', 'text': a}}
+                    for q, a in qa]}])
 
 
 def digest_page(d):
@@ -828,9 +1009,72 @@ def sitemap():
     xml.append('</urlset>')
     with io.open(os.path.join(OUT, 'sitemap.xml'), 'w', encoding='utf-8', newline='\n') as fh:
         fh.write('\n'.join(xml) + '\n')
+    # The wildcard already allows every crawler, answer engines included, so
+    # naming them changes no behaviour today. It is written down because the
+    # decision is not obvious and the default could drift: this site wants to
+    # be quoted. Nothing here is licensed from anyone — the scores and the
+    # value-chain maps are ours — so there is no reason to withhold it, and
+    # being the cited source is the whole distribution plan.
+    bots = ['GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'ClaudeBot',
+            'Claude-SearchBot', 'PerplexityBot', 'Perplexity-User',
+            'Google-Extended', 'Applebot-Extended', 'CCBot', 'Bingbot']
+    lines = ['User-agent: *', 'Allow: /', '']
+    for b in bots:
+        lines += [f'User-agent: {b}', 'Allow: /', '']
+    lines += [f'Sitemap: {SITE}/sitemap.xml']
     with io.open(os.path.join(OUT, 'robots.txt'), 'w', encoding='utf-8', newline='\n') as fh:
-        fh.write(f'User-agent: *\nAllow: /\n\nSitemap: {SITE}/sitemap.xml\n')
+        fh.write('\n'.join(lines) + '\n')
+    llms_txt(urls)
     return len(urls)
+
+
+def llms_txt(urls):
+    """/llms.txt — the site in one file, for something reading rather than crawling.
+
+    A convention rather than a standard, and no engine is known to require it.
+    It is cheap, it is the site's own description of itself in the order that
+    matters, and the alternative is letting a model infer all of that from a
+    nav bar. The risk of writing it is a file nobody reads.
+    """
+    def section(prefix, label):
+        hit = sorted(u for u, _ in urls
+                     if u.startswith(f'{SITE}/{prefix}/') and u != f'{SITE}/{prefix}/')
+        out = [f'## {label}', '']
+        for u in hit:
+            rel = u[len(SITE) + 1:].rstrip('/')
+            out.append(f'- [{labels.get(rel, rel.rsplit("/", 1)[-1])}]({u})')
+        return out + ['']
+
+    doc = [
+        '# Overnight Arc', '',
+        '> A record of what happened on the US market last session, and of '
+        'where money is moving. Every weeknight after the US close a scan '
+        'reads end-of-day prices for about 1,900 US-listed stocks and the '
+        'funds that hold them, scores each against its own peer group, and '
+        'writes the result here. Published by Insight Arc Solutions, Dubai.',
+        '',
+        'Everything is end-of-day and delayed, never live. Momentum is '
+        'cross-sectional: a 0-100 position against a peer group, so 50 is the '
+        'median and a high score in a falling market means fell least. A score '
+        'is a ranking, not a return, and nothing here is investment advice or '
+        'personalised to anyone.',
+        '',
+        'The value chains are hand-made and match no index and no fund’s '
+        'holdings. Fund holdings are reproduced from issuer files and are '
+        'sometimes partial; where a page says so, an absence is missing data '
+        'and not evidence that a fund does not hold something.',
+        '',
+        '## Start here', '',
+        f'- [The four live boards]({SITE}/)',
+        f'- [How every figure is calculated]({SITE}/method/)',
+        f'- [About, and what this is not good at]({SITE}/about/)',
+        '',
+    ]
+    doc += section('themes', 'Value chains, stage by stage')
+    doc += section('funds', 'Funds')
+    doc += section('countries', 'Country ETFs')
+    with io.open(os.path.join(OUT, 'llms.txt'), 'w', encoding='utf-8', newline='\n') as fh:
+        fh.write('\n'.join(doc))
 
 
 # ---------------------------------------------------------------- main

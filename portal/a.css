@@ -22,6 +22,12 @@ h3{font-size:15px;margin:0 0 4px;}
 p{margin:10px 0;max-width:68ch;}
 .lede{color:var(--text2);font-size:16px;}
 .meta{color:var(--text2);font-size:12.5px;margin-top:4px;}
+/* The standalone summary. It restates what the tables below already say, so
+   it is set as a quiet inset rather than as a lede competing with the one
+   above it — present for anything reading the page as text, unobtrusive to
+   anyone reading it as a page. */
+.sum{border-left:2px solid var(--border);padding:2px 0 2px 12px;
+color:var(--text);font-size:13.5px;}
 /* Always exactly eight stats, so four columns fill two rows with no dead cell.
    auto-fit chose five at this width and left a gap that read as a broken tile. */
 .grid{display:grid;grid-template-columns:repeat(4,1fr);
