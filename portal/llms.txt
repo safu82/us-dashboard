@@ -53,7 +53,7 @@ The value chains are hand-made and match no index and no fund’s holdings. Fund
 - [GLD — SPDR Gold Shares](https://overnightarc.com/funds/gld/)
 - [GRID — First Trust Clean Edge Smart Grid Infrastructure ETF, 10 published holdings](https://overnightarc.com/funds/grid/)
 - [HACK — Amplify Cybersecurity ETF, 10 published holdings](https://overnightarc.com/funds/hack/)
-- [IBB — iShares Biotechnology ETF, 223 published holdings](https://overnightarc.com/funds/ibb/)
+- [IBB — iShares Biotechnology ETF, 222 published holdings](https://overnightarc.com/funds/ibb/)
 - [ICLN — iShares Global Clean Energy ETF, 100 published holdings](https://overnightarc.com/funds/icln/)
 - [IGV — iShares Expanded Tech-Software ETF, 105 published holdings](https://overnightarc.com/funds/igv/)
 - [ITA — iShares US Aerospace & Defense ETF, 50 published holdings](https://overnightarc.com/funds/ita/)
