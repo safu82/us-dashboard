@@ -73,7 +73,7 @@ jobs:
       #    ~1,900 tickers three more times (needless load on a rate-limited Yahoo).
       #    Holidays make this say "run", which costs ~1 min of fail-fast — the safe
       #    direction to be wrong in.
-      - name: 0/18 skip if already current
+      - name: 0/19 skip if already current
         id: precheck
         run: |
           python - <<'PY'
@@ -100,7 +100,7 @@ jobs:
 
       # 1. Pull EOD OHLC + indicators for the S&P500 + NASDAQ100 + holdings universe.
       #    Exit 75 means Yahoo has not finalized the session — skip the chain, no alarm.
-      - name: 1/18 fetch_ohlc.py
+      - name: 1/19 fetch_ohlc.py
         id: ohlc
         if: steps.precheck.outputs.needed == 'true'
         run: |
@@ -120,7 +120,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 2. Append latest QQQ close to benchmark_history (long-lived; survives 90d prune)
-      - name: 2/18 sync_benchmark_history.py
+      - name: 2/19 sync_benchmark_history.py
         if: steps.ohlc.outputs.published == 'true'
         run: python sync_benchmark_history.py
         env:
@@ -128,7 +128,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 3. Cross-sectional metrics: rs_rank, sector_percentile, peer_*, rank_slope
-      - name: 3/18 compute_cross_sectional.py
+      - name: 3/19 compute_cross_sectional.py
         if: steps.ohlc.outputs.published == 'true'
         run: python compute_cross_sectional.py
         env:
@@ -136,7 +136,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 4. Aggregate per-peer-group: composite, breadth, RRG quadrant, rs_slope
-      - name: 4/18 compute_sector_rankings.py
+      - name: 4/19 compute_sector_rankings.py
         if: steps.ohlc.outputs.published == 'true'
         run: python compute_sector_rankings.py
         env:
@@ -144,7 +144,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 5. Entry-signal patterns (8 detectors -> entry_signals table)
-      - name: 5/18 entry_signals_scanner.py
+      - name: 5/19 entry_signals_scanner.py
         if: steps.ohlc.outputs.published == 'true'
         run: python entry_signals_scanner.py
         env:
@@ -152,7 +152,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 6. Pre-signal scoring (6 rules, score >= 70 -> presignal_scores table)
-      - name: 6/18 score_presignals.py
+      - name: 6/19 score_presignals.py
         if: steps.ohlc.outputs.published == 'true'
         run: python score_presignals.py
         env:
@@ -160,7 +160,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # 7. Holdings-only alerts (ema_crossover, vol_breakout, blue_zone -> alerts table)
-      - name: 7/18 portfolio_alerts_scanner.py
+      - name: 7/19 portfolio_alerts_scanner.py
         if: steps.ohlc.outputs.published == 'true'
         run: python portfolio_alerts_scanner.py
         env:
@@ -169,7 +169,7 @@ jobs:
 
       # 8. Market-health rollup: breadth, new-high/low, S&P-vs-200d, VIX -> market_health
       #    (newsletter "Where We Stand"). Depends only on fetch_ohlc output.
-      - name: 8/18 compute_market_health.py
+      - name: 8/19 compute_market_health.py
         if: steps.ohlc.outputs.published == 'true'
         run: python compute_market_health.py
         env:
@@ -179,7 +179,7 @@ jobs:
       # 9. ETF momentum board: sector SPDRs + thematic ETFs ranked in their OWN
       #    cross-section -> etf_snapshots (sector-research ETF board). Self-contained
       #    (fetches its own ETF + benchmark OHLC via yfinance); order-independent.
-      - name: 9/18 compute_etf_momentum.py
+      - name: 9/19 compute_etf_momentum.py
         if: steps.ohlc.outputs.published == 'true'
         run: python compute_etf_momentum.py
         env:
@@ -204,7 +204,7 @@ jobs:
       #     its own, and the stale-row delete is scoped to funds that actually
       #     refreshed, so the worst case is yesterday's answer standing for
       #     another day.
-      - name: 10/18 fetch_etf_holdings.py
+      - name: 10/19 fetch_etf_holdings.py
         if: steps.ohlc.outputs.published == 'true' || inputs.republish
         continue-on-error: true
         run: python fetch_etf_holdings.py
@@ -212,24 +212,50 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      # 11. Universe attrition. The coverage guard in step 1 catches the whole
+      # 11. Split ex-dates and ratios -> stock_splits, so a price stored on the
+      #     day it was traded stays comparable with a live quote.
+      #
+      #     transactions records what was actually traded -- 30 SNDK at $798 on
+      #     2026-11-17 -- and must keep tying to the contract note. live_prices
+      #     records what one share costs now, $81.46 after an 8:1 on
+      #     2026-11-20. Both correct, not comparable, and nothing reconciled
+      #     them: the Transactions tab read that sale as +$21,496 of MTM
+      #     against a true +$4,390, and the same error sat on all nine SNDK
+      #     rows back to April.
+      #
+      #     Order-independent -- it reads transactions and holdings and writes
+      #     only its own table -- so it sits here purely because this is where
+      #     the other reference-data fetches are.
+      #
+      #     continue-on-error: a missed night changes nothing. The splits it
+      #     would have found are still there tomorrow, and the dashboard falls
+      #     back to a factor of 1, which is what it did before this existed.
+      - name: 11/19 fetch_stock_splits.py
+        if: steps.ohlc.outputs.published == 'true' || inputs.republish
+        continue-on-error: true
+        run: python fetch_stock_splits.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # 12. Universe attrition. The coverage guard in step 1 catches the whole
       #     market stalling; it cannot catch individual tickers quietly dropping
       #     out while the run stays green -- 32 had leaked out before anyone
       #     looked, including two S&P 500 REITs. Reports every night and only
       #     fails on a sudden cluster, so slow attrition stays visible without
       #     crying wolf.
-      - name: 11/18 check_universe_health.py
+      - name: 12/19 check_universe_health.py
         if: steps.ohlc.outputs.published == 'true'
         run: python check_universe_health.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      # 12. Freeze the sector-research data into static JSON for the public
+      # 13. Freeze the sector-research data into static JSON for the public
       #     portal and commit it. The public site reads these files from the CDN
       #     and holds no database credential of any kind, so nothing it serves
       #     can reach the portfolio project.
-      - name: 12/18 build_public_data.py
+      - name: 13/19 build_public_data.py
         if: steps.ohlc.outputs.published == 'true' || inputs.republish
         run: python build_public_data.py
         env:
@@ -244,7 +270,7 @@ jobs:
       #     alert. This step used to carry a blanket continue-on-error, which
       #     would have hidden a dead publish behind a green run while the
       #     public site served the previous day's data indefinitely.
-      # 13-14: what the market press is talking about, and the one-screen read
+      # 14-15: what the market press is talking about, and the one-screen read
       #     of it. feed_mentions is only useful joined against the scores, so
       #     it is written here rather than on its own schedule: the note that
       #     follows needs both halves from the same session.
@@ -253,7 +279,7 @@ jobs:
       #     scroll off an RSS feed within hours, so the catch-up attempts are
       #     worth their own pass even when Yahoo has nothing new; the step is
       #     idempotent on (source, url, entity), so repeats cost nothing.
-      - name: 13/18 fetch_news_feeds.py
+      - name: 14/19 fetch_news_feeds.py
         run: python fetch_news_feeds.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -263,13 +289,13 @@ jobs:
       #     is the only forward-looking data in the chain and the only reason a
       #     name can appear on the board before anything has happened to it.
       #     Ungated like the news step: the calendar moves on its own schedule.
-      - name: 14/18 fetch_earnings_calendar.py
+      - name: 15/19 fetch_earnings_calendar.py
         run: python fetch_earnings_calendar.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      - name: 15/18 build_digest.py
+      - name: 16/19 build_digest.py
         if: steps.ohlc.outputs.published == 'true' || inputs.republish
         run: python build_digest.py --telegram
         env:
@@ -285,7 +311,7 @@ jobs:
       # Gated like the rest: it writes a dated digest page, and that date must
       # belong to a session that actually published. An ungated run on a day the
       # scan skipped would mint a permanent page for a session that never was.
-      - name: 16/18 build_archive.py
+      - name: 17/19 build_archive.py
         if: steps.ohlc.outputs.published == 'true' || inputs.republish
         run: python build_archive.py
 
@@ -296,7 +322,7 @@ jobs:
       # It drafts; it does not publish. Each candidate carries `auto`, true
       # only where the claim is a number from our own data in a fixed sentence.
       # Step 17 is what sends them, and only those also marked `approved`.
-      - name: 17/18 build_posts.py
+      - name: 18/19 build_posts.py
         if: steps.ohlc.outputs.published == 'true' || inputs.republish
         # Drafting must never block publishing. On 2026-10-30 this step raised
         # on a Telegram 400, the publish never ran, and the site served the
@@ -342,7 +368,7 @@ jobs:
       # post and $0.200 for the link reply that carries the URL. The step and
       # the script stay exactly as they are; only the trigger is gone, so
       # turning it back on is ticking post_to_x on a manual run.
-      - name: 18/18 post_to_x.py
+      - name: 19/19 post_to_x.py
         if: inputs.post_to_x
         continue-on-error: true   # a post that does not go out is not a failed scan
         env:
